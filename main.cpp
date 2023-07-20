@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <math.h>
 
+#include "query.h"
 
 #define MAX_BUFFER_SIZE 256
 #define BAUDRATE B115200
@@ -64,11 +65,6 @@ void read_temperature() {
   double temp_motor_L;
   uint8_t buf[MAX_BUFFER_SIZE];
 
-  uint8_t Query_Read_Temperature_R[] = {
-    0x01, 0x03,                     // ID=1
-    0x00, 0xF8,
-    0x00, 0x04,
-    0x00, 0x00};
   calcBcc(Query_Read_Temperature_R, 8);
   send_cmd(Query_Read_Temperature_R, 8);
   usleep(5000);
@@ -76,11 +72,6 @@ void read_temperature() {
   temp_driver_R = 0.1 * static_cast<int>(buf[3] << 24 | buf[4] << 16 | buf[5] << 8 | buf[6]);
   temp_motor_R  = 0.1 * static_cast<int>(buf[7] << 24 | buf[8] << 16 | buf[9] << 8 | buf[10]);
 
-  uint8_t Query_Read_Temperature_L[] = {
-    0x02, 0x03,                     // ID=2
-    0x00, 0xF8,
-    0x00, 0x04,
-    0x00, 0x00};
   calcBcc(Query_Read_Temperature_L, 8);
   send_cmd(Query_Read_Temperature_L, 8);
   usleep(5000);
@@ -118,25 +109,11 @@ int main(int argc, char *argv[]) {
 
   //trun on exitation on L motor
   std::cerr << "Turn ON\n";
-  uint8_t Query_Write_Son_R[] = {
-    0x01, 0x10,                     // ID=1
-    0x00, 0x7C,
-    0x00, 0x02,
-    0x04,
-    0x00, 0x00, 0x00, 0x01,         // turn on 
-    0x00, 0x00};
   calcBcc(Query_Write_Son_R, 13);
   send_cmd(Query_Write_Son_R, 13);
   usleep(5000);
   uint8_t buf[MAX_BUFFER_SIZE];
   read_res(buf, 8);
-  uint8_t Query_Write_Son_L[] = {
-    0x02, 0x10,                     // ID=2
-    0x00, 0x7C,
-    0x00, 0x02,
-    0x04,
-    0x00, 0x00, 0x00, 0x01,         // turn on 
-    0x00, 0x00};
   calcBcc(Query_Write_Son_L, 13);
   send_cmd(Query_Write_Son_L, 13);
   usleep(5000);
@@ -149,24 +126,10 @@ int main(int argc, char *argv[]) {
 
   // turn off exitation
   std::cerr << "Turn OFF\n";
-  uint8_t Query_Write_Soff_R[] = {
-    0x01, 0x10,                     // ID=1
-    0x00, 0x7C,
-    0x00, 0x02,
-    0x04,
-    0x00, 0x00, 0x00, 0x00,         // turn off
-    0x00, 0x00};
   calcBcc(Query_Write_Soff_R, 13);
   send_cmd(Query_Write_Soff_R, 13);
   usleep(5000);
   read_res(buf, 8);
-  uint8_t Query_Write_Soff_L[] = {
-    0x02, 0x10,                     // ID=2
-    0x00, 0x7C,
-    0x00, 0x02,
-    0x04,
-    0x00, 0x00, 0x00, 0x00,         // turn off
-    0x00, 0x00};
   calcBcc(Query_Write_Soff_L, 13);
   send_cmd(Query_Write_Soff_L, 13);
   usleep(5000);
