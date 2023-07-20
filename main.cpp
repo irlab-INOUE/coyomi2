@@ -17,6 +17,9 @@
 #define BAUDRATE B115200
 
 #define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
+
+//#define DEBUG_SENDRESP
+
 int fd;
 
 void calcBcc(uint8_t *sendData, int length) {
@@ -40,21 +43,25 @@ void calcBcc(uint8_t *sendData, int length) {
 }
 
 void send_cmd(uint8_t *cmd, int length) {
+#ifdef DEBUG_SENDRESP
   std::cerr << "[SEND]";
   for (int i = 0; i < length; i++) {
     std::cerr << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(cmd[i]) << " ";
   }
   std::cerr << "\n";
+#endif
   int n = write(fd, cmd, length);
 }
 
 void read_res(uint8_t *buf, int length) {
-  std::cerr << "[RESP]";
   int len = read(fd, buf, length);
+#ifdef DEBUG_SENDRESP
+  std::cerr << "[RESP]";
   for (int i = 0; i < length; i++) {
     std::cerr << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(buf[i]) << " ";
   }
   std::cerr << "\n";
+#endif
 }
 
 void read_temperature() {
@@ -107,8 +114,8 @@ int main(int argc, char *argv[]) {
   cfsetospeed(&tio, BAUDRATE);
   tcsetattr(fd, TCSANOW, &tio);
 
-  //trun on exitation on L motor
-  std::cerr << "Turn ON\n";
+  //trun on exitation on RL motor
+  std::cerr << "Turn ON RL\n";
   calcBcc(Query_Write_Son_R, 13);
   send_cmd(Query_Write_Son_R, 13);
   usleep(5000);
@@ -124,8 +131,8 @@ int main(int argc, char *argv[]) {
   read_temperature();
   getchar();
 
-  // turn off exitation
-  std::cerr << "Turn OFF\n";
+  // turn off exitation on RL motor
+  std::cerr << "Turn OFF RL\n";
   calcBcc(Query_Write_Soff_R, 13);
   send_cmd(Query_Write_Soff_R, 13);
   usleep(5000);
