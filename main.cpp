@@ -21,6 +21,10 @@
 #define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
 #define JS_PORT       "/dev/input/js0"
 
+#define WHEEL_D 0.311
+#define WHEEL_T 0.461
+#define GEAR_RATIO 50 
+
 //#define DEBUG_SENDRESP
 
 void read_res(uint8_t *buf, int length);
@@ -136,6 +140,32 @@ void read_state() {
   show_state(buf);
 }
 
+void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
+  double wr = v/(WHEEL_D/2) + w*WHEEL_T/(1.0*WHEEL_D);
+  double wl = v/(WHEEL_D/2) - w*WHEEL_T/(1.0*WHEEL_D);
+  double motor_wr_rpm = wr / 2 / M_PI * static_cast<double>(GEAR_RATIO) * 60;
+  double motor_wl_rpm = wl / 2 / M_PI * static_cast<double>(GEAR_RATIO) * 60;
+  Query_NET_ID_WRITE[15] = (static_cast<int>(motor_wr_rpm) >> 24) & 0xFF;
+  Query_NET_ID_WRITE[16] = (static_cast<int>(motor_wr_rpm) >> 16) & 0xFF;
+  Query_NET_ID_WRITE[17] = (static_cast<int>(motor_wr_rpm) >>  8) & 0xFF;
+  Query_NET_ID_WRITE[18] =  static_cast<int>(motor_wr_rpm)        & 0xFF;
+  Query_NET_ID_WRITE[39] = (static_cast<int>(motor_wl_rpm) >> 24) & 0xFF;
+  Query_NET_ID_WRITE[40] = (static_cast<int>(motor_wl_rpm) >> 16) & 0xFF;
+  Query_NET_ID_WRITE[41] = (static_cast<int>(motor_wl_rpm) >>  8) & 0xFF;
+  Query_NET_ID_WRITE[42] =  static_cast<int>(motor_wl_rpm)        & 0xFF;
+  for (int i = 15; i < 19; i++) {
+    std::cerr << std::hex << std::setw(2) << std::setfill('0') 
+      << static_cast<int>(Query_NET_ID_WRITE[i]) << " ";
+  }
+  std::cerr << "\n";
+  for (int i = 39; i < 43; i++) {
+    std::cerr << std::hex << std::setw(2) << std::setfill('0') 
+      << static_cast<int>(Query_NET_ID_WRITE[i]) << " ";
+  }
+  std::cerr << "\n";
+  //sleep(5);
+}
+
 int main(int argc, char *argv[]) {
   std::cerr << "Hello, Coyomi2" << "\n";
   std::string devName = SERIAL_PORT;
@@ -174,10 +204,9 @@ int main(int argc, char *argv[]) {
   // Start drive 
   std::cerr << "Start rotation. Please hit Enter key.\n";
   getchar();
-  Query_NET_ID_WRITE[17] = 0x0B;  // sample speed command for R
-  Query_NET_ID_WRITE[18] = 0xB8;
-  Query_NET_ID_WRITE[41] = 0x0B;  // sample speed command for L
-  Query_NET_ID_WRITE[42] = 0xB8;
+  double v = 1.0;
+  double w = 1.0;
+  calc_vw2hex(Query_NET_ID_WRITE, v, w);
   simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
   int DRIVE_TIME = 6; // cycle
   std::cerr << "\033[2J" << "\033[1;1H";
@@ -185,10 +214,7 @@ int main(int argc, char *argv[]) {
     read_state();
     sleep(1);
   }
-  Query_NET_ID_WRITE[17] = 0;     // stop speed command for R
-  Query_NET_ID_WRITE[18] = 0;
-  Query_NET_ID_WRITE[41] = 0;     // stop speed command for L
-  Query_NET_ID_WRITE[42] = 0;
+  calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
   simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
   sleep(1);
 
