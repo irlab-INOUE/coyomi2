@@ -19,12 +19,14 @@
 #define SERIAL_INTERVAL 30000
 
 #define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
+#define JS_PORT       "/dev/input/js0"
 
 //#define DEBUG_SENDRESP
 
 void read_res(uint8_t *buf, int length);
 
 int fd;
+int fd_js;    // file descriptor to joystick
 
 void calcBcc(uint8_t *sendData, int length) {
   unsigned int crcH, crcL;
@@ -94,7 +96,7 @@ void show_state(uint8_t *buf) {
   int power_L          = static_cast<int>(buf[19 + OFFSET] << 24 | buf[20 + OFFSET] << 16 | buf[21 + OFFSET] << 8 | buf[22 + OFFSET]);
   double voltage_L     = static_cast<int>(buf[23 + OFFSET] << 24 | buf[24 + OFFSET] << 16 | buf[25 + OFFSET] << 8 | buf[26 + OFFSET]) * 0.1;
 
-  std::cerr << "\033[1;1H" << "---";
+  std::cerr << "\033[1;1H" << "-------------";
   std::cerr << "\033[2;1H" << "Alarm_L:" << alarm_code_L;
   std::cerr << "\033[3;1H" << "Driver_L temp:" << std::dec << temp_driver_L;
   std::cerr << "\033[4;1H" << "Motor_L  temp:" << std::dec << temp_motor_L;
@@ -108,7 +110,30 @@ void show_state(uint8_t *buf) {
   std::cerr << "\033[5;40H" <<  "Position_R:" << position_R;
   std::cerr << "\033[6;40H" <<  "Power_R:" << power_R;
   std::cerr << "\033[7;40H" <<  "Voltage_R:" << voltage_R;
-  std::cerr << "\033[8;1H" << "---";
+  std::cerr << "\033[8;1H" << "-------------\n";
+}
+
+void turn_on_motors() {
+  std::cerr << "Turn ON RL...";
+  simple_send_cmd(Query_Write_Son_R, sizeof(Query_Write_Son_R));
+  simple_send_cmd(Query_Write_Son_L, sizeof(Query_Write_Son_L));
+  std::cerr << "Done.\n";
+}
+
+void turn_off_motors() {
+  std::cerr << "\nTurn OFF RL...";
+  simple_send_cmd(Query_Write_Soff_R, sizeof(Query_Write_Soff_R));
+  simple_send_cmd(Query_Write_Soff_L, sizeof(Query_Write_Soff_L));
+  std::cerr << "Done.\n";
+}
+
+void read_state() {
+  uint8_t buf[MAX_BUFFER_SIZE];
+  send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
+  read_res(buf, 57);
+  std::cerr << "\033[10A";
+  std::cerr << "Read state\n";
+  show_state(buf);
 }
 
 int main(int argc, char *argv[]) {
@@ -132,7 +157,6 @@ int main(int argc, char *argv[]) {
   cfsetospeed(&tio, BAUDRATE);
   tcsetattr(fd, TCSANOW, &tio);
 
-  uint8_t buf[MAX_BUFFER_SIZE];
 
   // ID Share Config.
   std::cerr << "ID Share configration...";
@@ -145,16 +169,7 @@ int main(int argc, char *argv[]) {
   std::cerr << "Done.\n";
 
   //trun on exitation on RL motor
-  std::cerr << "Turn ON RL...";
-  simple_send_cmd(Query_Write_Son_R, sizeof(Query_Write_Son_R));
-  simple_send_cmd(Query_Write_Son_L, sizeof(Query_Write_Son_L));
-  std::cerr << "Done.\n";
-
-  // Read temperature using share id
-  std::cerr << "Read state\n";
-  send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
-  read_res(buf, 57);
-  show_state(buf);
+  turn_on_motors();
 
   // Start drive 
   std::cerr << "Start rotation. Please hit Enter key.\n";
@@ -167,10 +182,7 @@ int main(int argc, char *argv[]) {
   int DRIVE_TIME = 6; // cycle
   std::cerr << "\033[2J" << "\033[1;1H";
   for (int i = 0; i < DRIVE_TIME; i++) {
-    send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
-    read_res(buf, 57);
-    std::cerr << "\033[8A";
-    show_state(buf);
+    read_state();
     sleep(1);
   }
   Query_NET_ID_WRITE[17] = 0;     // stop speed command for R
@@ -181,10 +193,7 @@ int main(int argc, char *argv[]) {
   sleep(1);
 
   // turn off exitation on RL motor
-  std::cerr << "\nTurn OFF RL...";
-  simple_send_cmd(Query_Write_Soff_R, sizeof(Query_Write_Soff_R));
-  simple_send_cmd(Query_Write_Soff_L, sizeof(Query_Write_Soff_L));
-  std::cerr << "Done.\n";
+  turn_off_motors();
 
   return 0;
 }
