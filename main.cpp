@@ -194,19 +194,19 @@ int main(int argc, char *argv[]) {
 
   struct js_event js;
   ioctl(fd_js, JSIOCGAXES, &num_of_axis);
-	ioctl(fd_js, JSIOCGBUTTONS, &num_of_buttons);
-	ioctl(fd_js, JSIOCGNAME(80), &name_of_joystick);
+  ioctl(fd_js, JSIOCGBUTTONS, &num_of_buttons);
+  ioctl(fd_js, JSIOCGNAME(80), &name_of_joystick);
 
-	axis = (int *)calloc(num_of_axis, sizeof(int));
-	button = (char *)calloc(num_of_buttons, sizeof(char));
+  axis = (int *)calloc(num_of_axis, sizeof(int));
+  button = (char *)calloc(num_of_buttons, sizeof(char));
 
-	std::cerr << "Joystick detected:" << name_of_joystick << std::endl;
-	std::cerr << num_of_axis << " axis" << std::endl;
-	std::cerr << num_of_buttons << " buttons" << std::endl << std::endl;
+  std::cerr << "Joystick detected:" << name_of_joystick << std::endl;
+  std::cerr << num_of_axis << " axis" << std::endl;
+  std::cerr << num_of_buttons << " buttons" << std::endl << std::endl;
 
-	fcntl(fd_js, F_SETFL, O_NONBLOCK);   /* use non-blocking mode */
-	js.number = 0;
-	std::cerr << "Joypad ready completed" << std::endl;
+  fcntl(fd_js, F_SETFL, O_NONBLOCK);   /* use non-blocking mode */
+  js.number = 0;
+  std::cerr << "Joypad ready completed" << std::endl;
 
   struct termios tio;
   memset(&tio, 0, sizeof(tio));
@@ -241,66 +241,66 @@ int main(int argc, char *argv[]) {
   while(1) {
     std::cerr <<"Hello\n";
     /* read the joystick state */
-		ssize_t a = read(fd_js, &js, sizeof(struct js_event));
+    ssize_t a = read(fd_js, &js, sizeof(struct js_event));
 
-		/* see what to do with the event */
-		switch (js.type & ~JS_EVENT_INIT) {
-			case JS_EVENT_AXIS:
-				axis[js.number] = js.value;
-				break;
-			case JS_EVENT_BUTTON:
-				button[js.number] = js.value;
-				if(js.value){
-					while (js.value) {
-						ssize_t a = read(fd_js, &js, sizeof(struct js_event));
-						usleep(10000);
-					}
+    /* see what to do with the event */
+    switch (js.type & ~JS_EVENT_INIT) {
+      case JS_EVENT_AXIS:
+        axis[js.number] = js.value;
+        break;
+      case JS_EVENT_BUTTON:
+        button[js.number] = js.value;
+        if(js.value){
+          while (js.value) {
+            ssize_t a = read(fd_js, &js, sizeof(struct js_event));
+            usleep(10000);
+          }
 
-					switch(js.number) {
-						case 0:
-							std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
+          switch(js.number) {
+            case 0:
+              std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
               v = 0.5;
               w = 1.0;
-							break;
-						case 1:
-							std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
+            break;
+            case 1:
+              std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
               v = 1.0;
               w = 0.0;
-							break;
-						case 2:
-							std::cerr << "No." << (int)js.number << "\tStop" << std::endl;
+            break;
+            case 2:
+              std::cerr << "No." << (int)js.number << "\tStop" << std::endl;
               v = 0.0;
               w = 0.0;
-							break;
-						case 3:
-							std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
+            break;
+            case 3:
+              std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
               v = 0.5;
               w = -0.5;
-							break;
-						case 4:
-							std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
-							break;
-						case 5:
-							std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
-							break;
-						case 6:
+            break;
+            case 4:
+              std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
+            break;
+            case 5:
+              std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
+            break;
+            case 6:
               std::cerr << "End\n";
               close(fd_js);
               turn_off_motors();
               return 0;
-							break;
-						default:
-							break;
-					}
-				}
-				break;
-		}
+            break;
+            default:
+            break;
+          }
+        }
+        break;
+    }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
     read_state();
-		usleep(100000);
-	}
-	//=====<<MAIN LOOP : END>>=====
+    usleep(100000);
+  }
+  //=====<<MAIN LOOP : END>>=====
 
   // turn off exitation on RL motor
   turn_off_motors();
