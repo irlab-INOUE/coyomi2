@@ -29,7 +29,6 @@
 #define FORWARD_MAX_SPEED   1.5
 #define ROTATION_MAX_SPEED  1.0
 
-
 //#define DEBUG_SENDRESP
 
 void read_res(uint8_t *buf, int length);
@@ -260,7 +259,7 @@ int main(int argc, char *argv[]) {
             case 0:
               std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
               v = 0.5;
-              w = 1.0;
+              w = 0.5;
             break;
             case 1:
               std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
@@ -274,7 +273,7 @@ int main(int argc, char *argv[]) {
             break;
             case 3:
               std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
-              v = 0.5;
+              v =  0.5;
               w = -0.5;
             break;
             case 4:
