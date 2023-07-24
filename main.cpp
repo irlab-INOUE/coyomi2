@@ -138,6 +138,13 @@ void turn_off_motors() {
   std::cerr << "Done.\n";
 }
 
+void free_motors() {
+  std::cerr << "\nFREE RL...";
+  simple_send_cmd(Query_Write_FREE_R, sizeof(Query_Write_FREE_R));
+  simple_send_cmd(Query_Write_FREE_L, sizeof(Query_Write_FREE_L));
+  std::cerr << "Done.\n";
+}
+
 void read_state() {
   uint8_t buf[MAX_BUFFER_SIZE];
   send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
@@ -230,6 +237,7 @@ int main(int argc, char *argv[]) {
 
   //trun on exitation on RL motor
   turn_on_motors();
+  bool isFREE = false;
 
   // Start drive 
   std::cerr << "Start rotation. Please hit Enter key.\n";
@@ -258,38 +266,58 @@ int main(int argc, char *argv[]) {
           switch(js.number) {
             case 0:
               std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
-              v = 0.5;
               w = 0.5;
-            break;
+              break;
             case 1:
               std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
-              v = 1.0;
               w = 0.0;
-            break;
+              if (v < 0.01) v = 0.1;
+              break;
             case 2:
               std::cerr << "No." << (int)js.number << "\tStop" << std::endl;
               v = 0.0;
               w = 0.0;
-            break;
+              break;
             case 3:
               std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
-              v =  0.5;
               w = -0.5;
-            break;
+              break;
             case 4:
               std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
-            break;
+              v -= 0.1;
+              if (v < 0.0) v = 0.0;
+              break;
             case 5:
               std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
-            break;
+              v += 0.1;
+              if (v > FORWARD_MAX_SPEED) v = FORWARD_MAX_SPEED;
+              break;
             case 6:
               std::cerr << "End\n";
-              close(fd_js);
+              v = 0.0;
+              w = 0.0;
+              calc_vw2hex(Query_NET_ID_WRITE, v, w);
+              simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+              usleep(1500000);
               turn_off_motors();
+              close(fd_js);
               return 0;
-            break;
+              break;
+            case 7:
+              std::cerr << "FREE\n";
+              v = 0.0;
+              w = 0.0;
+              calc_vw2hex(Query_NET_ID_WRITE, v, w);
+              simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+              usleep(1000000);
+              isFREE = !isFREE;
+              if (isFREE) 
+                free_motors();
+              else 
+                turn_on_motors();
+              break;
             default:
-            break;
+              break;
           }
         }
         break;
@@ -297,7 +325,7 @@ int main(int argc, char *argv[]) {
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
     read_state();
-    usleep(100000);
+    usleep(1000);
   }
   //=====<<MAIN LOOP : END>>=====
 
@@ -308,4 +336,3 @@ int main(int argc, char *argv[]) {
 
   return 0;
 }
-
