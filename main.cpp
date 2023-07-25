@@ -24,7 +24,8 @@
 
 #define WHEEL_D 0.311
 #define WHEEL_T 0.461
-#define GEAR_RATIO 50 
+#define GEAR_RATIO 50.0 
+#define STEP_RESOLUTION 0.01/180*M_PI
 
 #define FORWARD_MAX_SPEED   1.5
 #define ROTATION_MAX_SPEED  1.0
@@ -36,8 +37,29 @@ void read_res(uint8_t *buf, int length);
 int fd;
 int fd_js;    // file descriptor to joystick
 
+std::ofstream enclog;
+
 int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
+
+struct ODOMETORY {
+  double dist_R;
+  double dist_L;
+  double travel;
+  double rotation;
+  double rx;
+  double ry;
+  double ra;
+  ODOMETORY() {
+    dist_R = 0.0;
+    dist_L = 0.0;
+    travel = 0.0;
+    rotation = 0.0;
+    rx = 0.0;
+    ry = 0.0;
+    ra = 0.0;
+  }
+};
 
 void calcBcc(uint8_t *sendData, int length) {
   unsigned int crcH, crcL;
@@ -107,21 +129,27 @@ void show_state(uint8_t *buf) {
   int power_L          = static_cast<int>(buf[19 + OFFSET] << 24 | buf[20 + OFFSET] << 16 | buf[21 + OFFSET] << 8 | buf[22 + OFFSET]);
   double voltage_L     = static_cast<int>(buf[23 + OFFSET] << 24 | buf[24 + OFFSET] << 16 | buf[25 + OFFSET] << 8 | buf[26 + OFFSET]) * 0.1;
 
+  double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double travel = (dist_L + dist_R)/2.0;
+  double rotation = (dist_R - dist_L)/WHEEL_T;
+
   std::cerr << "\033[1;1H" << "-------------";
   std::cerr << "\033[2;1H" << "Alarm_L:" << alarm_code_L;
   std::cerr << "\033[3;1H" << "Driver_L temp:" << std::dec << temp_driver_L;
   std::cerr << "\033[4;1H" << "Motor_L  temp:" << std::dec << temp_motor_L;
-  std::cerr << "\033[5;1H" << "Position_L:" << position_L;
+  std::cerr << "\033[5;1H" << "Position_L:" << position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   std::cerr << "\033[6;1H" << "Power_L:" << power_L;
   std::cerr << "\033[7;1H" << "Voltage_L:" << voltage_R;
 
   std::cerr << "\033[2;40H" <<  "Alarm_R:" << alarm_code_R;
   std::cerr << "\033[3;40H" <<  "Driver_R temp:" << std::dec << temp_driver_R;
   std::cerr << "\033[4;40H" <<  "Motor_R  temp:" << std::dec << temp_motor_R;
-  std::cerr << "\033[5;40H" <<  "Position_R:" << position_R;
+  std::cerr << "\033[5;40H" <<  "Position_R:" << position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   std::cerr << "\033[6;40H" <<  "Power_R:" << power_R;
   std::cerr << "\033[7;40H" <<  "Voltage_R:" << voltage_R;
-  std::cerr << "\033[8;1H" << "-------------\n";
+  std::cerr << "\033[8;1H" << travel << " " << rotation * 180.0/M_PI;
+  std::cerr << "\033[9;1H" << "-------------\n";
 }
 
 void turn_on_motors() {
@@ -145,13 +173,34 @@ void free_motors() {
   std::cerr << "Done.\n";
 }
 
-void read_state() {
+void read_odo(uint8_t *buf, ODOMETORY &odo) {
+  int OFFSET = 26;
+  int position_R       = static_cast<int>(buf[15] << 24 | buf[16] << 16 | buf[17] << 8 | buf[18]);
+  int position_L       = static_cast<int>(buf[15 + OFFSET] << 24 | buf[16 + OFFSET] << 16 | buf[17 + OFFSET] << 8 | buf[18 + OFFSET]);
+
+  double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double travel = (dist_L + dist_R)/2.0;
+  double rotation = (dist_R - dist_L)/WHEEL_T;
+  double dl = travel - odo.travel;
+  double dth = rotation - odo.rotation;
+  odo.rx += dl * cos(odo.ra);
+  odo.ry += dl * sin(odo.ra);
+  odo.ra += dth;
+  odo.dist_R = dist_R;
+  odo.dist_L = dist_L;
+  odo.travel = travel;
+  odo.rotation = rotation;
+}
+
+void read_state(ODOMETORY &odo) {
   uint8_t buf[MAX_BUFFER_SIZE];
   send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
   read_res(buf, 57);
-  std::cerr << "\033[10A";
+  std::cerr << "\033[11A";
   std::cerr << "Read state\n";
   show_state(buf);
+  read_odo(buf, odo);
 }
 
 void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
@@ -182,6 +231,8 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
 
 int main(int argc, char *argv[]) {
   std::cerr << "Hello, Coyomi2" << "\n";
+
+  enclog.open("enclog");
   std::string devName = SERIAL_PORT;
   fd = open(devName.c_str(), O_RDWR | O_NOCTTY);
   if(fd < 0) {
@@ -245,6 +296,7 @@ int main(int argc, char *argv[]) {
   std::cerr << "\033[2J" << "\033[1;1H";
   double v = 0.0;
   double w = 0.0;
+  ODOMETORY odo;
   while(1) {
     std::cerr <<"Hello\n";
     /* read the joystick state */
@@ -324,7 +376,8 @@ int main(int argc, char *argv[]) {
     }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-    read_state();
+    read_state(odo);
+    enclog << odo.rx << " " << odo.ry << " " << odo.ra << " " << odo.travel << " " << odo.rotation * 180.0/M_PI << " " << odo.dist_R << " " << odo.dist_L << "\n";
     usleep(1000);
   }
   //=====<<MAIN LOOP : END>>=====
