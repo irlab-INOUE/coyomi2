@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <string.h>
 #include <fstream>
+#include <chrono>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,10 +15,12 @@
 #include <linux/joystick.h>
 
 #include "query.h"
+#include "Urg2d.h"
 
 #define MAX_BUFFER_SIZE 256
-#define BAUDRATE B115200
-#define SERIAL_INTERVAL 30000
+#define BAUDRATE B230400
+#define SERIAL_INTERVAL_SEND 6000
+#define SERIAL_INTERVAL_RESP 5000
 
 #define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
 #define JS_PORT       "/dev/input/js0"
@@ -32,12 +35,15 @@
 
 //#define DEBUG_SENDRESP
 
+using namespace std::chrono;
+
 void read_res(uint8_t *buf, int length);
 
 int fd;
 int fd_js;    // file descriptor to joystick
 
-std::ofstream enclog;
+std::ofstream enc_log;
+std::ofstream urg2d_log;
 
 int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
@@ -91,19 +97,19 @@ void send_cmd(uint8_t *cmd, int length) {
   std::cerr << "\n";
 #endif
   int n = write(fd, cmd, length);
-  usleep(SERIAL_INTERVAL);
+  usleep(SERIAL_INTERVAL_SEND);
 }
 
 void simple_send_cmd(uint8_t *cmd, int length) {
   send_cmd(cmd, length);
   uint8_t res_buf[MAX_BUFFER_SIZE];
   read_res(res_buf, 8);
-  usleep(SERIAL_INTERVAL);
+  usleep(SERIAL_INTERVAL_RESP);
 }
 
 void read_res(uint8_t *buf, int length) {
   int len = read(fd, buf, length);
-  usleep(SERIAL_INTERVAL);
+  usleep(SERIAL_INTERVAL_RESP);
 #ifdef DEBUG_SENDRESP
   std::cerr << "[RESP]";
   for (int i = 0; i < length; i++) {
@@ -232,7 +238,17 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
 int main(int argc, char *argv[]) {
   std::cerr << "Hello, Coyomi2" << "\n";
 
-  enclog.open("enclog");
+  Urg2d urg2d;
+#ifdef URGDEBUG
+  while(1) {
+    std::vector<LSP> result = urg2d.getData();
+    urg2d.view(5);
+  }
+#endif
+  
+  urg2d_log.open("urglog");
+  enc_log.open("enclog");
+
   std::string devName = SERIAL_PORT;
   fd = open(devName.c_str(), O_RDWR | O_NOCTTY);
   if(fd < 0) {
@@ -298,7 +314,6 @@ int main(int argc, char *argv[]) {
   double w = 0.0;
   ODOMETORY odo;
   while(1) {
-    std::cerr <<"Hello\n";
     /* read the joystick state */
     ssize_t a = read(fd_js, &js, sizeof(struct js_event));
 
@@ -312,7 +327,7 @@ int main(int argc, char *argv[]) {
         if(js.value){
           while (js.value) {
             ssize_t a = read(fd_js, &js, sizeof(struct js_event));
-            usleep(10000);
+            usleep(1000);
           }
 
           switch(js.number) {
@@ -376,9 +391,30 @@ int main(int argc, char *argv[]) {
     }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+    std::vector<LSP> result = urg2d.getData();
+    urg2d.view(5);
+#if 0
     read_state(odo);
-    enclog << odo.rx << " " << odo.ry << " " << odo.ra << " " << odo.travel << " " << odo.rotation * 180.0/M_PI << " " << odo.dist_R << " " << odo.dist_L << "\n";
-    usleep(1000);
+    auto time_now = high_resolution_clock::now();
+    long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+
+    // enc_log << ts << " " << odo.rx << " " << odo.ry << " " << odo.ra << " " << odo.travel << " " << odo.rotation * 180.0/M_PI << " " << odo.dist_R << " " << odo.dist_L << "\n";
+    enc_log 
+      << ts << " " 
+      << odo.rx << " " << odo.ry << " " << odo.ra << " "
+      << "end" << "\n";
+
+    urg2d_log << "LASERSCANRT" << " " 
+      << ts << " "
+      << result.size() * 3 << " " 
+      << "-100" << " " << "100" << " " 
+      << "0.25" << " " << "3" << " ";
+    for (auto d: result) {
+      urg2d_log << d.data << " " << "0" << " " << "0" << " ";
+    }
+    urg2d_log << ts << "\n";
+#endif
+    //usleep(10000);
   }
   //=====<<MAIN LOOP : END>>=====
 
