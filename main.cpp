@@ -13,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
+#include <sys/wait.h>
 #include <linux/joystick.h>
 
 #include "query.h"
@@ -269,6 +270,7 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
 #endif
 }
 
+std::vector<pid_t> p_list;
 int main(int argc, char *argv[]) {
 	/* Ctrl+c 対応 */
 	if (SIG_ERR == signal( SIGINT, sigcatch )) {
@@ -356,6 +358,22 @@ int main(int argc, char *argv[]) {
   return 0;  
 #endif
   
+  pid_t c_pid = fork();
+  if (c_pid == -1) {
+    perror("fork");
+    exit(EXIT_FAILURE);
+  } else if (c_pid > 0) {
+    std::cerr << "Start battery log: " << c_pid << "\n";
+    p_list.emplace_back(c_pid);
+  } else {
+    while(1) {
+      std::ofstream bat_log("batlog", std::ios_base::app);
+      bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
+      sleep(1);
+      bat_log.close();
+    }
+    exit(EXIT_SUCCESS);
+  }
 
   // Start drive 
   std::cerr << "Start rotation. Please hit Enter key.\n";
@@ -422,9 +440,7 @@ int main(int argc, char *argv[]) {
               calc_vw2hex(Query_NET_ID_WRITE, v, w);
               simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
               usleep(1500000);
-              turn_off_motors();
-              close(fd_js);
-              return 0;
+              goto CLEANUP;
               break;
             case 7:
               std::cerr << "FREE\n";
@@ -474,10 +490,19 @@ int main(int argc, char *argv[]) {
   }
   //=====<<MAIN LOOP : END>>=====
 
+
+CLEANUP:
   // turn off exitation on RL motor
   turn_off_motors();
 
   close(fd_js);
+
+	for (auto pid: p_list) {
+		kill(pid, SIGKILL);
+	}
+	pid_t wait_pid;
+	while ((wait_pid = wait(nullptr)) > 0)
+		std::cout << "wait:" << wait_pid << "\n";
 
 	// 共有メモリのクリア
 	shmdt(shm_bat);
@@ -493,29 +518,32 @@ void sigcatch(int sig) {
 	std::printf("Catch signal %d\n", sig);
   std::cerr << TEXT_COLOR_RESET;
 
-  // safe stop
-  double v = 0.0;
-  double w = 0.0;
-  calc_vw2hex(Query_NET_ID_WRITE, v, w);
-  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-  usleep(1500000);
-  turn_off_motors();
-	std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
+  if (p_list.size() > 0) { // 以降の停止処理は親プロセスだけが行う
+    // safe stop
+    double v = 0.0;
+    double w = 0.0;
+    calc_vw2hex(Query_NET_ID_WRITE, v, w);
+    simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+    usleep(1500000);
+    turn_off_motors();
+    std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
 
-  close(fd_js);
-  close(fd);
+    close(fd_js);
+    close(fd);
 
-#if 0
-	for (auto pid: p_list) {
-		kill(pid, SIGKILL);
-	}
-#endif
+    for (auto pid: p_list) {
+      kill(pid, SIGKILL);
+    }
+    pid_t wait_pid;
+    while ((wait_pid = wait(nullptr)) > 0)
+      std::cout << "wait:" << wait_pid << "\n";
 
-	// 共有メモリのクリア
-	shmdt(shm_bat);
-	int keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
-	shmctl(keyID, IPC_RMID, nullptr);
+    // 共有メモリのクリア
+    shmdt(shm_bat);
+    int keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
+    shmctl(keyID, IPC_RMID, nullptr);
 
-	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+    std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+  }
 	exit(1);
 }
