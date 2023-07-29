@@ -291,9 +291,7 @@ int main(int argc, char *argv[]) {
   //urg2d_log.open("urglog");
   enc_log.open("enclog");
 
-  std::string devName = SERIAL_PORT;
-  fd = open(devName.c_str(), O_RDWR | O_NOCTTY);
-  if(fd < 0) {
+  if((fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
     return false;
   } else {
