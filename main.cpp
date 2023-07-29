@@ -492,6 +492,18 @@ void sigcatch(int sig) {
 	std::printf("Catch signal %d\n", sig);
   std::cerr << TEXT_COLOR_RESET;
 
+  // safe stop
+  double v = 0.0;
+  double w = 0.0;
+  calc_vw2hex(Query_NET_ID_WRITE, v, w);
+  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+  usleep(1500000);
+  turn_off_motors();
+	std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
+
+  close(fd_js);
+  close(fd);
+
 #if 0
 	for (auto pid: p_list) {
 		kill(pid, SIGKILL);
