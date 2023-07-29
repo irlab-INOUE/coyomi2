@@ -39,7 +39,8 @@ int main(int argc, char *argv[]) {
   bat_log.open("batlog");
 
   while(1) {
-    std::cout << shm_bat->voltage << "\n";
+    std::cout << shm_bat->ts << " " << shm_bat->voltage << "\n";
+    bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
     sleep(1);
   }
 

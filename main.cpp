@@ -139,7 +139,7 @@ void read_res(uint8_t *buf2, int length) {
   usleep(SERIAL_INTERVAL_RESP);
 }
 
-void show_state(uint8_t *buf) {
+void show_state(uint8_t *buf, const long long &ts) {
   int OFFSET = 26;
   int alarm_code_R     = static_cast<int>(buf[ 3] << 24 | buf[ 4] << 16 | buf[ 5] << 8 | buf[ 6]);
   double temp_driver_R = static_cast<int>(buf[ 7] << 24 | buf[ 8] << 16 | buf[ 9] << 8 | buf[10]) * 0.1;
@@ -160,6 +160,7 @@ void show_state(uint8_t *buf) {
   double travel = (dist_L + dist_R)/2.0;
   double rotation = (dist_R - dist_L)/WHEEL_T;
 
+  shm_bat->ts = ts;
   shm_bat->voltage = (voltage_L + voltage_R)/2.0;
 
   std::cerr << "\033[1;1H" << "-------------";
@@ -227,7 +228,7 @@ void read_odo(uint8_t *buf, ODOMETORY &odo) {
   odo.rotation = rotation;
 }
 
-void read_state(ODOMETORY &odo) {
+void read_state(ODOMETORY &odo, const long long &ts) {
   uint8_t buf[MAX_BUFFER_SIZE];
   //send_cmd(Query_NET_ID_READ_ODO, sizeof(Query_NET_ID_READ_ODO));
   //read_res(buf, 17);
@@ -236,7 +237,7 @@ void read_state(ODOMETORY &odo) {
 #if 1
   std::cerr << "\033[11A";
   std::cerr << "Read state\n";
-  show_state(buf);
+  show_state(buf, ts);
 #endif
   read_odo(buf, odo);
 }
@@ -446,12 +447,12 @@ int main(int argc, char *argv[]) {
     }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-    read_state(odo);
+    auto time_now = high_resolution_clock::now();
+    long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+    read_state(odo, ts);
     //std::vector<LSP> result = urg2d.getData();
     //urg2d.view(5);
     //std::cout << odo.rx << " " << odo.ry << "\n";
-    auto time_now = high_resolution_clock::now();
-    long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
 
     // enc_log << ts << " " << odo.rx << " " << odo.ry << " " << odo.ra << " " << odo.travel << " " << odo.rotation * 180.0/M_PI << " " << odo.dist_R << " " << odo.dist_L << "\n";
     enc_log 
