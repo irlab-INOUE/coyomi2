@@ -7,6 +7,7 @@
 #include <fstream>
 #include <chrono>
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 
 #include "query.h"
 #include "Urg2d.h"
+#include "shm_board.h"
 
 #define MAX_BUFFER_SIZE 512 
 #define BAUDRATE B230400
@@ -33,10 +35,17 @@
 #define FORWARD_MAX_SPEED   1.5
 #define ROTATION_MAX_SPEED  1.0
 
+#define TEXT_RED "\e[31m"
+#define TEXT_GREEN "\e[32m"
+#define TEXT_BLUE "\e[34m"
+#define TEXT_WHITE "\e[37m"
+#define TEXT_COLOR_RESET "\e[0m"
+
 //#define DEBUG_SENDRESP
 
 using namespace std::chrono;
 
+void sigcatch( int );
 void read_res(uint8_t *buf, int length);
 
 int fd;
@@ -47,6 +56,9 @@ std::ofstream urg2d_log;
 
 int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
+
+// 共有したい構造体毎にアドレスを割り当てる
+BAT *shm_bat        = nullptr;
 
 struct ODOMETORY {
   double dist_R;
@@ -147,6 +159,8 @@ void show_state(uint8_t *buf) {
   double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   double travel = (dist_L + dist_R)/2.0;
   double rotation = (dist_R - dist_L)/WHEEL_T;
+
+  shm_bat->voltage = (voltage_L + voltage_R)/2.0;
 
   std::cerr << "\033[1;1H" << "-------------";
   std::cerr << "\033[2;1H" << "Alarm_L:" << alarm_code_L;
@@ -255,7 +269,20 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
 }
 
 int main(int argc, char *argv[]) {
+	/* Ctrl+c 対応 */
+	if (SIG_ERR == signal( SIGINT, sigcatch )) {
+		std::printf("failed to set signal handler\n");
+		exit(1);
+	}
+
   std::cerr << "Hello, Coyomi2" << "\n";
+
+	/***************************************************************************
+		共有メモリの確保
+	 ***************************************************************************/
+	// 共有したい構造体毎にアドレスを割り当てる
+	shm_bat        =        (BAT *)shmAt(KEY_BAT, sizeof(BAT));
+  std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
 
   //Urg2d urg2d;
   //urg2d_log.open("urglog");
@@ -451,5 +478,31 @@ int main(int argc, char *argv[]) {
 
   close(fd_js);
 
+	// 共有メモリのクリア
+	shmdt(shm_bat);
+	int keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+
   return 0;
+}
+
+void sigcatch(int sig) {
+  std::cerr << TEXT_RED;
+	std::printf("Catch signal %d\n", sig);
+  std::cerr << TEXT_COLOR_RESET;
+
+#if 0
+	for (auto pid: p_list) {
+		kill(pid, SIGKILL);
+	}
+#endif
+
+	// 共有メモリのクリア
+	shmdt(shm_bat);
+	int keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+
+	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+	exit(1);
 }
