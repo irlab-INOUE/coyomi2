@@ -17,10 +17,10 @@
 #include "query.h"
 #include "Urg2d.h"
 
-#define MAX_BUFFER_SIZE 256
+#define MAX_BUFFER_SIZE 512 
 #define BAUDRATE B230400
-#define SERIAL_INTERVAL_SEND 6000
-#define SERIAL_INTERVAL_RESP 5000
+#define SERIAL_INTERVAL_SEND 4000
+#define SERIAL_INTERVAL_RESP 4000
 
 #define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
 #define JS_PORT       "/dev/input/js0"
@@ -104,19 +104,27 @@ void simple_send_cmd(uint8_t *cmd, int length) {
   send_cmd(cmd, length);
   uint8_t res_buf[MAX_BUFFER_SIZE];
   read_res(res_buf, 8);
-  usleep(SERIAL_INTERVAL_RESP);
 }
 
-void read_res(uint8_t *buf, int length) {
-  int len = read(fd, buf, length);
-  usleep(SERIAL_INTERVAL_RESP);
-#ifdef DEBUG_SENDRESP
-  std::cerr << "[RESP]";
-  for (int i = 0; i < length; i++) {
-    std::cerr << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(buf[i]) << " ";
+int ReadByte(uint8_t *buf) {
+  return read(fd, buf, sizeof(uint8_t));
+}
+
+void read_res(uint8_t *buf2, int length) {
+  int tries = 3;
+  int tmp_len = 0;
+  uint8_t buf[1];
+  while (tries) {
+    if(ReadByte(buf)) {
+      buf2[tmp_len++] = buf[0];
+      if (tmp_len >= length) {
+        break;
+      }
+    } else {
+      tries++;
+    }
   }
-  std::cerr << "\n";
-#endif
+  usleep(SERIAL_INTERVAL_RESP);
 }
 
 void show_state(uint8_t *buf) {
@@ -159,30 +167,36 @@ void show_state(uint8_t *buf) {
 }
 
 void turn_on_motors() {
-  std::cerr << "Turn ON RL...";
+  std::cerr << "\033[12;1H" << "Turn ON RL...";
   simple_send_cmd(Query_Write_Son_R, sizeof(Query_Write_Son_R));
   simple_send_cmd(Query_Write_Son_L, sizeof(Query_Write_Son_L));
   std::cerr << "Done.\n";
 }
 
 void turn_off_motors() {
-  std::cerr << "\nTurn OFF RL...";
+  std::cerr << "\033[12;1H" << "Turn OFF RL...";
   simple_send_cmd(Query_Write_Soff_R, sizeof(Query_Write_Soff_R));
   simple_send_cmd(Query_Write_Soff_L, sizeof(Query_Write_Soff_L));
   std::cerr << "Done.\n";
 }
 
 void free_motors() {
-  std::cerr << "\nFREE RL...";
+  std::cerr << "\033[12;1H" << "FREE RL...";
   simple_send_cmd(Query_Write_FREE_R, sizeof(Query_Write_FREE_R));
   simple_send_cmd(Query_Write_FREE_L, sizeof(Query_Write_FREE_L));
   std::cerr << "Done.\n";
 }
 
 void read_odo(uint8_t *buf, ODOMETORY &odo) {
+#if 0
+  int OFFSET = 6;
+  int START = 3;
+#else
+  int START = 15;
   int OFFSET = 26;
-  int position_R       = static_cast<int>(buf[15] << 24 | buf[16] << 16 | buf[17] << 8 | buf[18]);
-  int position_L       = static_cast<int>(buf[15 + OFFSET] << 24 | buf[16 + OFFSET] << 16 | buf[17 + OFFSET] << 8 | buf[18 + OFFSET]);
+#endif
+  int position_R       = static_cast<int>(buf[START] << 24 | buf[START+1] << 16 | buf[START+2] << 8 | buf[START+3]);
+  int position_L       = static_cast<int>(buf[START + OFFSET] << 24 | buf[START+1 + OFFSET] << 16 | buf[START+2 + OFFSET] << 8 | buf[START+3 + OFFSET]);
 
   double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
@@ -201,11 +215,15 @@ void read_odo(uint8_t *buf, ODOMETORY &odo) {
 
 void read_state(ODOMETORY &odo) {
   uint8_t buf[MAX_BUFFER_SIZE];
+  //send_cmd(Query_NET_ID_READ_ODO, sizeof(Query_NET_ID_READ_ODO));
+  //read_res(buf, 17);
   send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
   read_res(buf, 57);
+#if 1
   std::cerr << "\033[11A";
   std::cerr << "Read state\n";
   show_state(buf);
+#endif
   read_odo(buf, odo);
 }
 
@@ -222,6 +240,7 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
   Query_NET_ID_WRITE[40] = (static_cast<int>(motor_wl_rpm) >> 16) & 0xFF;
   Query_NET_ID_WRITE[41] = (static_cast<int>(motor_wl_rpm) >>  8) & 0xFF;
   Query_NET_ID_WRITE[42] =  static_cast<int>(motor_wl_rpm)        & 0xFF;
+#if 0
   for (int i = 15; i < 19; i++) {
     std::cerr << std::hex << std::setw(2) << std::setfill('0') 
       << static_cast<int>(Query_NET_ID_WRITE[i]) << " ";
@@ -232,21 +251,14 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
       << static_cast<int>(Query_NET_ID_WRITE[i]) << " ";
   }
   std::cerr << "\n";
-  //sleep(5);
+#endif
 }
 
 int main(int argc, char *argv[]) {
   std::cerr << "Hello, Coyomi2" << "\n";
 
-  Urg2d urg2d;
-#ifdef URGDEBUG
-  while(1) {
-    std::vector<LSP> result = urg2d.getData();
-    urg2d.view(5);
-  }
-#endif
-  
-  urg2d_log.open("urglog");
+  //Urg2d urg2d;
+  //urg2d_log.open("urglog");
   enc_log.open("enclog");
 
   std::string devName = SERIAL_PORT;
@@ -291,7 +303,6 @@ int main(int argc, char *argv[]) {
   cfsetospeed(&tio, BAUDRATE);
   tcsetattr(fd, TCSANOW, &tio);
 
-
   // ID Share Config.
   std::cerr << "ID Share configration...";
   simple_send_cmd(Query_IDshare_R, sizeof(Query_IDshare_R));
@@ -306,6 +317,18 @@ int main(int argc, char *argv[]) {
   turn_on_motors();
   bool isFREE = false;
 
+//#define URGDEBUG
+#ifdef URGDEBUG
+  while(1) {
+    std::vector<LSP> result = urg2d.getData();
+    int key = urg2d.view(5);
+    if (key == 'q') break;
+  }
+  turn_off_motors();
+  return 0;  
+#endif
+  
+
   // Start drive 
   std::cerr << "Start rotation. Please hit Enter key.\n";
   getchar();
@@ -313,7 +336,12 @@ int main(int argc, char *argv[]) {
   double v = 0.0;
   double w = 0.0;
   ODOMETORY odo;
+  int number_of_lidar_view_count = 1;
+  int lidar_view_countdown = number_of_lidar_view_count;
+  tcflush(fd, TCIOFLUSH);
   while(1) {
+    auto time_now0 = high_resolution_clock::now();
+    long long ts0 = duration_cast<milliseconds>(time_now0.time_since_epoch()).count();
     /* read the joystick state */
     ssize_t a = read(fd_js, &js, sizeof(struct js_event));
 
@@ -391,10 +419,10 @@ int main(int argc, char *argv[]) {
     }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-    std::vector<LSP> result = urg2d.getData();
-    urg2d.view(5);
-#if 0
     read_state(odo);
+    //std::vector<LSP> result = urg2d.getData();
+    //urg2d.view(5);
+    //std::cout << odo.rx << " " << odo.ry << "\n";
     auto time_now = high_resolution_clock::now();
     long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
 
@@ -404,17 +432,17 @@ int main(int argc, char *argv[]) {
       << odo.rx << " " << odo.ry << " " << odo.ra << " "
       << "end" << "\n";
 
+#if 0
     urg2d_log << "LASERSCANRT" << " " 
       << ts << " "
       << result.size() * 3 << " " 
-      << "-100" << " " << "100" << " " 
+      << "-135" << " " << "135" << " " 
       << "0.25" << " " << "3" << " ";
     for (auto d: result) {
       urg2d_log << d.data << " " << "0" << " " << "0" << " ";
     }
     urg2d_log << ts << "\n";
 #endif
-    //usleep(10000);
   }
   //=====<<MAIN LOOP : END>>=====
 

@@ -90,7 +90,7 @@ int Urg2d::view(int wait_time) {
   baseImg.copyTo(testImg);
   int k = 0;
   for (auto d: store_data) {
-    if (d.r < 35) {
+    if (d.r < 35 && k % 10 == 0) {
       // std::cout << d.r * cos((-135 + 0.25*k)/180.0*M_PI) << " " << d.r * sin((-135 + 0.25*k)/180.0*M_PI) << "\n";
       // std::cout << d.x << " " << d.y << " ";
       int ix = IMG_ORIGIN_X - d.y / csize;

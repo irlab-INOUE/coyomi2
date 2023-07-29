@@ -20,6 +20,7 @@ uint8_t Query_IDshare_L[] = {
   0x00, 0x00, 0x00, 0x02,
   0x00, 0x00};
 
+#if 1
 uint8_t Query_READ_R[] = {
   0x01,                       // ID
   0x10,                       
@@ -47,6 +48,25 @@ uint8_t Query_READ_L[] = {
   0x00, 0x00, 0x00, 0x9E,     // Power consumption
   0x00, 0x00, 0x00, 0xA4,     // Voltage of main source
   0x00, 0x00};
+#else
+uint8_t Query_READ_R[] = {
+  0x01,                       // ID
+  0x10,                       
+  0x09, 0x90,                 // Start read address
+  0x00, 0x02,                 // Number of register
+  0x04,                       // Number of byte
+  0x00, 0x00, 0x00, 0x66,     // Detect position
+  0x00, 0x00};
+
+uint8_t Query_READ_L[] = {
+  0x02,                       // ID
+  0x10, 
+  0x09, 0x90,                 // Start read address
+  0x00, 0x02,                 // Number of register
+  0x04,                       // Number of byte
+  0x00, 0x00, 0x00, 0x66,     // Detect position
+  0x00, 0x00};
+#endif
 
 uint8_t Query_WRITE_R[] = {
   0x01, 
@@ -76,12 +96,21 @@ uint8_t Query_WRITE_L[] = {
   0x00, 0x00, 0x00, 0x33,   // 0x09B2-0x09B3 DDO trigger
   0x00, 0x00};
 
+#if 1
 uint8_t Query_NET_ID_READ[] = {
   0x0F, 
   0x03, 
   0x00, 0x00,
   0x00, 0x1A,
   0x00, 0x00};
+#else
+uint8_t Query_NET_ID_READ[] = {
+  0x0F, 
+  0x03, 
+  0x00, 0x00,
+  0x00, 0x06,
+  0x00, 0x00};
+#endif
 
 uint8_t Query_NET_ID_WRITE[] = {
   0x0F, 
