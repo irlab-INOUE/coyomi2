@@ -52,15 +52,17 @@ void read_res(uint8_t *buf, int length);
 int fd;
 int fd_js;    // file descriptor to joystick
 
-std::ofstream enc_log;
-std::ofstream urg2d_log;
-
 int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
 
 // 共有したい構造体毎にアドレスを割り当てる
 URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
+
+
+std::ofstream enc_log;
+std::ofstream fout_urg2d;
+std::ofstream bat_log;
 
 struct ODOMETORY {
   double dist_R;
@@ -281,17 +283,13 @@ int main(int argc, char *argv[]) {
 
   std::cerr << "Hello, Coyomi2" << "\n";
 
-	/***************************************************************************
+	/**************************************************************************
 		共有メモリの確保
 	 ***************************************************************************/
 	// 共有したい構造体毎にアドレスを割り当てる
 	shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
 	shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
-
-  //Urg2d urg2d;
-  //urg2d_log.open("urglog");
-  enc_log.open("enclog");
 
   if((fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
@@ -378,13 +376,49 @@ int main(int argc, char *argv[]) {
       p_list.emplace_back(c_pid);
     } else {
       if (i == 0) {       // 2d-lidar
+        Urg2d urg2d;
+        shm_urg2d->start_angle = -135.0;
+        shm_urg2d->end_angle = 135.0;
+        shm_urg2d->step_angle = 0.25;
+        shm_urg2d->max_echo_size = 3;
+        shm_urg2d->size = 
+          ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1) 
+          * shm_urg2d->max_echo_size;
+        for (int i = 0; i < shm_urg2d->size; i++) {
+          shm_urg2d->r[i] = 0;
+        }
+
         while(1) {
-          ;
+          fout_urg2d.open("urglog", std::ios_base::app);
+          auto time_now = high_resolution_clock::now();
+          long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+          std::vector<LSP> result = urg2d.getData();
+          urg2d.view(5);
+          fout_urg2d << "LASERSCANRT" << " " 
+            << ts << " "
+            << result.size() * 3 << " " 
+            << "-135" << " " << "135" << " " 
+            << "0.25" << " " << "3" << " ";
+          for (auto d: result) {
+            fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
+          }
+          fout_urg2d << ts << "\n";
+          fout_urg2d.close();
+
+          shm_urg2d->ts = ts;
+          shm_urg2d->ts_end = ts;
+          shm_urg2d->size = result.size();
+          double a = shm_urg2d->start_angle / 180.0 * M_PI;
+          for (auto d: result) {
+            shm_urg2d->r[i] = d.data;
+          }
         }
         exit(EXIT_SUCCESS);
       } else if (i == 1) { // battery
         while (1) {
-          std::ofstream bat_log("batlog", std::ios_base::app);
+          bat_log.open("batlog", std::ios_base::app);
+          auto time_now = high_resolution_clock::now();
+          long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
           bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
           sleep(1);
           bat_log.close();
@@ -485,27 +519,15 @@ int main(int argc, char *argv[]) {
     auto time_now = high_resolution_clock::now();
     long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
     read_state(odo, ts);
-    //std::vector<LSP> result = urg2d.getData();
-    //urg2d.view(5);
     //std::cout << odo.rx << " " << odo.ry << "\n";
 
     // enc_log << ts << " " << odo.rx << " " << odo.ry << " " << odo.ra << " " << odo.travel << " " << odo.rotation * 180.0/M_PI << " " << odo.dist_R << " " << odo.dist_L << "\n";
+    enc_log.open("enclog", std::ios_base::app);
     enc_log 
       << ts << " " 
       << odo.rx << " " << odo.ry << " " << odo.ra << " "
       << "end" << "\n";
-
-#if 0
-    urg2d_log << "LASERSCANRT" << " " 
-      << ts << " "
-      << result.size() * 3 << " " 
-      << "-135" << " " << "135" << " " 
-      << "0.25" << " " << "3" << " ";
-    for (auto d: result) {
-      urg2d_log << d.data << " " << "0" << " " << "0" << " ";
-    }
-    urg2d_log << ts << "\n";
-#endif
+    enc_log.close();
   }
   //=====<<MAIN LOOP : END>>=====
 
@@ -514,7 +536,12 @@ CLEANUP:
   // turn off exitation on RL motor
   turn_off_motors();
 
+  close(fd);
   close(fd_js);
+
+  enc_log.close();
+  fout_urg2d.close();
+  bat_log.close();
 
 	for (auto pid: p_list) {
 		kill(pid, SIGKILL);
@@ -558,6 +585,10 @@ void sigcatch(int sig) {
 
   close(fd_js);
   close(fd);
+
+  enc_log.close();
+  fout_urg2d.close();
+  bat_log.close();
 
   // 共有メモリのクリア
   shmdt(shm_urg2d);
