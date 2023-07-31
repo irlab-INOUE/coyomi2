@@ -1,5 +1,8 @@
-#ifndef __CONFIG_H__
-#define __CONFIG_H__
+#ifndef COYOMI_CONFIG_H
+#define COYOMI_CONFIG_H
+
+#cmakedefine DEFAULT_LOG_DIR "@DEFAULT_LOG_DIR@"
+#cmakedefine DEFAULT_ROOT "@DEFAULT_ROOT@"
 
 #define MAX_BUFFER_SIZE 512 
 #define BAUDRATE B230400
@@ -24,4 +27,4 @@
 #define TEXT_COLOR_RESET "\e[0m"
 
 
-#endif
+#endif // COYOMI_CONFIG_H

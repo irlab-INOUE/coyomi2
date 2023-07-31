@@ -17,7 +17,9 @@
 #include <linux/joystick.h>
 
 #include "Urg2d.h"
+#include "MCL.h"
 #include "shm_board.h"
+#include "yaml-cpp/yaml.h"
 
 int fd;
 int fd_js;    // file descriptor to joystick
@@ -25,6 +27,7 @@ int fd_js;    // file descriptor to joystick
 // 共有したい構造体毎にアドレスを割り当てる
 URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
+LOC *shm_loc        = nullptr;
 
 #include "Config.h"
 #include "OrientalMotorInterface.h"
@@ -44,6 +47,15 @@ std::ofstream enc_log;
 std::ofstream fout_urg2d;
 std::ofstream bat_log;
 
+YAML::Node yamlRead(std::string path) {
+  try {
+		return YAML::LoadFile(path);
+	} catch(YAML::BadFile &e) {
+		std::cerr << "read error! yaml is not exist."<< std::endl;
+    exit(1);
+	}
+}
+
 std::vector<pid_t> p_list;
 int main(int argc, char *argv[]) {
 	/* Ctrl+c 対応 */
@@ -52,7 +64,28 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
+  // Mode selector
   std::cerr << "Hello, Coyomi2" << "\n";
+  std::cout << "Please select an action in following list.\n"
+    << "[1]: Only localization (default)\n"
+    << " 2 : Navigation\n";
+  int MODE = -1;
+  while (MODE < 0) {
+    MODE = getchar();
+  }
+  if (MODE == '1' || MODE == '\n')
+    std::cout << "Hello, Coyomi2 localization.\n";
+  else if (MODE == '2')
+    std::cout << "Hello, Coyomi2 Navigation (Comming soon).\n";
+
+  /*
+   * Configその他の読み込みセクション
+   */
+	// coyomi.yamlに接続する
+  std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
+	YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
+  std::cerr << "coyomi.yaml is open.\n";
+
 
 	/**************************************************************************
 		共有メモリの確保
@@ -60,6 +93,7 @@ int main(int argc, char *argv[]) {
 	// 共有したい構造体毎にアドレスを割り当てる
 	shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
 	shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
+	shm_loc        =        (LOC *)shmAt(KEY_LOC, sizeof(LOC));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
 
   if((fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
@@ -119,7 +153,7 @@ int main(int argc, char *argv[]) {
   bool isFREE = false;
 
   // Create the multi threads
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < 3; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -131,6 +165,9 @@ int main(int argc, char *argv[]) {
           break;
         case 1:
           std::cerr << "Start battery log: " << c_pid << "\n";
+          break;
+        case 2:
+          std::cerr << "Start Localization: " << c_pid << "\n";
           break;
         default:
           std::cerr << "Error\n";
@@ -185,6 +222,20 @@ int main(int argc, char *argv[]) {
           bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
           sleep(1);
           bat_log.close();
+        }
+        exit(EXIT_SUCCESS);
+      } else if (i == 2) { // localization
+        // Map file path
+        std::string map_name = "occMap.png";
+				map_name.copy(shm_loc->path_to_map_dir, map_name.size());
+        // Likelyhood file path
+        std::string likelyhood_field = "lfm.txt";
+        likelyhood_field.copy(shm_loc->path_to_likelyhood_field, likelyhood_field.size());
+        // Initial pose 
+        shm_loc->x = 0.0; shm_loc->y = 0.0; shm_loc->a = 0.0;
+        std::cerr << "初期姿勢を" << shm_loc->x << "," << shm_loc->y << "," << shm_loc->a << "に設定\n";
+        while(1) {
+          sleep(1);
         }
         exit(EXIT_SUCCESS);
       }
@@ -294,7 +345,6 @@ int main(int argc, char *argv[]) {
   }
   //=====<<MAIN LOOP : END>>=====
 
-
 CLEANUP:
   // turn off exitation on RL motor
   turn_off_motors();
@@ -316,9 +366,12 @@ CLEANUP:
 	// 共有メモリのクリア
 	shmdt(shm_urg2d);
 	shmdt(shm_bat);
+	shmdt(shm_loc);
 	int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+	keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
 
@@ -356,10 +409,13 @@ void sigcatch(int sig) {
   // 共有メモリのクリア
   shmdt(shm_urg2d);
   shmdt(shm_bat);
+	shmdt(shm_loc);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
   shmctl(keyID, IPC_RMID, nullptr);
+	keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
   exit(1);
