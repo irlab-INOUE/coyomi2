@@ -52,6 +52,7 @@ void read_res(uint8_t *buf, int length);
 int fd;
 int fd_js;    // file descriptor to joystick
 
+// joystick setup parameter
 int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
 
@@ -59,7 +60,7 @@ char *button = NULL, name_of_joystick[80];
 URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 
-
+// log file
 std::ofstream enc_log;
 std::ofstream fout_urg2d;
 std::ofstream bat_log;
@@ -83,6 +84,7 @@ struct ODOMETORY {
   }
 };
 
+// CRC create 
 void calcBcc(uint8_t *sendData, int length) {
   unsigned int crcH, crcL;
   int crc=0xFFFF;
@@ -305,6 +307,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "Get fd_js: " << fd_js << "\n";
   }
 
+  // Joystick setup
   struct js_event js;
   ioctl(fd_js, JSIOCGAXES, &num_of_axis);
   ioctl(fd_js, JSIOCGBUTTONS, &num_of_buttons);
@@ -331,6 +334,7 @@ int main(int argc, char *argv[]) {
   cfsetospeed(&tio, BAUDRATE);
   tcsetattr(fd, TCSANOW, &tio);
 
+  // BLV-R Driver setup
   // ID Share Config.
   std::cerr << "ID Share configration...";
   simple_send_cmd(Query_IDshare_R, sizeof(Query_IDshare_R));
@@ -345,17 +349,7 @@ int main(int argc, char *argv[]) {
   turn_on_motors();
   bool isFREE = false;
 
-//#define URGDEBUG
-#ifdef URGDEBUG
-  while(1) {
-    std::vector<LSP> result = urg2d.getData();
-    int key = urg2d.view(5);
-    if (key == 'q') break;
-  }
-  turn_off_motors();
-  return 0;  
-#endif
-
+  // Create the multi threads
   for (int i = 0; i < 2; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
@@ -428,7 +422,9 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  // Start drive 
+  //----------------------------------------------------------
+  // Starting Main Process
+  //----------------------------------------------------------
   std::cerr << "Start rotation. Please hit Enter key.\n";
   getchar();
   std::cerr << "\033[2J" << "\033[1;1H";
@@ -519,9 +515,7 @@ int main(int argc, char *argv[]) {
     auto time_now = high_resolution_clock::now();
     long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
     read_state(odo, ts);
-    //std::cout << odo.rx << " " << odo.ry << "\n";
 
-    // enc_log << ts << " " << odo.rx << " " << odo.ry << " " << odo.ra << " " << odo.travel << " " << odo.rotation * 180.0/M_PI << " " << odo.dist_R << " " << odo.dist_L << "\n";
     enc_log.open("enclog", std::ios_base::app);
     enc_log 
       << ts << " " 
