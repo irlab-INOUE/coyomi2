@@ -43,6 +43,8 @@ void sigcatch( int );
 // joystick setup parameter
 int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
+bool isFREE = false;
+bool gotoEnd = false;
 
 // log file
 std::ofstream enc_log;
@@ -56,6 +58,82 @@ YAML::Node yamlRead(std::string path) {
 		std::cerr << "read error! yaml is not exist."<< std::endl;
     exit(1);
 	}
+}
+
+void read_joystick(js_event &js, double &v, double &w) {
+  /* read the joystick state */
+  ssize_t a = read(fd_js, &js, sizeof(struct js_event));
+
+  /* see what to do with the event */
+  switch (js.type & ~JS_EVENT_INIT) {
+    case JS_EVENT_AXIS:
+      axis[js.number] = js.value;
+      break;
+    case JS_EVENT_BUTTON:
+      button[js.number] = js.value;
+      if(js.value){
+        while (js.value) {
+          ssize_t a = read(fd_js, &js, sizeof(struct js_event));
+          usleep(1000);
+        }
+
+        switch(js.number) {
+          case 0:
+            std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
+            w = 0.5;
+            break;
+          case 1:
+            std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
+            w = 0.0;
+            if (v < 0.01) v = 0.1;
+            break;
+          case 2:
+            std::cerr << "No." << (int)js.number << "\tStop" << std::endl;
+            v = 0.0;
+            w = 0.0;
+            break;
+          case 3:
+            std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
+            w = -0.5;
+            break;
+          case 4:
+            std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
+            v -= 0.1;
+            if (v < 0.0) v = 0.0;
+            break;
+          case 5:
+            std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
+            v += 0.1;
+            if (v > FORWARD_MAX_SPEED) v = FORWARD_MAX_SPEED;
+            break;
+          case 6:
+            std::cerr << "End\n";
+            v = 0.0;
+            w = 0.0;
+            calc_vw2hex(Query_NET_ID_WRITE, v, w);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            usleep(1500000);
+            gotoEnd = true;
+            break;
+          case 7:
+            std::cerr << "FREE\n";
+            v = 0.0;
+            w = 0.0;
+            calc_vw2hex(Query_NET_ID_WRITE, v, w);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            usleep(1000000);
+            isFREE = !isFREE;
+            if (isFREE) 
+              free_motors();
+            else 
+              turn_on_motors();
+            break;
+          default:
+            break;
+        }
+      }
+      break;
+  }
 }
 
 std::vector<pid_t> p_list;
@@ -153,7 +231,6 @@ int main(int argc, char *argv[]) {
 
   //trun on exitation on RL motor
   turn_on_motors();
-  bool isFREE = false;
 
   // Create the multi threads
   for (int i = 0; i < 3; i++) {
@@ -300,79 +377,9 @@ int main(int argc, char *argv[]) {
   int lidar_view_countdown = number_of_lidar_view_count;
   tcflush(fd, TCIOFLUSH);
   while(1) {
-    /* read the joystick state */
-    ssize_t a = read(fd_js, &js, sizeof(struct js_event));
+    read_joystick(js, v, w);
+    if (gotoEnd) goto CLEANUP;
 
-    /* see what to do with the event */
-    switch (js.type & ~JS_EVENT_INIT) {
-      case JS_EVENT_AXIS:
-        axis[js.number] = js.value;
-        break;
-      case JS_EVENT_BUTTON:
-        button[js.number] = js.value;
-        if(js.value){
-          while (js.value) {
-            ssize_t a = read(fd_js, &js, sizeof(struct js_event));
-            usleep(1000);
-          }
-
-          switch(js.number) {
-            case 0:
-              std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
-              w = 0.5;
-              break;
-            case 1:
-              std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
-              w = 0.0;
-              if (v < 0.01) v = 0.1;
-              break;
-            case 2:
-              std::cerr << "No." << (int)js.number << "\tStop" << std::endl;
-              v = 0.0;
-              w = 0.0;
-              break;
-            case 3:
-              std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
-              w = -0.5;
-              break;
-            case 4:
-              std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
-              v -= 0.1;
-              if (v < 0.0) v = 0.0;
-              break;
-            case 5:
-              std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
-              v += 0.1;
-              if (v > FORWARD_MAX_SPEED) v = FORWARD_MAX_SPEED;
-              break;
-            case 6:
-              std::cerr << "End\n";
-              v = 0.0;
-              w = 0.0;
-              calc_vw2hex(Query_NET_ID_WRITE, v, w);
-              simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-              usleep(1500000);
-              goto CLEANUP;
-              break;
-            case 7:
-              std::cerr << "FREE\n";
-              v = 0.0;
-              w = 0.0;
-              calc_vw2hex(Query_NET_ID_WRITE, v, w);
-              simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-              usleep(1000000);
-              isFREE = !isFREE;
-              if (isFREE) 
-                free_motors();
-              else 
-                turn_on_motors();
-              break;
-            default:
-              break;
-          }
-        }
-        break;
-    }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
     auto time_now = high_resolution_clock::now();
