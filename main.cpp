@@ -300,8 +300,6 @@ int main(int argc, char *argv[]) {
   int lidar_view_countdown = number_of_lidar_view_count;
   tcflush(fd, TCIOFLUSH);
   while(1) {
-    auto time_now0 = high_resolution_clock::now();
-    long long ts0 = duration_cast<milliseconds>(time_now0.time_since_epoch()).count();
     /* read the joystick state */
     ssize_t a = read(fd_js, &js, sizeof(struct js_event));
 
