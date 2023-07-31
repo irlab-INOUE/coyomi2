@@ -59,6 +59,7 @@ int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
 char *button = NULL, name_of_joystick[80];
 
 // 共有したい構造体毎にアドレスを割り当てる
+URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 
 struct ODOMETORY {
@@ -284,7 +285,8 @@ int main(int argc, char *argv[]) {
 		共有メモリの確保
 	 ***************************************************************************/
 	// 共有したい構造体毎にアドレスを割り当てる
-	shm_bat        =        (BAT *)shmAt(KEY_BAT, sizeof(BAT));
+	shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
+	shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
 
   //Urg2d urg2d;
@@ -355,22 +357,41 @@ int main(int argc, char *argv[]) {
   turn_off_motors();
   return 0;  
 #endif
-  
-  pid_t c_pid = fork();
-  if (c_pid == -1) {
-    perror("fork");
-    exit(EXIT_FAILURE);
-  } else if (c_pid > 0) {
-    std::cerr << "Start battery log: " << c_pid << "\n";
-    p_list.emplace_back(c_pid);
-  } else {
-    while(1) {
-      std::ofstream bat_log("batlog", std::ios_base::app);
-      bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-      sleep(1);
-      bat_log.close();
+
+  for (int i = 0; i < 2; i++) {
+    pid_t c_pid = fork();
+    if (c_pid == -1) {
+      perror("fork");
+      exit(EXIT_FAILURE);
+    } else if (c_pid > 0) {
+      switch (i) {
+        case 0:
+          std::cerr << "Start 2d-LiDAR log: " << c_pid << "\n";
+          break;
+        case 1:
+          std::cerr << "Start battery log: " << c_pid << "\n";
+          break;
+        default:
+          std::cerr << "Error\n";
+          break;
+      }
+      p_list.emplace_back(c_pid);
+    } else {
+      if (i == 0) {       // 2d-lidar
+        while(1) {
+          ;
+        }
+        exit(EXIT_SUCCESS);
+      } else if (i == 1) { // battery
+        while (1) {
+          std::ofstream bat_log("batlog", std::ios_base::app);
+          bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
+          sleep(1);
+          bat_log.close();
+        }
+        exit(EXIT_SUCCESS);
+      }
     }
-    exit(EXIT_SUCCESS);
   }
 
   // Start drive 
@@ -503,8 +524,11 @@ CLEANUP:
 		std::cout << "wait:" << wait_pid << "\n";
 
 	// 共有メモリのクリア
+	shmdt(shm_urg2d);
 	shmdt(shm_bat);
-	int keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
+	int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+	keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
 
@@ -513,35 +537,36 @@ CLEANUP:
 
 void sigcatch(int sig) {
   std::cerr << TEXT_RED;
-	std::printf("Catch signal %d\n", sig);
+  std::printf("Catch signal %d\n", sig);
   std::cerr << TEXT_COLOR_RESET;
 
-  if (p_list.size() > 0) { // 以降の停止処理は親プロセスだけが行う
-    // safe stop
-    double v = 0.0;
-    double w = 0.0;
-    calc_vw2hex(Query_NET_ID_WRITE, v, w);
-    simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-    usleep(1500000);
-    turn_off_motors();
-    std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
-
-    close(fd_js);
-    close(fd);
-
-    for (auto pid: p_list) {
-      kill(pid, SIGKILL);
-    }
-    pid_t wait_pid;
-    while ((wait_pid = wait(nullptr)) > 0)
-      std::cout << "wait:" << wait_pid << "\n";
-
-    // 共有メモリのクリア
-    shmdt(shm_bat);
-    int keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
-    shmctl(keyID, IPC_RMID, nullptr);
-
-    std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+  for (auto pid: p_list) {
+    kill(pid, SIGKILL);
   }
-	exit(1);
+  pid_t wait_pid;
+  while ((wait_pid = wait(nullptr)) > 0)
+    std::cout << "wait:" << wait_pid << "\n";
+
+  // safe stop
+  double v = 0.0;
+  double w = 0.0;
+  calc_vw2hex(Query_NET_ID_WRITE, v, w);
+  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+  usleep(1500000);
+  turn_off_motors();
+  std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
+
+  close(fd_js);
+  close(fd);
+
+  // 共有メモリのクリア
+  shmdt(shm_urg2d);
+  shmdt(shm_bat);
+  int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
+  shmctl(keyID, IPC_RMID, nullptr);
+  keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
+  shmctl(keyID, IPC_RMID, nullptr);
+
+  std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+  exit(1);
 }
