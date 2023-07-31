@@ -1,0 +1,27 @@
+#ifndef __CONFIG_H__
+#define __CONFIG_H__
+
+#define MAX_BUFFER_SIZE 512 
+#define BAUDRATE B230400
+#define SERIAL_INTERVAL_SEND 4000
+#define SERIAL_INTERVAL_RESP 4000
+
+#define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
+#define JS_PORT       "/dev/input/js0"
+
+#define WHEEL_D 0.311
+#define WHEEL_T 0.461
+#define GEAR_RATIO 50.0 
+#define STEP_RESOLUTION 0.01/180*M_PI
+
+#define FORWARD_MAX_SPEED   1.5
+#define ROTATION_MAX_SPEED  1.0
+
+#define TEXT_RED "\e[31m"
+#define TEXT_GREEN "\e[32m"
+#define TEXT_BLUE "\e[34m"
+#define TEXT_WHITE "\e[37m"
+#define TEXT_COLOR_RESET "\e[0m"
+
+
+#endif
