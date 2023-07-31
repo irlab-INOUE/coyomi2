@@ -188,7 +188,8 @@ void show_state(uint8_t *buf, const long long &ts) {
   std::cerr << "\033[5;40H" <<  "Position_R:" << position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   std::cerr << "\033[6;40H" <<  "Power_R:" << power_R;
   std::cerr << "\033[7;40H" <<  "Voltage_R:" << voltage_R;
-  std::cerr << "\033[8;1H" << travel << " " << rotation * 180.0/M_PI;
+  std::cerr << "\033[8;1H\033[2K" << travel << " " << rotation * 180.0/M_PI
+    << " " << shm_loc->x << " " << shm_loc->y << " " << shm_loc->a * 180/M_PI;
   std::cerr << "\033[9;1H" << "-------------\n";
 }
 

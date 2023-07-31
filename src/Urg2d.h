@@ -26,6 +26,13 @@ class LSP {
       this->x = vr * cos(vth);  // [m]
       this->y = vr * sin(vth);  // [m]
     };
+    LSP(const LSP &lp) {
+      data = lp.data;
+      r = lp.r;
+      th = lp.th;
+      x = lp.x;
+      y = lp.y;
+    };
 };
 
 class Urg2d {

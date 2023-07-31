@@ -31,9 +31,13 @@ FILE(GLOB URG2D_FILES ${PROJECT_SOURCE_DIR}/src/GetDistance2D/src/*.cpp)
 set(EXECUTABLE_OUTPUT_PATH ${BIN_DIR})   # 実行ファイルの保存場所
 add_executable (main main.cpp
   ${SRC_DIR}/Urg2d.cpp
-  ${URG2D_FILES})
+  ${SRC_DIR}/MCL.cpp
+  ${SRC_DIR}/Viewer.cpp
+  ${URG2D_FILES}
+  )
 
-add_executable (iii test.cpp)
-add_executable (battery_log battery_log.cpp)
+#add_executable (iii test.cpp)
+#add_executable (battery_log battery_log.cpp)
 
 target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp)
+#target_link_libraries(battery_log ${OpenCV_LIBRARIES} urg_cpp)

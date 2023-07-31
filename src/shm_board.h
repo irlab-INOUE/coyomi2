@@ -3,8 +3,10 @@
 
 #include <iostream>
 #include <cstring>
+#include <vector>
 #include <sys/shm.h>
 #include <stdlib.h>
+#include "Urg2d.h"
 
 // shm取得から割り当てをまとめて行う
 void *shmAt(key_t KEY, size_t key_size) {

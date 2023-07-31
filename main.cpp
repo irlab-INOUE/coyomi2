@@ -6,6 +6,7 @@
 #include <string.h>
 #include <fstream>
 #include <chrono>
+#include <opencv2/opencv.hpp>
 
 #include <signal.h>
 #include <stdio.h>
@@ -19,12 +20,13 @@
 #include "Urg2d.h"
 #include "MCL.h"
 #include "shm_board.h"
+#include "Viewer.h"
 #include "yaml-cpp/yaml.h"
 
 int fd;
 int fd_js;    // file descriptor to joystick
-              //
 // 共有したい構造体毎にアドレスを割り当てる
+ENC *shm_enc        = nullptr;
 URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 LOC *shm_loc        = nullptr;
@@ -91,6 +93,7 @@ int main(int argc, char *argv[]) {
 		共有メモリの確保
 	 ***************************************************************************/
 	// 共有したい構造体毎にアドレスを割り当てる
+	shm_enc        =        (ENC *)shmAt(KEY_ENC, sizeof(ENC));
 	shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
 	shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
 	shm_loc        =        (LOC *)shmAt(KEY_LOC, sizeof(LOC));
@@ -208,9 +211,8 @@ int main(int argc, char *argv[]) {
           shm_urg2d->ts = ts;
           shm_urg2d->ts_end = ts;
           shm_urg2d->size = result.size();
-          double a = shm_urg2d->start_angle / 180.0 * M_PI;
-          for (auto d: result) {
-            shm_urg2d->r[i] = d.data;
+          for (int k = 0; k < result.size(); k++) {
+            shm_urg2d->r[k] = result[k].data;
           }
         }
         exit(EXIT_SUCCESS);
@@ -234,8 +236,51 @@ int main(int argc, char *argv[]) {
         // Initial pose 
         shm_loc->x = 0.0; shm_loc->y = 0.0; shm_loc->a = 0.0;
         std::cerr << "初期姿勢を" << shm_loc->x << "," << shm_loc->y << "," << shm_loc->a << "に設定\n";
+        Pose2d currentPose(0.0, 0.0, 0.0);
+        Pose2d previousPose = currentPose;
+        // パーティクル初期配置
+        std::cerr << "MCL setup...";
+        MCL mcl(Pose2d(0.0, 0.0, 0.0));
+        mcl.set_lfm(likelyhood_field);
+        mcl.set_mapInfo("mapInfo.yaml");
+        std::cerr << "done.\n";
+
+        MapPath map_path("bin/", "bin/"+map_name, "","","bin/lfm.txt", "mapInfo.yaml", 0, 0, 0);
+        Viewer view(map_path);                        // 現在のoccMapを表示する
+        view.hold();
+        // MCL(KLD_sampling)h 
         while(1) {
-          sleep(1);
+          view.show(5);
+          // 動いてなければ自己位置推定はしない
+          currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+          double _rot = currentPose.a - previousPose.a;
+          double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
+          std::vector<LSP> lsp;
+          if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
+            ;
+          } else {
+            double th = shm_urg2d->start_angle * M_PI/180.0;
+            double dth = shm_urg2d->step_angle * M_PI/180.0;
+            for (int k = 0; k < shm_urg2d->size; k++) {
+              lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, th);
+              th += dth;
+            }
+            mcl.KLD_sampling(lsp, currentPose, previousPose);
+            //total_travel += _tran;
+          }
+          Pose2d estimatedPose = mcl.get_best_pose();
+
+          view.reset();
+          view.robot(estimatedPose);
+          view.urg(estimatedPose, lsp);
+
+          shm_loc->x = estimatedPose.x;
+          shm_loc->y = estimatedPose.y;
+          shm_loc->a = estimatedPose.a;
+
+          // 次のループの準備
+          previousPose = currentPose;
+          usleep(20000);
         }
         exit(EXIT_SUCCESS);
       }
@@ -335,6 +380,11 @@ int main(int argc, char *argv[]) {
     auto time_now = high_resolution_clock::now();
     long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
     read_state(odo, ts);
+
+    shm_enc->ts = ts;
+    shm_enc->x = odo.rx;
+    shm_enc->y = odo.ry;
+    shm_enc->a = odo.ra;
 
     enc_log.open("enclog", std::ios_base::app);
     enc_log 

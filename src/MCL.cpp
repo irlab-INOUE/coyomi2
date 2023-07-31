@@ -29,7 +29,7 @@ void MCL::set_currentPose(const Pose2d pose) {
 }
 
 void MCL::set_lfm(std::string path) {
-  std::fstream inFile(path);
+  std::fstream inFile("bin/" + path);
   int rows, cols;
   double val;
 
@@ -80,7 +80,7 @@ void MCL::set_lfm(std::string path) {
 void MCL::set_mapInfo(std::string path) {
   YAML::Node mapInfo;
   try {
-    mapInfo = YAML::LoadFile(path);
+    mapInfo = YAML::LoadFile("bin/" + path);
 	} catch(YAML::BadFile &e) {
 		std::cerr << "read error! yaml is not exist."<< std::endl;
     exit(1);
