@@ -29,7 +29,7 @@ void MCL::set_currentPose(const Pose2d pose) {
 }
 
 void MCL::set_lfm(std::string path) {
-  std::fstream inFile("bin/" + path);
+  std::fstream inFile(path);
   int rows, cols;
   double val;
 
@@ -80,7 +80,7 @@ void MCL::set_lfm(std::string path) {
 void MCL::set_mapInfo(std::string path) {
   YAML::Node mapInfo;
   try {
-    mapInfo = YAML::LoadFile("bin/" + path);
+    mapInfo = YAML::LoadFile(path);
 	} catch(YAML::BadFile &e) {
 		std::cerr << "read error! yaml is not exist."<< std::endl;
     exit(1);
@@ -304,6 +304,13 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   double dx = curX.x - prevX.x;
   double dy = curX.y - prevX.y;
   double da = curX.a - prevX.a;
+#if 0
+  if (fabs(da) > M_PI) {
+    if (da > M_PI) da -= 2*M_PI;
+    else da += 2*M_PI;
+  }
+#endif
+  
   _tran	  = std::hypot(dx, dy);
 
   if (_tran < 1e-6) { // 場所が変わっていない処理をする
@@ -317,6 +324,7 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   }
   else { // 通常の処理
     _rot1 = atan2(dy, dx) - prevX.a;
+#if 0
     if (_rot1 > M_PI/2) {
       _rot1 -= M_PI;
       _tran = -_tran;
@@ -325,11 +333,22 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
       _rot1 += M_PI;
       _tran = -_tran;
     }
+#endif
+    if (fabs(_rot1) > M_PI) {
+      if (_rot1 > 0) _rot1 -= 2*M_PI;
+      else _rot1 += 2*M_PI;
+    }
     _rot2 = curX.a - prevX.a - _rot1;
+    if (fabs(_rot2) > M_PI) {
+      if (_rot2 > 0) _rot2 -= 2*M_PI;
+      else _rot2 += 2*M_PI;
+    }
   }
 
+#if 0
   _rot1 = atan2(sin(_rot1), cos(_rot1));
   _rot2 = atan2(sin(_rot2), cos(_rot2));
+#endif
 
   rot1 = _rot1 + rng.gaussian(sqrt(a[0] * _rot1 * _rot1 + a[1] * _tran * _tran));
   tran = _tran + rng.gaussian(sqrt(a[2] * _tran * _tran + a[3] * _rot1 * _rot1 + a[3] * _rot2 * _rot2));

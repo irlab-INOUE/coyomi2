@@ -97,7 +97,7 @@ void Viewer::particle(const std::vector<Pose2d> &particle) {
   for (auto p: particle) {
     cv::circle(imgMap,
         cv::Point(originX + p.x/csize, originY - p.y/csize),
-        0.4/csize, cv::Scalar(0, 255, 0), -1, cv::LINE_8);
+        0.2/csize, cv::Scalar(0, 255, 0), -1, cv::LINE_8);
   }
 }
 

@@ -22,6 +22,7 @@
 #include "shm_board.h"
 #include "Viewer.h"
 #include "yaml-cpp/yaml.h"
+#include "DWA.h"
 
 int fd;
 int fd_js;    // file descriptor to joystick
@@ -156,7 +157,7 @@ int main(int argc, char *argv[]) {
   if (MODE == '1' || MODE == '\n')
     std::cout << "Hello, Coyomi2 localization.\n";
   else if (MODE == '2')
-    std::cout << "Hello, Coyomi2 Navigation (Comming soon).\n";
+    std::cout << "Hello, Coyomi2 Navigation.\n";
 
   /*
    * Configその他の読み込みセクション
@@ -231,6 +232,8 @@ int main(int argc, char *argv[]) {
 
   //trun on exitation on RL motor
   turn_on_motors();
+
+  if (MODE == 2) sleep(5);
 
   // Create the multi threads
   for (int i = 0; i < 3; i++) {
@@ -308,7 +311,7 @@ int main(int argc, char *argv[]) {
         std::string map_name = "occMap.png";
 				map_name.copy(shm_loc->path_to_map_dir, map_name.size());
         // Likelyhood file path
-        std::string likelyhood_field = "lfm.txt";
+        std::string likelyhood_field = "bin/lfm.txt";
         likelyhood_field.copy(shm_loc->path_to_likelyhood_field, likelyhood_field.size());
         // Initial pose 
         shm_loc->x = 0.0; shm_loc->y = 0.0; shm_loc->a = 0.0;
@@ -319,7 +322,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "MCL setup...";
         MCL mcl(Pose2d(0.0, 0.0, 0.0));
         mcl.set_lfm(likelyhood_field);
-        mcl.set_mapInfo("mapInfo.yaml");
+        mcl.set_mapInfo("bin/mapInfo.yaml");
         std::cerr << "done.\n";
 
         MapPath map_path("bin/", "bin/"+map_name, "","","bin/lfm.txt", "mapInfo.yaml", 0, 0, 0);
@@ -346,10 +349,12 @@ int main(int argc, char *argv[]) {
             //total_travel += _tran;
           }
           Pose2d estimatedPose = mcl.get_best_pose();
+          std::vector<Pose2d> particle = mcl.get_particle_set();
 
           view.reset();
           view.robot(estimatedPose);
           view.urg(estimatedPose, lsp);
+          view.particle(particle);
 
           shm_loc->x = estimatedPose.x;
           shm_loc->y = estimatedPose.y;
@@ -367,8 +372,8 @@ int main(int argc, char *argv[]) {
   //----------------------------------------------------------
   // Starting Main Process
   //----------------------------------------------------------
-  std::cerr << "Start rotation. Please hit Enter key.\n";
-  getchar();
+  //std::cerr << "Start rotation. Please hit Enter key.\n";
+  //getchar();
   std::cerr << "\033[2J" << "\033[1;1H";
   double v = 0.0;
   double w = 0.0;
@@ -376,9 +381,51 @@ int main(int argc, char *argv[]) {
   int number_of_lidar_view_count = 1;
   int lidar_view_countdown = number_of_lidar_view_count;
   tcflush(fd, TCIOFLUSH);
+  DynamicWindowApproach dwa(coyomi_yaml);
+  double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
+  std::cerr << "arrived distance: " << arrived_check_distance << "\n";
+  std::vector<WAYPOINT> wp;
+  wp.emplace_back(3.0, 0.0);
+  wp.emplace_back(5.5, 0.0);
+  wp.emplace_back(5.5, -4.0);
+  wp.emplace_back(5.5, -12.0);
+  wp.emplace_back(11.5, -12.0);
+  wp.emplace_back(1.0, -12.0);
+  wp.emplace_back(6.0, -12.0);
+  wp.emplace_back(6.0, -10.0);
+  wp.emplace_back(5.5, 0.5);
+  wp.emplace_back(0.0, 0.0);
+  int wp_index = 0;
   while(1) {
     read_joystick(js, v, w);
     if (gotoEnd) goto CLEANUP;
+
+    std::vector<LSP> lsp;
+    double th = shm_urg2d->start_angle * M_PI/180.0;
+    double dth = shm_urg2d->step_angle * M_PI/180.0;
+    for (int k = 0; k < shm_urg2d->size; k++) {
+      lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, th);
+      th += dth;
+    }
+    Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
+    if (MODE == 2) {
+      std::tie(v, w) = 
+        dwa.run(lsp, estimatedPose, v, w, wp[wp_index]);
+    }
+    if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < 1.0) {
+      calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+      simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+      usleep(250000);
+      wp_index++;
+    }
+    if (wp_index >= wp.size()) {
+      wp_index = 0;
+      calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+      simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+      sleep(1);
+      continue;
+      goto CLEANUP;
+    }
 
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
