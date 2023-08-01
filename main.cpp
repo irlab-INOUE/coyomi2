@@ -137,6 +137,29 @@ void read_joystick(js_event &js, double &v, double &w) {
   }
 }
 
+std::vector<WAYPOINT> wpRead(std::string wpname) {
+  if (wpname == "") {
+    std::cerr << "WPファイルのパスを指定してください\n";
+    exit(0);
+  }
+  std::cerr << wpname << " を読み込みます...";
+  std::vector<WAYPOINT> wp;
+  std::fstream fn;
+  fn.open(wpname);
+
+  WAYPOINT buf;
+  long long temp;
+  fn >> buf.x >> buf.y >> buf.a >> temp;
+  buf.stop_check = 0;
+  while (!fn.eof()) {
+    wp.emplace_back(buf);
+    fn >> buf.x >> buf.y >> buf.a >> temp;
+    buf.stop_check = 0;
+  }
+  std::cerr << "完了\n";
+  return wp;
+}
+
 std::vector<pid_t> p_list;
 int main(int argc, char *argv[]) {
 	/* Ctrl+c 対応 */
@@ -232,8 +255,6 @@ int main(int argc, char *argv[]) {
 
   //trun on exitation on RL motor
   turn_on_motors();
-
-  if (MODE == 2) sleep(5);
 
   // Create the multi threads
   for (int i = 0; i < 3; i++) {
@@ -385,6 +406,7 @@ int main(int argc, char *argv[]) {
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
   std::cerr << "arrived distance: " << arrived_check_distance << "\n";
   std::vector<WAYPOINT> wp;
+#if 1
   wp.emplace_back(3.0, 0.0);
   wp.emplace_back(5.5, 0.0);
   wp.emplace_back(5.5, -4.0);
@@ -395,7 +417,13 @@ int main(int argc, char *argv[]) {
   wp.emplace_back(6.0, -10.0);
   wp.emplace_back(5.5, 0.5);
   wp.emplace_back(0.0, 0.0);
+#else
+  std::cout << "wp reading...";
+  wp = wpRead("bin/wp.txt");
+  std::cout << "done.\n";
+#endif
   int wp_index = 0;
+  MODE = 2;
   while(1) {
     read_joystick(js, v, w);
     if (gotoEnd) goto CLEANUP;
@@ -413,16 +441,16 @@ int main(int argc, char *argv[]) {
         dwa.run(lsp, estimatedPose, v, w, wp[wp_index]);
     }
     if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < 1.0) {
-      calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
-      simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-      usleep(250000);
+      //calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+      //simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+      //usleep(250000);
       wp_index++;
     }
     if (wp_index >= wp.size()) {
       wp_index = 0;
       calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
       simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-      sleep(1);
+      sleep(3);
       continue;
       goto CLEANUP;
     }
