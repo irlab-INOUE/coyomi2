@@ -37,8 +37,4 @@ add_executable (main main.cpp
   ${URG2D_FILES}
   )
 
-#add_executable (iii test.cpp)
-#add_executable (battery_log battery_log.cpp)
-
 target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp)
-#target_link_libraries(battery_log ${OpenCV_LIBRARIES} urg_cpp)
