@@ -183,8 +183,13 @@ std::tuple<double, double> DynamicWindowApproach::run(
     //std::cout << "Can't find path.\t";
 		best_score.v -= acceleration_limit * DT;
 		if (best_score.v < 0.0) best_score.v = 0.0;
-		if (best_score.w > 0.0) best_score.w -= w_acceleration_limit * DT;
-		if (best_score.w < 0.0) best_score.w += w_acceleration_limit * DT;
+		if (best_score.w > 0.0) {
+      best_score.w -= w_acceleration_limit * DT;
+      if (best_score.w < 0.0) best_score.w = 0;
+    } else {
+      best_score.w += w_acceleration_limit * DT;
+      if (best_score.w > 0.0) best_score.w = 0;
+    }
     //std::cout << "List size: " << u_list.size() << " NG path: " << ng.size() << std::endl;
     return std::make_tuple(best_score.v, best_score.w);
   }

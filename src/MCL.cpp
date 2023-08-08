@@ -12,7 +12,7 @@ MCL::MCL(const Pose2d pose) {
     particle.emplace_back(
         pose.x + rng.uniform(-0.5, 0.5),
         pose.y + rng.uniform(-0.5, 0.5),
-        pose.a + rng.uniform(-25/180.0*M_PI, 25/180.0*M_PI));
+        pose.a + rng.uniform(-45/180.0*M_PI, 45/180.0*M_PI));
   }
 }
 
@@ -24,7 +24,7 @@ void MCL::set_currentPose(const Pose2d pose) {
     particle.emplace_back(
         pose.x + rng.uniform(-0.5, 0.5),
         pose.y + rng.uniform(-0.5, 0.5),
-        pose.a + rng.uniform(-25/180.0*M_PI, 25/180.0*M_PI));
+        pose.a + rng.uniform(-45/180.0*M_PI, 45/180.0*M_PI));
   }
 }
 
@@ -304,7 +304,7 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   double dx = curX.x - prevX.x;
   double dy = curX.y - prevX.y;
   double da = curX.a - prevX.a;
-#if 0
+#if 1
   if (fabs(da) > M_PI) {
     if (da > M_PI) da -= 2*M_PI;
     else da += 2*M_PI;
@@ -333,7 +333,7 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
       _rot1 += M_PI;
       _tran = -_tran;
     }
-#endif
+#else
     if (fabs(_rot1) > M_PI) {
       if (_rot1 > 0) _rot1 -= 2*M_PI;
       else _rot1 += 2*M_PI;
@@ -344,8 +344,9 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
       else _rot2 += 2*M_PI;
     }
   }
+#endif
 
-#if 0
+#if 1
   _rot1 = atan2(sin(_rot1), cos(_rot1));
   _rot2 = atan2(sin(_rot2), cos(_rot2));
 #endif
