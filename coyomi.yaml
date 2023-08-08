@@ -108,7 +108,7 @@ DWA:    # Dynamic Window Approach parameters
   w_max: 80.0                 # [deg/s] DWの角速度の上限値
   w_min: -80.0                # [deg/s] DWの角速度の下限値
   path_divided_step: 10       # pathを離散化するステップ T/path_diveded_step
-  alpha: 2.0                  # heading weight
-  beta: 0.5                   # distance weight
+  alpha: 0.5                  # heading weight
+  beta: 0.1                   # distance weight
   gamma: 0.5                  # velocity weight
-  obstacle_size: 0.5          # [m] 障害物から離れる距離
+  obstacle_size: 0.3          # [m] 障害物から離れる距離
