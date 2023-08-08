@@ -24,6 +24,10 @@
 #include "yaml-cpp/yaml.h"
 #include "DWA.h"
 
+#define MAP_PATH "map/log230731_1F/"
+//#define MAP_PATH "map/log230729_2F/go/"
+//#define MAP_PATH "map/log230729_2F/back/"
+
 int fd;
 int fd_js;    // file descriptor to joystick
 // 共有したい構造体毎にアドレスを割り当てる
@@ -329,24 +333,29 @@ int main(int argc, char *argv[]) {
         exit(EXIT_SUCCESS);
       } else if (i == 2) { // localization
         // Map file path
-        std::string map_name = "occMap.png";
+        std::string path_to_map = std::string(MAP_PATH);
+        std::string map_name = path_to_map + "occMap.png";
 				map_name.copy(shm_loc->path_to_map_dir, map_name.size());
         // Likelyhood file path
-        std::string likelyhood_field = "bin/lfm.txt";
+        std::string likelyhood_field = path_to_map + "lfm.txt";
         likelyhood_field.copy(shm_loc->path_to_likelyhood_field, likelyhood_field.size());
         // Initial pose 
-        shm_loc->x = 0.0; shm_loc->y = 0.0; shm_loc->a = 0.0;
+        double initial_pose_x = 0.0;
+        double initial_pose_y = 0.0;
+        double initial_pose_a = 0.0;
+
+        shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
         std::cerr << "初期姿勢を" << shm_loc->x << "," << shm_loc->y << "," << shm_loc->a << "に設定\n";
         Pose2d currentPose(0.0, 0.0, 0.0);
         Pose2d previousPose = currentPose;
         // パーティクル初期配置
         std::cerr << "MCL setup...";
-        MCL mcl(Pose2d(0.0, 0.0, 0.0));
+        MCL mcl(Pose2d(initial_pose_x, initial_pose_y, initial_pose_a));
         mcl.set_lfm(likelyhood_field);
-        mcl.set_mapInfo("bin/mapInfo.yaml");
+        mcl.set_mapInfo(path_to_map + "mapInfo.yaml");
         std::cerr << "done.\n";
 
-        MapPath map_path("bin/", "bin/"+map_name, "","","bin/lfm.txt", "mapInfo.yaml", 0, 0, 0);
+        MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
         Viewer view(map_path);                        // 現在のoccMapを表示する
         view.hold();
         // MCL(KLD_sampling)h 
@@ -407,23 +416,33 @@ int main(int argc, char *argv[]) {
   std::cerr << "arrived distance: " << arrived_check_distance << "\n";
   std::vector<WAYPOINT> wp;
 #if 1
-  wp.emplace_back(3.0, 0.0);
-  wp.emplace_back(5.5, 0.0);
-  wp.emplace_back(5.5, -4.0);
-  wp.emplace_back(5.5, -12.0);
+  wp.emplace_back( 5.5, - 5.0);
+  wp.emplace_back( 5.5, -12.0);
   wp.emplace_back(11.5, -12.0);
-  wp.emplace_back(1.0, -12.0);
-  wp.emplace_back(6.0, -12.0);
-  wp.emplace_back(6.0, -10.0);
-  wp.emplace_back(5.5, 0.5);
-  wp.emplace_back(0.0, 0.0);
+  wp.emplace_back( 1.0, -12.5);
+  wp.emplace_back( 6.0, -12.0);
+  wp.emplace_back( 6.0, -10.0);
+  wp.emplace_back( 5.0, - 2.0);
 #else
   std::cout << "wp reading...";
-  wp = wpRead("bin/wp.txt");
+  wp = wpRead(std::string(MAP_PATH) + "trajectory.txt");
   std::cout << "done.\n";
 #endif
   int wp_index = 0;
   MODE = 2;
+  std::cerr << "FREE\n";
+  v = 0.0;
+  w = 0.0;
+  calc_vw2hex(Query_NET_ID_WRITE, v, w);
+  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+  usleep(1000000);
+  isFREE = !isFREE;
+  free_motors();
+  while (isFREE) {
+    read_joystick(js, v, w);
+    if (gotoEnd) goto CLEANUP;
+    usleep(100000);
+  }
   while(1) {
     read_joystick(js, v, w);
     if (gotoEnd) goto CLEANUP;
@@ -436,7 +455,7 @@ int main(int argc, char *argv[]) {
       th += dth;
     }
     Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
-    if (MODE == 2) {
+    if (MODE == '2') {
       std::tie(v, w) = 
         dwa.run(lsp, estimatedPose, v, w, wp[wp_index]);
     }
@@ -444,7 +463,7 @@ int main(int argc, char *argv[]) {
       //calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
       //simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
       //usleep(250000);
-      wp_index++;
+      wp_index += 1;
     }
     if (wp_index >= wp.size()) {
       wp_index = 0;
@@ -520,6 +539,9 @@ void sigcatch(int sig) {
   while ((wait_pid = wait(nullptr)) > 0)
     std::cout << "wait:" << wait_pid << "\n";
 
+  pid_t pid = getpid();
+  std::cout << "If main can't stop, execute next command " << TEXT_GREEN << "**kill " << pid << "** "
+    << TEXT_COLOR_RESET << "in terminal.\n";
   // safe stop
   double v = 0.0;
   double w = 0.0;
@@ -548,5 +570,6 @@ void sigcatch(int sig) {
 	shmctl(keyID, IPC_RMID, nullptr);
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+
   exit(1);
 }
