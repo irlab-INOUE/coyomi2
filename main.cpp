@@ -23,11 +23,14 @@
 #include "Viewer.h"
 #include "yaml-cpp/yaml.h"
 #include "DWA.h"
+#include "checkDirectory.h"
 
 #define MAP_PATH "map/log230731_1F/"
 //#define MAP_PATH "map/log230729_2F/go/"
 //#define MAP_PATH "map/log230729_2F/back/"
 
+#define N 256 	// 日時の型変換に使うバッファ数
+               
 int fd;
 int fd_js;    // file descriptor to joystick
 // 共有したい構造体毎にアドレスを割り当てる
@@ -35,6 +38,7 @@ ENC *shm_enc        = nullptr;
 URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 LOC *shm_loc        = nullptr;
+LOGDIR *shm_logdir  = nullptr;
 
 #include "Config.h"
 #include "OrientalMotorInterface.h"
@@ -55,6 +59,7 @@ bool gotoEnd = false;
 std::ofstream enc_log;
 std::ofstream fout_urg2d;
 std::ofstream bat_log;
+std::ofstream mcl_log;
 
 YAML::Node yamlRead(std::string path) {
   try {
@@ -177,14 +182,18 @@ int main(int argc, char *argv[]) {
   std::cout << "Please select an action in following list.\n"
     << "[1]: Only localization (default)\n"
     << " 2 : Navigation\n";
-  int MODE = -1;
-  while (MODE < 0) {
+  char MODE;
+  while (1) {
     MODE = getchar();
+    if (MODE == '1' || MODE == '\n') {
+      std::cout << "Hello, Coyomi2 localization.\n";
+      break;
+    }
+    else if (MODE == '2') {
+      std::cout << "Hello, Coyomi2 Navigation.\n";
+      break;
+    }
   }
-  if (MODE == '1' || MODE == '\n')
-    std::cout << "Hello, Coyomi2 localization.\n";
-  else if (MODE == '2')
-    std::cout << "Hello, Coyomi2 Navigation.\n";
 
   /*
    * Configその他の読み込みセクション
@@ -203,7 +212,43 @@ int main(int argc, char *argv[]) {
 	shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
 	shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
 	shm_loc        =        (LOC *)shmAt(KEY_LOC, sizeof(LOC));
+	shm_logdir     =     (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
+	/***************************************************************************
+		LOG保管場所を作成する
+		DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
+		なければ作成する
+	 ***************************************************************************/
+	std::string storeDir = DEFAULT_LOG_DIR;
+	// 現在日付時刻のディレクトリを作成する
+	time_t now = time(NULL);
+	struct tm *pnow = localtime(&now);
+	char s[N] = {'\0'};
+  bool STORE = true;
+	if (STORE) {
+		checkDir(storeDir);
+		strftime(s, N, "%Y", pnow); strcpy(shm_logdir->year, s); shm_logdir->year[4] = '\0';
+		strftime(s, N, "%m", pnow); strcpy(shm_logdir->mon,  s); shm_logdir->mon[2]  = '\0';
+		strftime(s, N, "%d", pnow); strcpy(shm_logdir->mday, s); shm_logdir->mday[2] = '\0';
+		strftime(s, N, "%H", pnow); strcpy(shm_logdir->hour, s); shm_logdir->hour[2] = '\0';
+		strftime(s, N, "%M", pnow); strcpy(shm_logdir->min , s); shm_logdir->min[2]  = '\0';
+		strftime(s, N, "%S", pnow); strcpy(shm_logdir->sec , s); shm_logdir->sec[2]  = '\0';
+		storeDir += "/" + std::string(shm_logdir->year, 4)
+			+ "/" + std::string(shm_logdir->mon,  2)
+			+ "/" + std::string(shm_logdir->mday, 2)
+			+ "/" + std::string(shm_logdir->hour, 2)
+			+ std::string(shm_logdir->min, 2)
+			+ std::string(shm_logdir->sec, 2);
+		std::cerr << storeDir << std::endl;
+		storeDir.copy(shm_logdir->path, storeDir.size());
+		checkDir(storeDir);
+
+		std::cerr << "path: " << shm_logdir->path << "にログを保存します" << std::endl;
+    getchar();
+	} else {
+		std::cerr << "ログは保管しません\n";
+	}
+
 
   if((fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
@@ -297,11 +342,13 @@ int main(int argc, char *argv[]) {
         }
 
         while(1) {
-          fout_urg2d.open("urglog", std::ios_base::app);
+          std::string path = shm_logdir->path;
+          path += "/urglog";
+          fout_urg2d.open(path, std::ios_base::app);
           auto time_now = high_resolution_clock::now();
           long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
           std::vector<LSP> result = urg2d.getData();
-          urg2d.view(5);
+          //urg2d.view(5);
           fout_urg2d << "LASERSCANRT" << " " 
             << ts << " "
             << result.size() * 3 << " " 
@@ -323,7 +370,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_SUCCESS);
       } else if (i == 1) { // battery
         while (1) {
-          bat_log.open("batlog", std::ios_base::app);
+          std::string path = shm_logdir->path;
+          path += "/batlog";
+
+          bat_log.open(path, std::ios_base::app);
           auto time_now = high_resolution_clock::now();
           long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
           bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
@@ -390,6 +440,17 @@ int main(int argc, char *argv[]) {
           shm_loc->y = estimatedPose.y;
           shm_loc->a = estimatedPose.a;
 
+          std::string path = shm_logdir->path;
+          path += "/mcllog";
+          mcl_log.open(path, std::ios_base::app);
+          auto time_now = high_resolution_clock::now();
+          long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+          mcl_log 
+            << ts << " " 
+            << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
+            << "end" << "\n";
+          mcl_log.close();
+
           // 次のループの準備
           previousPose = currentPose;
           usleep(20000);
@@ -416,6 +477,7 @@ int main(int argc, char *argv[]) {
   std::cerr << "arrived distance: " << arrived_check_distance << "\n";
   std::vector<WAYPOINT> wp;
 #if 1
+  wp.emplace_back( 5.5,   0.0);
   wp.emplace_back( 5.5, - 5.0);
   wp.emplace_back( 5.5, -12.0);
   wp.emplace_back(11.5, -12.0);
@@ -423,13 +485,15 @@ int main(int argc, char *argv[]) {
   wp.emplace_back( 6.0, -12.0);
   wp.emplace_back( 6.0, -10.0);
   wp.emplace_back( 5.0, - 2.0);
+  wp.emplace_back( 5.0,   0.1);
+  wp.emplace_back( 0.0,   0.0);
 #else
   std::cout << "wp reading...";
   wp = wpRead(std::string(MAP_PATH) + "trajectory.txt");
   std::cout << "done.\n";
 #endif
   int wp_index = 0;
-  MODE = 2;
+  //MODE = 2;
   std::cerr << "FREE\n";
   v = 0.0;
   w = 0.0;
@@ -464,12 +528,37 @@ int main(int argc, char *argv[]) {
       //simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
       //usleep(250000);
       wp_index += 1;
+      //isFREE = !isFREE;
+      //if (isFREE) 
+      //  free_motors();
     }
     if (wp_index >= wp.size()) {
       wp_index = 0;
       calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
       simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
       sleep(3);
+
+      double omega = 45.0/180.0*M_PI;         // rad/s
+      double achieve_angle = 5.0/180.0*M_PI;  // rad
+      calc_vw2hex(Query_NET_ID_WRITE, 0, omega);
+      while (1) {
+        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+        auto time_now = high_resolution_clock::now();
+        long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+        read_state(odo, ts);
+
+        shm_enc->ts = ts;
+        shm_enc->x = odo.rx;
+        shm_enc->y = odo.ry;
+        shm_enc->a = odo.ra;
+
+        if (fabs(shm_loc->a) < achieve_angle) {
+          calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+          simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+          sleep(3);
+          break;
+        }
+      }
       continue;
       goto CLEANUP;
     }
@@ -485,10 +574,13 @@ int main(int argc, char *argv[]) {
     shm_enc->y = odo.ry;
     shm_enc->a = odo.ra;
 
-    enc_log.open("enclog", std::ios_base::app);
+    std::string path = shm_logdir->path;
+    path += "/enclog";
+    enc_log.open(path, std::ios_base::app);
     enc_log 
       << ts << " " 
       << odo.rx << " " << odo.ry << " " << odo.ra << " "
+      << v << " " << w << " "
       << "end" << "\n";
     enc_log.close();
   }
@@ -504,6 +596,7 @@ CLEANUP:
   enc_log.close();
   fout_urg2d.close();
   bat_log.close();
+  mcl_log.close();
 
 	for (auto pid: p_list) {
 		kill(pid, SIGKILL);
@@ -516,6 +609,7 @@ CLEANUP:
 	shmdt(shm_urg2d);
 	shmdt(shm_bat);
 	shmdt(shm_loc);
+	shmdt(shm_logdir);
 	int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
@@ -523,6 +617,8 @@ CLEANUP:
 	keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+	keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
 
   return 0;
 }
@@ -557,16 +653,20 @@ void sigcatch(int sig) {
   enc_log.close();
   fout_urg2d.close();
   bat_log.close();
+  mcl_log.close();
 
   // 共有メモリのクリア
   shmdt(shm_urg2d);
   shmdt(shm_bat);
 	shmdt(shm_loc);
+	shmdt(shm_logdir);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
   shmctl(keyID, IPC_RMID, nullptr);
 	keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+	keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
