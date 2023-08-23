@@ -1,0 +1,5 @@
+*~
+*.o
+sparsematrix
+sample/sample
+build
