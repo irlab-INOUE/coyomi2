@@ -1,0 +1,11 @@
+#!/bin/bash
+
+gphoto2 --capture-image-and-download --filename "thetaV/$(date +%Y%m%d%H%M%S).jpeg"
+
+filename=$(ls -t thetaV | grep -E '.jpeg'| head -n 1)
+
+echo '緯度:',"${1:-000}"
+echo '経度:',"${2:-000}"
+
+echo $filename "${1:-000}" "${2:-000}" >> thetaV/thetalog.txt
+echo $filename "${1:-000}" "${2:-000}" >> thetaV/thetalog_bkp.txt
