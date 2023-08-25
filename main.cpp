@@ -1,21 +1,20 @@
-#include <fcntl.h>
-#include <termios.h>
-#include <unistd.h>
+#include <chrono>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
-#include <string.h>
-#include <fstream>
-#include <chrono>
 #include <opencv2/opencv.hpp>
 
+#include <fcntl.h>
+#include <linux/joystick.h>
+#include <math.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <math.h>
 #include <sys/wait.h>
-#include <linux/joystick.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include "Urg2d.h"
 #include "MCL.h"
@@ -24,6 +23,9 @@
 #include "yaml-cpp/yaml.h"
 #include "DWA.h"
 #include "checkDirectory.h"
+#include "Config.h"
+#include "OrientalMotorInterface.h"
+
 
 #define MAP_PATH "map/log230731_1F/"
 //#define MAP_PATH "map/log230729_2F/go/"
@@ -39,9 +41,6 @@ URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 LOC *shm_loc        = nullptr;
 LOGDIR *shm_logdir  = nullptr;
-
-#include "Config.h"
-#include "OrientalMotorInterface.h"
 
 //#define DEBUG_SENDRESP
 
@@ -448,6 +447,7 @@ int main(int argc, char *argv[]) {
           mcl_log 
             << ts << " " 
             << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
+            << particle.size() << " "
             << "end" << "\n";
           mcl_log.close();
 
@@ -477,15 +477,47 @@ int main(int argc, char *argv[]) {
   std::cerr << "arrived distance: " << arrived_check_distance << "\n";
   std::vector<WAYPOINT> wp;
 #if 1
+  //wp.emplace_back( 1.5,   0.0);
+  //wp.emplace_back( 2.5,   0.0);
+  //wp.emplace_back( 3.5,   0.0);
+  //wp.emplace_back( 4.5,   0.0);
   wp.emplace_back( 5.5,   0.0);
-  wp.emplace_back( 5.5, - 5.0);
+  //wp.emplace_back( 5.5, - 1.0);
+  //wp.emplace_back( 5.5, - 2.0);
+  //wp.emplace_back( 5.5, - 3.0);
+  //wp.emplace_back( 5.5, - 4.0);
+  //wp.emplace_back( 5.5, - 5.0);
+  //wp.emplace_back( 5.5, - 6.0);
+  //wp.emplace_back( 5.5, - 7.0);
+  //wp.emplace_back( 5.5, - 8.0);
+  //wp.emplace_back( 5.5, - 9.0);
+  //wp.emplace_back( 5.5, -10.0);
+  //wp.emplace_back( 5.5, -11.0);
   wp.emplace_back( 5.5, -12.0);
+  //wp.emplace_back( 6.5, -12.0);
+  //wp.emplace_back( 7.5, -12.0);
+  //wp.emplace_back( 8.5, -12.0);
+  //wp.emplace_back( 9.5, -12.0);
+  //wp.emplace_back(10.5, -12.0);
   wp.emplace_back(11.5, -12.0);
+  //wp.emplace_back(10.5, -12.0);
+  //wp.emplace_back( 9.5, -12.0);
+  //wp.emplace_back( 8.5, -12.0);
+  //wp.emplace_back( 7.5, -12.0);
+  //wp.emplace_back( 6.5, -12.0);
+  //wp.emplace_back( 5.5, -12.0);
+  //wp.emplace_back( 4.5, -12.0);
+  //wp.emplace_back( 3.5, -12.0);
+  //wp.emplace_back( 2.5, -12.0);
   wp.emplace_back( 1.0, -12.5);
+  //wp.emplace_back( 2.0, -12.5);
+  //wp.emplace_back( 3.0, -12.5);
+  //wp.emplace_back( 4.0, -12.5);
+  //wp.emplace_back( 5.0, -12.5);
   wp.emplace_back( 6.0, -12.0);
-  wp.emplace_back( 6.0, -10.0);
-  wp.emplace_back( 5.0, - 2.0);
-  wp.emplace_back( 5.0,   0.1);
+  //wp.emplace_back( 6.0, -10.0);
+  //wp.emplace_back( 5.0, - 2.0);
+  wp.emplace_back( 5.5,   0.1);
   wp.emplace_back( 0.0,   0.0);
 #else
   std::cout << "wp reading...";
@@ -506,6 +538,14 @@ int main(int argc, char *argv[]) {
     read_joystick(js, v, w);
     if (gotoEnd) goto CLEANUP;
     usleep(100000);
+
+    auto time_now = high_resolution_clock::now();
+    long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+    read_state(odo, ts);
+    shm_enc->ts = ts;
+    shm_enc->x = odo.rx;
+    shm_enc->y = odo.ry;
+    shm_enc->a = odo.ra;
   }
   while(1) {
     read_joystick(js, v, w);
@@ -523,11 +563,21 @@ int main(int argc, char *argv[]) {
       std::tie(v, w) = 
         dwa.run(lsp, estimatedPose, v, w, wp[wp_index]);
     }
-    if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < 1.0) {
-      //calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
-      //simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-      //usleep(250000);
+    if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < 0.5) {
       wp_index += 1;
+#ifdef THETAV
+      calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+      simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+      sleep(2);
+
+      std::string lx = std::to_string(estimatedPose.x);
+      std::string ly = std::to_string(estimatedPose.y);
+      std::string cmd = "./bin/capture " + lx + " " + ly;
+      int ret = std::system(cmd.c_str());
+      if (ret == -1) {
+        std::cerr << "script error" << std::endl;
+      }
+#endif
       //isFREE = !isFREE;
       //if (isFREE) 
       //  free_motors();
