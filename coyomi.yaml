@@ -93,7 +93,7 @@ MapPath:
 MotionControlParameter:
   velocity_down_coefficient: 0.9      # 単位なし
   back_velocity: 0.4                  # [m/s]
-  arrived_check_distance: 0.2         # [m] RWRCでは2.0がよさそう
+  arrived_check_distance: 0.3         # [m] RWRCでは2.0がよさそう
   auto_loop: false                     # ゴール地点で自動でループするか．false:キー入力を待つ
 
 DWA:    # Dynamic Window Approach parameters

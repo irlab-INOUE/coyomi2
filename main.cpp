@@ -561,7 +561,7 @@ int main(int argc, char *argv[]) {
   wp.emplace_back( 6.0, -12.0);
   //wp.emplace_back( 6.0, -10.0);
   //wp.emplace_back( 5.0, - 2.0);
-  wp.emplace_back( 5.5,   0.1);
+  wp.emplace_back( 5.5,   0.0);
   wp.emplace_back( 0.0,   0.0);
 #else
   std::cout << "wp reading...";
@@ -607,7 +607,7 @@ int main(int argc, char *argv[]) {
       std::tie(v, w) = 
         dwa.run(lsp, estimatedPose, v, w, wp[wp_index]);
     }
-    if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < 0.5) {
+    if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < arrived_check_distance) {
       wp_index += 1;
 #ifdef THETAV
       calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
