@@ -24,7 +24,6 @@
 #include "DWA.h"
 #include "checkDirectory.h"
 #include "Config.h"
-#include "OrientalMotorInterface.h"
 
 
 #define MAP_PATH "map/log230731_1F/"
@@ -42,6 +41,7 @@ BAT *shm_bat        = nullptr;
 LOC *shm_loc        = nullptr;
 LOGDIR *shm_logdir  = nullptr;
 
+#include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
 
 using namespace std::chrono;
@@ -214,8 +214,8 @@ int main(int argc, char *argv[]) {
 	shm_logdir     =     (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
 	/***************************************************************************
-		LOG保管場所を作成する
-		DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
+    LOG保管場所を作成する
+    DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
 		なければ作成する
 	 ***************************************************************************/
 	std::string storeDir = DEFAULT_LOG_DIR;
