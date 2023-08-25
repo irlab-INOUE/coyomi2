@@ -73,7 +73,7 @@ void MCL::set_lfm(std::string path) {
       }
     }
   }
-  cv::imwrite("lfm.png", imgLFM);
+  //cv::imwrite("lfm.png", imgLFM);
   //cv::imshow("lfm", imgLFM);
 }
 
@@ -174,7 +174,7 @@ void MCL::KLD_sampling(const std::vector<LSP> &lsp, const Pose2d &curX, const Po
   // KDLサンプリングの諸パラメータ
   double M_x = 0.0;
   int M_k	   = 0;
-  int M_xmin = 200;
+  int M_xmin = 20;
   std::vector<Pose2i> bin;
 
   //１ステップ前のパーティクル数
