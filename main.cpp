@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <ncurses.h>
 
 #include "Urg2d.h"
 #include "MCL.h"
@@ -304,8 +305,20 @@ int main(int argc, char *argv[]) {
   //trun on exitation on RL motor
   turn_on_motors();
 
+  /* -----< curses : START >----- */
+  int key;    // curses用キーボード入力判定
+  WINDOW *win = initscr();
+  noecho();
+  cbreak();
+  keypad(stdscr, TRUE);
+  curs_set(0);
+  start_color();
+  timeout(0);
+  init_pair(1,COLOR_BLUE, COLOR_BLACK);
+  /* -----< curses : END >----- */
+
   // Create the multi threads
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 4; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -320,6 +333,9 @@ int main(int argc, char *argv[]) {
           break;
         case 2:
           std::cerr << "Start Localization: " << c_pid << "\n";
+          break;
+        case 3:
+          std::cerr << "Start state display: " << c_pid << "\n";
           break;
         default:
           std::cerr << "Error\n";
@@ -394,19 +410,21 @@ int main(int argc, char *argv[]) {
         double initial_pose_a = 0.0;
 
         shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
-        std::cerr << "初期姿勢を" << shm_loc->x << "," << shm_loc->y << "," << shm_loc->a << "に設定\n";
+        //std::cerr << "初期姿勢を" << shm_loc->x << "," << shm_loc->y << "," << shm_loc->a << "に設定\n";
         Pose2d currentPose(0.0, 0.0, 0.0);
         Pose2d previousPose = currentPose;
         // パーティクル初期配置
-        std::cerr << "MCL setup...";
+        //std::cerr << "MCL setup...";
         MCL mcl(Pose2d(initial_pose_x, initial_pose_y, initial_pose_a));
         mcl.set_lfm(likelyhood_field);
         mcl.set_mapInfo(path_to_map + "mapInfo.yaml");
-        std::cerr << "done.\n";
+        //std::cerr << "done.\n";
 
         MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
         Viewer view(map_path);                        // 現在のoccMapを表示する
         view.hold();
+        view.show(5);
+        cv::moveWindow("occMap", 400, 0);
         // MCL(KLD_sampling)h 
         while(1) {
           view.show(5);
@@ -456,6 +474,32 @@ int main(int argc, char *argv[]) {
           usleep(20000);
         }
         exit(EXIT_SUCCESS);
+      } else if (i == 3) { // State display
+        sleep(5);
+        clear();
+        mvprintw(0, 0, "Motor Information");
+        mvprintw(1, 0, "X[m]     Y[m]      A[deg]");
+        mvprintw(10, 0, "MCL Information");
+        mvprintw(11, 0, "X[m]     Y[m]      A[deg]");
+        while (1) {
+          move(2, 0); clrtoeol();
+          mvprintw(2, 0, "%.3f", shm_enc->x);
+          mvprintw(2, 9, "%.3f", shm_enc->y);
+          mvprintw(2,19, "%.3f", shm_enc->a*180/M_PI);
+          move(3, 0); clrtoeol();
+          mvprintw(3, 0, "Total %.1f", shm_enc->total_travel);
+          move(5, 0); clrtoeol();
+          mvprintw(5, 0, "Voltage: %.1f", shm_enc->battery);
+          move(7, 0); clrtoeol();
+          mvprintw(7, 0, "TmpL_D %.1f  TmpR_D %.1f", shm_enc->temp_driver_L, shm_enc->temp_driver_R);
+          move(8, 0); clrtoeol();
+          mvprintw(8, 0, "TmpL_M %.1f  TmpR_M %.1f", shm_enc->temp_motor_L, shm_enc->temp_motor_R);
+          move(12, 0); clrtoeol();
+          mvprintw(12, 0, "%.3f", shm_loc->x);
+          mvprintw(12, 9, "%.3f", shm_loc->y);
+          mvprintw(12,19, "%.3f", shm_loc->a*180/M_PI);
+          refresh();
+        }
       }
     }
   }
@@ -465,7 +509,7 @@ int main(int argc, char *argv[]) {
   //----------------------------------------------------------
   //std::cerr << "Start rotation. Please hit Enter key.\n";
   //getchar();
-  std::cerr << "\033[2J" << "\033[1;1H";
+  //std::cerr << "\033[2J" << "\033[1;1H";
   double v = 0.0;
   double w = 0.0;
   ODOMETORY odo;
@@ -474,7 +518,7 @@ int main(int argc, char *argv[]) {
   tcflush(fd, TCIOFLUSH);
   DynamicWindowApproach dwa(coyomi_yaml);
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
-  std::cerr << "arrived distance: " << arrived_check_distance << "\n";
+  //std::cerr << "arrived distance: " << arrived_check_distance << "\n";
   std::vector<WAYPOINT> wp;
 #if 1
   //wp.emplace_back( 1.5,   0.0);
@@ -526,7 +570,7 @@ int main(int argc, char *argv[]) {
 #endif
   int wp_index = 0;
   //MODE = 2;
-  std::cerr << "FREE\n";
+  //std::cerr << "FREE\n";
   v = 0.0;
   w = 0.0;
   calc_vw2hex(Query_NET_ID_WRITE, v, w);
@@ -637,6 +681,8 @@ int main(int argc, char *argv[]) {
   //=====<<MAIN LOOP : END>>=====
 
 CLEANUP:
+  endwin();   // ncurses end
+  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
   // turn off exitation on RL motor
   turn_off_motors();
 
@@ -674,6 +720,10 @@ CLEANUP:
 }
 
 void sigcatch(int sig) {
+  endwin();   // ncurses end
+
+  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
+
   std::cerr << TEXT_RED;
   std::printf("Catch signal %d\n", sig);
   std::cerr << TEXT_COLOR_RESET;

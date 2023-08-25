@@ -37,4 +37,4 @@ add_executable (main main.cpp
   ${URG2D_FILES}
   )
 
-target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp)
+target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp ncurses)

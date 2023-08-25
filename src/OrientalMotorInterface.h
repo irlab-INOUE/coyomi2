@@ -89,24 +89,24 @@ void read_res(uint8_t *buf2, int length) {
 }
 
 void turn_on_motors() {
-  std::cerr << "\033[12;1H" << "Turn ON RL...";
+  //std::cerr << "\033[12;1H" << "Turn ON RL...";
   simple_send_cmd(Query_Write_Son_R, sizeof(Query_Write_Son_R));
   simple_send_cmd(Query_Write_Son_L, sizeof(Query_Write_Son_L));
-  std::cerr << "Done.\n";
+  //std::cerr << "Done.\n";
 }
 
 void turn_off_motors() {
-  std::cerr << "\033[12;1H" << "Turn OFF RL...";
+  //std::cerr << "\033[12;1H" << "Turn OFF RL...";
   simple_send_cmd(Query_Write_Soff_R, sizeof(Query_Write_Soff_R));
   simple_send_cmd(Query_Write_Soff_L, sizeof(Query_Write_Soff_L));
-  std::cerr << "Done.\n";
+  //std::cerr << "Done.\n";
 }
 
 void free_motors() {
-  std::cerr << "\033[12;1H" << "FREE RL...";
+  //std::cerr << "\033[12;1H" << "FREE RL...";
   simple_send_cmd(Query_Write_FREE_R, sizeof(Query_Write_FREE_R));
   simple_send_cmd(Query_Write_FREE_L, sizeof(Query_Write_FREE_L));
-  std::cerr << "Done.\n";
+  //std::cerr << "Done.\n";
 }
 
 void read_state(ODOMETORY &odo, const long long &ts) {
@@ -115,12 +115,40 @@ void read_state(ODOMETORY &odo, const long long &ts) {
   //read_res(buf, 17);
   send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
   read_res(buf, 57);
-#if 1
+#if 0
   std::cerr << "\033[11A";
   std::cerr << "Read state\n";
   show_state(buf, ts);
 #endif
   read_odo(buf, odo);
+
+  int OFFSET = 26;
+  int alarm_code_R     = static_cast<int>(buf[ 3] << 24 | buf[ 4] << 16 | buf[ 5] << 8 | buf[ 6]);
+  double temp_driver_R = static_cast<int>(buf[ 7] << 24 | buf[ 8] << 16 | buf[ 9] << 8 | buf[10]) * 0.1;
+  double temp_motor_R  = static_cast<int>(buf[11] << 24 | buf[12] << 16 | buf[13] << 8 | buf[14]) * 0.1;
+  int position_R       = static_cast<int>(buf[15] << 24 | buf[16] << 16 | buf[17] << 8 | buf[18]);
+  int power_R          = static_cast<int>(buf[19] << 24 | buf[20] << 16 | buf[21] << 8 | buf[22]);
+  double voltage_R     = static_cast<int>(buf[23] << 24 | buf[24] << 16 | buf[25] << 8 | buf[26]) * 0.1;
+
+  int alarm_code_L     = static_cast<int>(buf[ 3 + OFFSET] << 24 | buf[ 4 + OFFSET] << 16 | buf[ 5 + OFFSET] << 8 | buf[ 6 + OFFSET]);
+  double temp_driver_L = static_cast<int>(buf[ 7 + OFFSET] << 24 | buf[ 8 + OFFSET] << 16 | buf[ 9 + OFFSET] << 8 | buf[10 + OFFSET]) * 0.1;
+  double temp_motor_L  = static_cast<int>(buf[11 + OFFSET] << 24 | buf[12 + OFFSET] << 16 | buf[13 + OFFSET] << 8 | buf[14 + OFFSET]) * 0.1;
+  int position_L       = static_cast<int>(buf[15 + OFFSET] << 24 | buf[16 + OFFSET] << 16 | buf[17 + OFFSET] << 8 | buf[18 + OFFSET]);
+  int power_L          = static_cast<int>(buf[19 + OFFSET] << 24 | buf[20 + OFFSET] << 16 | buf[21 + OFFSET] << 8 | buf[22 + OFFSET]);
+  double voltage_L     = static_cast<int>(buf[23 + OFFSET] << 24 | buf[24 + OFFSET] << 16 | buf[25 + OFFSET] << 8 | buf[26 + OFFSET]) * 0.1;
+
+  double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double travel = (dist_L + dist_R)/2.0;
+  double rotation = (dist_R - dist_L)/WHEEL_T;
+  double voltage = (voltage_L + voltage_R)/2.0;
+
+  shm_enc->total_travel = travel;
+  shm_enc->battery = voltage;
+  shm_enc->temp_driver_R = temp_driver_R;
+  shm_enc->temp_motor_R = temp_motor_R;
+  shm_enc->temp_driver_L = temp_driver_L;
+  shm_enc->temp_motor_L = temp_motor_L;
 }
 
 void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {

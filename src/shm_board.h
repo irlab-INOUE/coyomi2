@@ -51,6 +51,11 @@ struct ENC {
 	double mx;
 	double my;
 	double mz;
+  double battery;
+  double temp_driver_R;
+  double temp_motor_R;
+  double temp_driver_L;
+  double temp_motor_L;
 };
 
 // for 2D-LIDAR
