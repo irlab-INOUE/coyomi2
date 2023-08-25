@@ -1,9 +1,9 @@
 Robot_name: Coyomi
 
 Size:
-  width: 700      #[mm]
+  width: 550      #[mm]
   length: 700     #[mm]
-  height: 1200    #[mm]
+  height: 1120    #[mm]
   weight: 70      #[kg]
 
 MapPath:
@@ -98,9 +98,9 @@ MotionControlParameter:
 
 DWA:    # Dynamic Window Approach parameters
   limit_distance: 1.0         # [m] 障害物との距離の制限
-  dv: 0.02                   # [m/s] DWの速度分解能
-  dw: 0.04                   # [rad/s] DWの角速度分解能
-  acceleration_limit: 1.0    # [m/s^2]
+  dv: 0.02                    # [m/s] DWの速度分解能
+  dw: 0.04                    # [rad/s] DWの角速度分解能
+  acceleration_limit: 1.0     # [m/s^2]
   w_acceleration_limit: 140   # [deg/s^2]
   T: 1.0						          # [s] 評価する時間
   v_max: 0.5                  # [m/s] DWの速度の上限値
