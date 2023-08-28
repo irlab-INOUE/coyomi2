@@ -100,7 +100,7 @@ std::tuple<double, double> DynamicWindowApproach::run(
       // 最近傍点との距離を測る
       for (auto np: nearby_lsp) {
         double dist = std::hypot(np.x - tmp_x, np.y - tmp_y);
-        if (min_dist > dist) {
+        if (min_dist > dist && np.th > -M_PI/4 && np.th < M_PI/4) {
           min_dist = dist;
           u_list[i].obx = np.x;
           u_list[i].oby = np.y;

@@ -1,6 +1,7 @@
 #ifndef __VIEWER_H__
 #define __VIEWER_H__
 
+#include <fstream>
 #include <opencv2/opencv.hpp>
 
 #include "yaml-cpp/yaml.h"
@@ -26,6 +27,7 @@ class Viewer {
     ~Viewer() {};
     void show();
     void show(int time);
+    void show(double x, double y, int time);
     void plot_wp(std::vector<WAYPOINT> wp_list);
     void plot_subGoal(std::vector<WAYPOINT> sub_goal);
     void plot_smoothPath(std::vector<WAYPOINT> smooth_path);

@@ -56,6 +56,7 @@ struct ENC {
   double temp_motor_R;
   double temp_driver_L;
   double temp_motor_L;
+  int current_wp_index;
 };
 
 // for 2D-LIDAR

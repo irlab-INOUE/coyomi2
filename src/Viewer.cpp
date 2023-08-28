@@ -45,26 +45,64 @@ void Viewer::show(int time) {
   double scale = 1.0;
   double length;
   if (imgMap.rows > imgMap.cols)
-    scale = imgMap.rows / 700.0;
+    scale = imgMap.rows / 600.0;
   else
-    scale = imgMap.cols / 900.0;
+    scale = imgMap.cols / 750.0;
   cv::Mat dst;
   cv::Mat acc;
   cv::resize(imgMap, dst, cv::Size(imgMap.cols/scale, imgMap.rows/scale));
   //cv::resize(AccMap, acc, cv::Size(imgMap.cols/scale, imgMap.rows/scale));
+  //cv::Mat dst = cv::Mat(imgMap, cv::Rect(0, 600, 600, 1200));
   cv::imshow("occMap", dst);
   //cv::imshow("AccMap", acc);
   cv::waitKey(time);
 }
 
+void Viewer::show(double x, double y, int time) {
+  int wx = 1000;
+  int wy = 600;
+  int cx = x / csize + originX;
+  int cy =-y / csize + originY;
+  int x0 = cx - wx/2;
+  int y0 = cy - wy/2;
+  int x1 = cx + wx/2;
+  int y1 = cy + wy/2;
+
+  if (x0 < 0) {
+    x0 = 0;
+    x1 = wx;
+    if (x1 >= imgMap.cols) x1 = imgMap.cols - 1;
+  }
+  if (x1 >= imgMap.cols) {
+    x1 = imgMap.cols - 1;
+    x0 = x1 - wx;
+    if (x0 < 0) x0 = 0;
+  }
+  if (y0 < 0) {
+    y0 = 0;
+    y1 = wy;
+    if (y1 >= imgMap.rows) y1 = imgMap.rows - 1;
+  }
+  if (y1 >= imgMap.rows) {
+    y1 = imgMap.rows - 1;
+    y0 = y1 - wy;
+    if (y0 < 0) y0 = 0;
+  }
+
+  wx = x1 - x0;
+  wy = y1 - y0;
+  cv::Mat dst = cv::Mat(imgMap, cv::Rect(x0, y0, wx, wy));
+  cv::imshow("occMap", dst);
+  cv::waitKey(time);
+}
 void Viewer::plot_wp(std::vector<WAYPOINT> wp_list) {
   for (auto wp: wp_list) {
     cv::circle(imgMap,
         cv::Point(originX + wp.x/csize, originY - wp.y/csize),
-        1.0/csize, cv::Scalar(225, 105, 65), -1, cv::LINE_8);
+        0.5/csize, cv::Scalar(225, 105, 65), -1, cv::LINE_8);
     cv::circle(imgMap,
         cv::Point(originX + wp.x/csize, originY - wp.y/csize),
-        2.0/csize, cv::Scalar(225, 105, 65), 2, cv::LINE_8);
+        1.0/csize, cv::Scalar(225, 105, 65), 2, cv::LINE_8);
   }
 }
 

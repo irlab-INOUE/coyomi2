@@ -27,8 +27,8 @@
 #include "Config.h"
 
 
-#define MAP_PATH "map/log230731_1F/"
-//#define MAP_PATH "map/log230729_2F/go/"
+//#define MAP_PATH "map/log230731_1F/"
+#define MAP_PATH "map/log230729_2F/go/"
 //#define MAP_PATH "map/log230729_2F/back/"
 
 #define N 256 	// 日時の型変換に使うバッファ数
@@ -117,7 +117,7 @@ void read_joystick(js_event &js, double &v, double &w) {
             if (v > FORWARD_MAX_SPEED) v = FORWARD_MAX_SPEED;
             break;
           case 6:
-            std::cerr << "End\n";
+            //std::cerr << "End\n";
             v = 0.0;
             w = 0.0;
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
@@ -126,7 +126,7 @@ void read_joystick(js_event &js, double &v, double &w) {
             gotoEnd = true;
             break;
           case 7:
-            std::cerr << "FREE\n";
+            //std::cerr << "FREE\n";
             v = 0.0;
             w = 0.0;
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
@@ -157,16 +157,43 @@ std::vector<WAYPOINT> wpRead(std::string wpname) {
   fn.open(wpname);
 
   WAYPOINT buf;
-  long long temp;
-  fn >> buf.x >> buf.y >> buf.a >> temp;
-  buf.stop_check = 0;
+  fn >> buf.x >> buf.y >> buf.a >> buf.stop_check;
   while (!fn.eof()) {
     wp.emplace_back(buf);
-    fn >> buf.x >> buf.y >> buf.a >> temp;
-    buf.stop_check = 0;
+    fn >> buf.x >> buf.y >> buf.a >> buf.stop_check;
   }
   std::cerr << "完了\n";
   return wp;
+}
+
+void WaypointEditor() {
+  // Reading Way Point
+  std::vector<WAYPOINT> wp;
+  wp = wpRead(std::string(MAP_PATH) + "wp.txt");
+  int wp_index = 0;
+  std::string path_to_map = std::string(MAP_PATH);
+  std::string map_name = path_to_map + "occMap.png";
+  MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+  Viewer view(map_path);                        // 現在のoccMapを表示する
+  view.hold();
+  cv::moveWindow("occMap", 400, 0);
+  while (1) {
+    view.reset();
+    view.plot_wp(wp);
+    view.show(wp[wp_index].x, wp[wp_index].y, 5);
+    std::cout << "INDEX:" << wp_index << " " << wp[wp_index].x << " " << wp[wp_index].y << "\n";
+    int key = cv::waitKey();
+    if (key == 'q') return;
+    if (key == 'n') wp_index++;
+    else if (key == 'p') wp_index--;
+    else if (key == 'r') {
+      wp = wpRead(std::string(MAP_PATH) + "wp.txt");
+      wp_index = 0;
+    }
+    if (wp_index >= wp.size()) wp_index = 0;
+    else if (wp_index < 0) wp_index = wp.size() - 1;
+    usleep(5000);
+  }
 }
 
 std::vector<pid_t> p_list;
@@ -181,7 +208,8 @@ int main(int argc, char *argv[]) {
   std::cerr << "Hello, Coyomi2" << "\n";
   std::cout << "Please select an action in following list.\n"
     << "[1]: Only localization (default)\n"
-    << " 2 : Navigation\n";
+    << " 2 : Navigation\n"
+    << " 3 : WayPoint editor\n";
   char MODE;
   while (1) {
     MODE = getchar();
@@ -193,7 +221,14 @@ int main(int argc, char *argv[]) {
       std::cout << "Hello, Coyomi2 Navigation.\n";
       break;
     }
+    else if (MODE == '3') {
+      std::cout << "Hello, Coyomi2 Waypoint editor.\n";
+      WaypointEditor();
+      return 0;
+      break;
+    }
   }
+
 
   /*
    * Configその他の読み込みセクション
@@ -317,6 +352,11 @@ int main(int argc, char *argv[]) {
   init_pair(1,COLOR_BLUE, COLOR_BLACK);
   /* -----< curses : END >----- */
 
+  // Reading Way Point
+  std::vector<WAYPOINT> wp;
+  wp = wpRead(std::string(MAP_PATH) + "wp.txt");
+  shm_enc->current_wp_index = 0;
+
   // Create the multi threads
   for (int i = 0; i < 4; i++) {
     pid_t c_pid = fork();
@@ -356,9 +396,9 @@ int main(int argc, char *argv[]) {
           shm_urg2d->r[i] = 0;
         }
 
+        std::string path = shm_logdir->path;
+        path += "/urglog";
         while(1) {
-          std::string path = shm_logdir->path;
-          path += "/urglog";
           fout_urg2d.open(path, std::ios_base::app);
           auto time_now = high_resolution_clock::now();
           long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
@@ -384,10 +424,9 @@ int main(int argc, char *argv[]) {
         }
         exit(EXIT_SUCCESS);
       } else if (i == 1) { // battery
+        std::string path = shm_logdir->path;
+        path += "/batlog";
         while (1) {
-          std::string path = shm_logdir->path;
-          path += "/batlog";
-
           bat_log.open(path, std::ios_base::app);
           auto time_now = high_resolution_clock::now();
           long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
@@ -423,11 +462,12 @@ int main(int argc, char *argv[]) {
         MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
         Viewer view(map_path);                        // 現在のoccMapを表示する
         view.hold();
-        view.show(5);
+        view.show(0, 0, 5);
         cv::moveWindow("occMap", 400, 0);
         // MCL(KLD_sampling)h 
         while(1) {
-          view.show(5);
+          view.plot_wp(wp);
+          view.show(shm_loc->x, shm_loc->y, 5);
           // 動いてなければ自己位置推定はしない
           currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
           double _rot = currentPose.a - previousPose.a;
@@ -475,29 +515,32 @@ int main(int argc, char *argv[]) {
         }
         exit(EXIT_SUCCESS);
       } else if (i == 3) { // State display
+        std::cerr << "Please waite 5 sec...";
         sleep(5);
         clear();
-        mvprintw(0, 0, "Motor Information");
+        mvprintw(0, 0, "MCL Information");
         mvprintw(1, 0, "X[m]     Y[m]      A[deg]");
-        mvprintw(10, 0, "MCL Information");
-        mvprintw(11, 0, "X[m]     Y[m]      A[deg]");
+        mvprintw(4, 0, "Motor Information");
+        mvprintw(5, 0, "X[m]     Y[m]      A[deg]");
         while (1) {
           move(2, 0); clrtoeol();
-          mvprintw(2, 0, "%.3f", shm_enc->x);
-          mvprintw(2, 9, "%.3f", shm_enc->y);
-          mvprintw(2,19, "%.3f", shm_enc->a*180/M_PI);
+          mvprintw(2, 0, "%.3f", shm_loc->x);
+          mvprintw(2, 9, "%.3f", shm_loc->y);
+          mvprintw(2,19, "%.3f", shm_loc->a*180/M_PI);
           move(3, 0); clrtoeol();
-          mvprintw(3, 0, "Total %.1f", shm_enc->total_travel);
-          move(5, 0); clrtoeol();
-          mvprintw(5, 0, "Voltage: %.1f", shm_enc->battery);
+          mvprintw(3, 0, "Current WP Index: %d", shm_enc->current_wp_index);
+          move(6, 0); clrtoeol();
+          mvprintw(6, 0, "%.3f", shm_enc->x);
+          mvprintw(6, 9, "%.3f", shm_enc->y);
+          mvprintw(6,19, "%.3f", shm_enc->a*180/M_PI);
           move(7, 0); clrtoeol();
-          mvprintw(7, 0, "TmpL_D %.1f  TmpR_D %.1f", shm_enc->temp_driver_L, shm_enc->temp_driver_R);
+          mvprintw(7, 0, "Total %.1f", shm_enc->total_travel);
           move(8, 0); clrtoeol();
-          mvprintw(8, 0, "TmpL_M %.1f  TmpR_M %.1f", shm_enc->temp_motor_L, shm_enc->temp_motor_R);
-          move(12, 0); clrtoeol();
-          mvprintw(12, 0, "%.3f", shm_loc->x);
-          mvprintw(12, 9, "%.3f", shm_loc->y);
-          mvprintw(12,19, "%.3f", shm_loc->a*180/M_PI);
+          mvprintw(8, 0, "Voltage: %.1f", shm_enc->battery);
+          move(9, 0); clrtoeol();
+          mvprintw(9, 0, "TmpL_D %.1f  TmpR_D %.1f", shm_enc->temp_driver_L, shm_enc->temp_driver_R);
+          move(10, 0); clrtoeol();
+          mvprintw(10, 0, "TmpL_M %.1f  TmpR_M %.1f", shm_enc->temp_motor_L, shm_enc->temp_motor_R);
           refresh();
         }
       }
@@ -518,59 +561,8 @@ int main(int argc, char *argv[]) {
   tcflush(fd, TCIOFLUSH);
   DynamicWindowApproach dwa(coyomi_yaml);
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
-  //std::cerr << "arrived distance: " << arrived_check_distance << "\n";
-  std::vector<WAYPOINT> wp;
-#if 1
-  //wp.emplace_back( 1.5,   0.0);
-  //wp.emplace_back( 2.5,   0.0);
-  //wp.emplace_back( 3.5,   0.0);
-  //wp.emplace_back( 4.5,   0.0);
-  wp.emplace_back( 5.5,   0.0);
-  //wp.emplace_back( 5.5, - 1.0);
-  //wp.emplace_back( 5.5, - 2.0);
-  //wp.emplace_back( 5.5, - 3.0);
-  //wp.emplace_back( 5.5, - 4.0);
-  //wp.emplace_back( 5.5, - 5.0);
-  //wp.emplace_back( 5.5, - 6.0);
-  //wp.emplace_back( 5.5, - 7.0);
-  //wp.emplace_back( 5.5, - 8.0);
-  //wp.emplace_back( 5.5, - 9.0);
-  //wp.emplace_back( 5.5, -10.0);
-  //wp.emplace_back( 5.5, -11.0);
-  wp.emplace_back( 5.5, -12.0);
-  //wp.emplace_back( 6.5, -12.0);
-  //wp.emplace_back( 7.5, -12.0);
-  //wp.emplace_back( 8.5, -12.0);
-  //wp.emplace_back( 9.5, -12.0);
-  //wp.emplace_back(10.5, -12.0);
-  wp.emplace_back(11.5, -12.0);
-  //wp.emplace_back(10.5, -12.0);
-  //wp.emplace_back( 9.5, -12.0);
-  //wp.emplace_back( 8.5, -12.0);
-  //wp.emplace_back( 7.5, -12.0);
-  //wp.emplace_back( 6.5, -12.0);
-  //wp.emplace_back( 5.5, -12.0);
-  //wp.emplace_back( 4.5, -12.0);
-  //wp.emplace_back( 3.5, -12.0);
-  //wp.emplace_back( 2.5, -12.0);
-  wp.emplace_back( 1.0, -12.5);
-  //wp.emplace_back( 2.0, -12.5);
-  //wp.emplace_back( 3.0, -12.5);
-  //wp.emplace_back( 4.0, -12.5);
-  //wp.emplace_back( 5.0, -12.5);
-  wp.emplace_back( 6.0, -12.0);
-  //wp.emplace_back( 6.0, -10.0);
-  //wp.emplace_back( 5.0, - 2.0);
-  wp.emplace_back( 5.5,   0.0);
-  wp.emplace_back( 0.0,   0.0);
-#else
-  std::cout << "wp reading...";
-  wp = wpRead(std::string(MAP_PATH) + "trajectory.txt");
-  std::cout << "done.\n";
-#endif
-  int wp_index = 0;
-  //MODE = 2;
-  //std::cerr << "FREE\n";
+
+
   v = 0.0;
   w = 0.0;
   calc_vw2hex(Query_NET_ID_WRITE, v, w);
@@ -605,10 +597,24 @@ int main(int argc, char *argv[]) {
     Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
     if (MODE == '2') {
       std::tie(v, w) = 
-        dwa.run(lsp, estimatedPose, v, w, wp[wp_index]);
+        dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
     }
-    if (std::hypot(wp[wp_index].x - estimatedPose.x, wp[wp_index].y - estimatedPose.y) < arrived_check_distance) {
-      wp_index += 1;
+    double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x, wp[shm_enc->current_wp_index].y - estimatedPose.y);
+    if (dist2wp > arrived_check_distance && dist2wp < 4*arrived_check_distance) {
+      double dwa_v = v;
+      v = v * 0.8;
+      if (v < 0.1) v = 0.1; 
+    } else
+    if (dist2wp < arrived_check_distance) {
+      if (wp[shm_enc->current_wp_index].stop_check == 1) {
+        isFREE = !isFREE;
+        free_motors();
+        while (isFREE) {
+          read_joystick(js, v, w);
+          usleep(500000);
+        }
+      }
+      shm_enc->current_wp_index += 1;
 #ifdef THETAV
       calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
       simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
@@ -626,8 +632,8 @@ int main(int argc, char *argv[]) {
       //if (isFREE) 
       //  free_motors();
     }
-    if (wp_index >= wp.size()) {
-      wp_index = 0;
+    if (shm_enc->current_wp_index >= wp.size()) {
+      shm_enc->current_wp_index = 0;
       calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
       simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
       sleep(3);
