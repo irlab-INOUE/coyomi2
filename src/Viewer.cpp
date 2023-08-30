@@ -106,6 +106,15 @@ void Viewer::plot_wp(std::vector<WAYPOINT> wp_list) {
   }
 }
 
+void Viewer::plot_current_wp(const WAYPOINT &wp) {
+  cv::circle(imgMap,
+      cv::Point(originX + wp.x/csize, originY - wp.y/csize),
+      0.5/csize, cv::Scalar(0, 0, 200), -1, cv::LINE_8);
+  cv::circle(imgMap,
+      cv::Point(originX + wp.x/csize, originY - wp.y/csize),
+      1.0/csize, cv::Scalar(0, 0, 200), 2, cv::LINE_8);
+}
+
 void Viewer::plot_subGoal(std::vector<WAYPOINT> sub_goal) {
   for (auto sg: sub_goal) {
     cv::circle(imgMap,

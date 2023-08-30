@@ -29,6 +29,7 @@ class Viewer {
     void show(int time);
     void show(double x, double y, int time);
     void plot_wp(std::vector<WAYPOINT> wp_list);
+    void plot_current_wp(const WAYPOINT &wp);
     void plot_subGoal(std::vector<WAYPOINT> sub_goal);
     void plot_smoothPath(std::vector<WAYPOINT> smooth_path);
     void robot(Pose2d pose);

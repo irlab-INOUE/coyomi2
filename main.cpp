@@ -175,6 +175,7 @@ void WaypointEditor(std::string MAP_PATH) {
   while (1) {
     view.reset();
     view.plot_wp(wp);
+    view.plot_current_wp(wp[wp_index]);
     view.show(wp[wp_index].x, wp[wp_index].y, 5);
     std::cout << "INDEX:" << wp_index << " " << wp[wp_index].x << " " << wp[wp_index].y << "\n";
     int key = cv::waitKey();
@@ -463,6 +464,7 @@ int main(int argc, char *argv[]) {
         // MCL(KLD_sampling)h 
         while(1) {
           view.plot_wp(wp);
+          view.plot_current_wp(wp[shm_enc->current_wp_index]);
           view.show(shm_loc->x, shm_loc->y, 5);
           // 動いてなければ自己位置推定はしない
           currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
