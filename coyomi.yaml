@@ -44,12 +44,12 @@ DWA:    # Dynamic Window Approach parameters
   acceleration_limit: 1.0     # [m/s^2]
   w_acceleration_limit: 140   # [deg/s^2]
   T: 1.0						          # [s] 評価する時間
-  v_max: 0.7                  # [m/s] DWの速度の上限値
+  v_max: 0.8                  # [m/s] DWの速度の上限値
   v_min: 0.0  				        # [m/s] DWの速度の下限値
   w_max: 80.0                 # [deg/s] DWの角速度の上限値
   w_min: -80.0                # [deg/s] DWの角速度の下限値
   path_divided_step: 10       # pathを離散化するステップ T/path_diveded_step
   alpha: 0.5                  # heading weight
   beta: 0.1                   # distance weight
-  gamma: 0.1                  # velocity weight
-  obstacle_size: 0.55         # [m] 障害物から離れる距離
+  gamma: 0.3                  # velocity weight
+  obstacle_size: 0.6          # [m] 障害物から離れる距離
