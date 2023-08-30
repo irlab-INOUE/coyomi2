@@ -26,11 +26,6 @@
 #include "checkDirectory.h"
 #include "Config.h"
 
-
-//#define MAP_PATH "map/log230731_1F/"
-#define MAP_PATH "map/log230729_2F/go/"
-//#define MAP_PATH "map/log230729_2F/back/"
-
 #define N 256 	// 日時の型変換に使うバッファ数
                
 int fd;
@@ -89,34 +84,24 @@ void read_joystick(js_event &js, double &v, double &w) {
 
         switch(js.number) {
           case 0:
-            std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
-            w = 0.5;
-            break;
-          case 1:
-            std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
-            w = 0.0;
-            if (v < 0.01) v = 0.1;
-            break;
-          case 2:
             std::cerr << "No." << (int)js.number << "\tStop" << std::endl;
             v = 0.0;
             w = 0.0;
             break;
-          case 3:
+          case 1:
             std::cerr << "No." << (int)js.number << "\tRight" << std::endl;
             w = -0.5;
             break;
+          case 2:
+            std::cerr << "No." << (int)js.number << "\tTurn Left" << std::endl;
+            w = 0.5;
+            break;
+          case 3:
+            std::cerr << "No." << (int)js.number << "\tFoward" << std::endl;
+            w = 0.0;
+            if (v < 0.01) v = 0.1;
+            break;
           case 4:
-            std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
-            v -= 0.1;
-            if (v < 0.0) v = 0.0;
-            break;
-          case 5:
-            std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
-            v += 0.1;
-            if (v > FORWARD_MAX_SPEED) v = FORWARD_MAX_SPEED;
-            break;
-          case 6:
             //std::cerr << "End\n";
             v = 0.0;
             w = 0.0;
@@ -125,7 +110,7 @@ void read_joystick(js_event &js, double &v, double &w) {
             usleep(1500000);
             gotoEnd = true;
             break;
-          case 7:
+          case 5:
             //std::cerr << "FREE\n";
             v = 0.0;
             w = 0.0;
@@ -137,6 +122,16 @@ void read_joystick(js_event &js, double &v, double &w) {
               free_motors();
             else 
               turn_on_motors();
+            break;
+          case 6:
+            std::cerr << "No." << (int)js.number << "\tSpeed Down" << std::endl;
+            v -= 0.1;
+            if (v < 0.0) v = 0.0;
+            break;
+          case 7:
+            std::cerr << "No." << (int)js.number << "\tSpeed Up" << std::endl;
+            v += 0.1;
+            if (v > FORWARD_MAX_SPEED) v = FORWARD_MAX_SPEED;
             break;
           default:
             break;
@@ -166,13 +161,13 @@ std::vector<WAYPOINT> wpRead(std::string wpname) {
   return wp;
 }
 
-void WaypointEditor() {
+void WaypointEditor(std::string MAP_PATH) {
   // Reading Way Point
   std::vector<WAYPOINT> wp;
-  wp = wpRead(std::string(MAP_PATH) + "wp.txt");
+  wp = wpRead(std::string(MAP_PATH) + "/" + "wp.txt");
   int wp_index = 0;
   std::string path_to_map = std::string(MAP_PATH);
-  std::string map_name = path_to_map + "occMap.png";
+  std::string map_name = path_to_map + "/" + "occMap.png";
   MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
   Viewer view(map_path);                        // 現在のoccMapを表示する
   view.hold();
@@ -187,7 +182,7 @@ void WaypointEditor() {
     if (key == 'n') wp_index++;
     else if (key == 'p') wp_index--;
     else if (key == 'r') {
-      wp = wpRead(std::string(MAP_PATH) + "wp.txt");
+      wp = wpRead(std::string(MAP_PATH) + "/" + "wp.txt");
       wp_index = 0;
     }
     if (wp_index >= wp.size()) wp_index = 0;
@@ -203,6 +198,16 @@ int main(int argc, char *argv[]) {
 		std::printf("failed to set signal handler\n");
 		exit(1);
 	}
+
+  /*
+   * Configその他の読み込みセクション
+   */
+	// coyomi.yamlに接続する
+  std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
+	YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
+  std::cerr << "coyomi.yaml is open.\n";
+  std::string MAP_PATH = coyomi_yaml["MapPath"][0]["path"].as<std::string>();
+
 
   // Mode selector
   std::cerr << "Hello, Coyomi2" << "\n";
@@ -223,20 +228,11 @@ int main(int argc, char *argv[]) {
     }
     else if (MODE == '3') {
       std::cout << "Hello, Coyomi2 Waypoint editor.\n";
-      WaypointEditor();
+      WaypointEditor(MAP_PATH);
       return 0;
       break;
     }
   }
-
-
-  /*
-   * Configその他の読み込みセクション
-   */
-	// coyomi.yamlに接続する
-  std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
-	YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
-  std::cerr << "coyomi.yaml is open.\n";
 
 
 	/**************************************************************************
@@ -354,7 +350,7 @@ int main(int argc, char *argv[]) {
 
   // Reading Way Point
   std::vector<WAYPOINT> wp;
-  wp = wpRead(std::string(MAP_PATH) + "wp.txt");
+  wp = wpRead(std::string(MAP_PATH) + "/" + "wp.txt");
   shm_enc->current_wp_index = 0;
 
   // Create the multi threads
@@ -387,7 +383,7 @@ int main(int argc, char *argv[]) {
         Urg2d urg2d;
         shm_urg2d->start_angle = -135.0;
         shm_urg2d->end_angle = 135.0;
-        shm_urg2d->step_angle = 0.25;
+        shm_urg2d->step_angle = 0.5;
         shm_urg2d->max_echo_size = 3;
         shm_urg2d->size = 
           ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1) 
@@ -408,7 +404,7 @@ int main(int argc, char *argv[]) {
             << ts << " "
             << result.size() * 3 << " " 
             << "-135" << " " << "135" << " " 
-            << "0.25" << " " << "3" << " ";
+            << "0.5" << " " << "3" << " ";
           for (auto d: result) {
             fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
           }
@@ -438,10 +434,10 @@ int main(int argc, char *argv[]) {
       } else if (i == 2) { // localization
         // Map file path
         std::string path_to_map = std::string(MAP_PATH);
-        std::string map_name = path_to_map + "occMap.png";
+        std::string map_name = path_to_map + "/" + "occMap.png";
 				map_name.copy(shm_loc->path_to_map_dir, map_name.size());
         // Likelyhood file path
-        std::string likelyhood_field = path_to_map + "lfm.txt";
+        std::string likelyhood_field = path_to_map + "/" + "lfm.txt";
         likelyhood_field.copy(shm_loc->path_to_likelyhood_field, likelyhood_field.size());
         // Initial pose 
         double initial_pose_x = 0.0;
@@ -456,7 +452,7 @@ int main(int argc, char *argv[]) {
         //std::cerr << "MCL setup...";
         MCL mcl(Pose2d(initial_pose_x, initial_pose_y, initial_pose_a));
         mcl.set_lfm(likelyhood_field);
-        mcl.set_mapInfo(path_to_map + "mapInfo.yaml");
+        mcl.set_mapInfo(path_to_map + "/" + "mapInfo.yaml");
         //std::cerr << "done.\n";
 
         MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
@@ -562,9 +558,6 @@ int main(int argc, char *argv[]) {
   DynamicWindowApproach dwa(coyomi_yaml);
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
 
-
-  v = 0.0;
-  w = 0.0;
   calc_vw2hex(Query_NET_ID_WRITE, v, w);
   simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
   usleep(1000000);
@@ -596,71 +589,80 @@ int main(int argc, char *argv[]) {
     }
     Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
     if (MODE == '2') {
-      std::tie(v, w) = 
-        dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
-    }
-    double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x, wp[shm_enc->current_wp_index].y - estimatedPose.y);
-    if (dist2wp > arrived_check_distance && dist2wp < 4*arrived_check_distance) {
-      double dwa_v = v;
-      v = v * 0.8;
-      if (v < 0.1) v = 0.1; 
-    } else
-    if (dist2wp < arrived_check_distance) {
-      if (wp[shm_enc->current_wp_index].stop_check == 1) {
-        isFREE = !isFREE;
-        free_motors();
-        while (isFREE) {
-          read_joystick(js, v, w);
-          usleep(500000);
-        }
+      double obx, oby;
+      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
+
+      if (fabs(v) < 1e-6 && fabs(w) <1e-6) {
+        if (oby >= 0) w = -M_PI/20.0;
+        else w = M_PI/20.0;
       }
-      shm_enc->current_wp_index += 1;
+
+      double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x, 
+                                  wp[shm_enc->current_wp_index].y - estimatedPose.y);
+      if (wp[shm_enc->current_wp_index].stop_check == 2) {
+        if (dist2wp > arrived_check_distance && dist2wp < 4*arrived_check_distance) {
+          double dwa_v = v;
+          v = v * 0.8;
+          if (v < 0.1) v = 0.1; 
+        } 
+      }
+      if (dist2wp < arrived_check_distance) {
+        if (wp[shm_enc->current_wp_index].stop_check == 1) {
+          isFREE = !isFREE;
+          free_motors();
+          while (isFREE) {
+            read_joystick(js, v, w);
+            usleep(500000);
+          }
+        }
+        shm_enc->current_wp_index += 1;
 #ifdef THETAV
-      calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
-      simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-      sleep(2);
-
-      std::string lx = std::to_string(estimatedPose.x);
-      std::string ly = std::to_string(estimatedPose.y);
-      std::string cmd = "./bin/capture " + lx + " " + ly;
-      int ret = std::system(cmd.c_str());
-      if (ret == -1) {
-        std::cerr << "script error" << std::endl;
-      }
-#endif
-      //isFREE = !isFREE;
-      //if (isFREE) 
-      //  free_motors();
-    }
-    if (shm_enc->current_wp_index >= wp.size()) {
-      shm_enc->current_wp_index = 0;
-      calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
-      simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-      sleep(3);
-
-      double omega = 45.0/180.0*M_PI;         // rad/s
-      double achieve_angle = 5.0/180.0*M_PI;  // rad
-      calc_vw2hex(Query_NET_ID_WRITE, 0, omega);
-      while (1) {
+        calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-        auto time_now = high_resolution_clock::now();
-        long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
-        read_state(odo, ts);
+        sleep(2);
 
-        shm_enc->ts = ts;
-        shm_enc->x = odo.rx;
-        shm_enc->y = odo.ry;
-        shm_enc->a = odo.ra;
-
-        if (fabs(shm_loc->a) < achieve_angle) {
-          calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
-          simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-          sleep(3);
-          break;
+        std::string lx = std::to_string(estimatedPose.x);
+        std::string ly = std::to_string(estimatedPose.y);
+        std::string cmd = "./bin/capture " + lx + " " + ly;
+        int ret = std::system(cmd.c_str());
+        if (ret == -1) {
+          std::cerr << "script error" << std::endl;
         }
+#endif
+        //isFREE = !isFREE;
+        //if (isFREE) 
+        //  free_motors();
       }
-      continue;
-      goto CLEANUP;
+      if (shm_enc->current_wp_index >= wp.size()) {
+        shm_enc->current_wp_index = 0;
+        calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+        sleep(3);
+
+        double omega = 45.0/180.0*M_PI;         // rad/s
+        double achieve_angle = 10.0/180.0*M_PI;  // rad
+        calc_vw2hex(Query_NET_ID_WRITE, 0, omega);
+        while (1) {
+          simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+          auto time_now = high_resolution_clock::now();
+          long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
+          read_state(odo, ts);
+
+          shm_enc->ts = ts;
+          shm_enc->x = odo.rx;
+          shm_enc->y = odo.ry;
+          shm_enc->a = odo.ra;
+
+          if (fabs(shm_loc->a) < achieve_angle) {
+            calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            sleep(3);
+            break;
+          }
+        }
+        continue;
+        //goto CLEANUP;
+      }
     }
 
     calc_vw2hex(Query_NET_ID_WRITE, v, w);

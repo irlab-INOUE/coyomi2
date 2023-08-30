@@ -7,14 +7,14 @@ Size:
   weight: 70      #[kg]
 
 MapPath:
+  -
+    path: map/log230731_1F
+    occupancy_grid_map: occMap.png
+    way_point: wp.txt
+    likelyhood_field: lfm.txt
+    mapInfo: mapInfo.yaml
   #-
-  #  path: map/RWRC2021
-  #  occupancy_grid_map: occMap2.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/RWRC2022
+  #  path: map/log230729_2F/go
   #  occupancy_grid_map: occMap.png
   #  way_point: wp.txt
   #  likelyhood_field: lfm.txt
@@ -30,65 +30,6 @@ MapPath:
   #  init_y: -4.2 # 右スタート
   #  init_y: 0.0  # 左スタート
   #  init_a: 0.0
-  ##-
-  #  path: map/RWRC2022_1022
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/EE2F
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/EE1F2OUT
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  -
-    path: map/ONCT
-    occupancy_grid_map: occMap.png
-    map_RGBA: map_RGBA.png
-    way_point: wp.txt
-    likelyhood_field: lfm.txt
-    mapInfo: mapInfo.yaml
-    init_x: 0.0
-    init_y: 0.0
-    init_a: 0.0
-  #-
-  #  path: map/EE1F
-  #  occupancy_grid_map: occMap.png
-  #  map_RGBA: map_RGBA.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/EE1F
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp1.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/EE1F
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp2.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/EE_TEST1
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/EE_TEST2
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
 
 MotionControlParameter:
   velocity_down_coefficient: 0.9      # 単位なし
@@ -111,4 +52,4 @@ DWA:    # Dynamic Window Approach parameters
   alpha: 0.5                  # heading weight
   beta: 0.1                   # distance weight
   gamma: 0.1                  # velocity weight
-  obstacle_size: 0.4          # [m] 障害物から離れる距離
+  obstacle_size: 0.55         # [m] 障害物から離れる距離

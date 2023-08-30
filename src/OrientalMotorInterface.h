@@ -145,6 +145,7 @@ void read_state(ODOMETORY &odo, const long long &ts) {
 
   shm_enc->total_travel = travel;
   shm_enc->battery = voltage;
+  shm_bat->voltage = voltage;
   shm_enc->temp_driver_R = temp_driver_R;
   shm_enc->temp_motor_R = temp_motor_R;
   shm_enc->temp_driver_L = temp_driver_L;

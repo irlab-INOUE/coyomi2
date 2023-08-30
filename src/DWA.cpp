@@ -39,7 +39,7 @@ DynamicWindowApproach::DynamicWindowApproach(YAML::Node &coyomi_yaml) {
       cv::Scalar(200, 0, 0), 1);
 }
 
-std::tuple<double, double> DynamicWindowApproach::run(
+std::tuple<double, double, double, double> DynamicWindowApproach::run(
     const std::vector<LSP> &lsp,                  // LiDARスキャンデータ
     const Pose2d pose,                            // ロボットの姿勢（グローバル座標系）
     const double robot_v, const double robot_w,   // 現在のロボットの速度
@@ -176,6 +176,8 @@ std::tuple<double, double> DynamicWindowApproach::run(
       max_eval = eval;
       best_score.v = u.v;
       best_score.w = u.w;
+      best_score.obx = u.obx;
+      best_score.oby = u.oby;
     }
   }
   // パスが生成されていない場合は動ける場所が無いので，停止指令を返す
@@ -191,9 +193,9 @@ std::tuple<double, double> DynamicWindowApproach::run(
       if (best_score.w > 0.0) best_score.w = 0;
     }
     //std::cout << "List size: " << u_list.size() << " NG path: " << ng.size() << std::endl;
-    return std::make_tuple(best_score.v, best_score.w);
+    return std::make_tuple(best_score.v, best_score.w, best_score.obx, best_score.oby);
   }
-  return std::make_tuple(best_score.v, best_score.w);
+  return std::make_tuple(best_score.v, best_score.w, best_score.obx, best_score.oby);
 }
 
 void DynamicWindowApproach::view(const Pose2d pose, const WAYPOINT target, const std::vector<LSP> &lsp) {

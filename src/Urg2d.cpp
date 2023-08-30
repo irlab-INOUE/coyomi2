@@ -7,7 +7,7 @@ Urg2d::Urg2d () {
 
   double SCAN_START_ANGLE = -135;
   double SCAN_END_ANGLE =    135;
-  for (double ang = SCAN_START_ANGLE; ang <= SCAN_END_ANGLE; ang += 0.25) {
+  for (double ang = SCAN_START_ANGLE; ang <= SCAN_END_ANGLE; ang += 0.5) {
     ang_list.emplace_back(ang*M_PI/180);
     cos_list.emplace_back(cos(ang*M_PI/180));
     sin_list.emplace_back(sin(ang*M_PI/180));
@@ -29,9 +29,9 @@ Urg2d::Urg2d () {
     sleep(1);
   }
   // 計測範囲の設定
-  urg.set_scanning_parameter(urg.deg2step(SCAN_START_ANGLE), urg.deg2step(SCAN_END_ANGLE), 0);
+  urg.set_scanning_parameter(urg.deg2step(SCAN_START_ANGLE), urg.deg2step(SCAN_END_ANGLE), 2);
   // 計測開始命令を送信
-  urg.start_measurement(qrk::Urg_driver::Distance, qrk::Urg_driver::Infinity_times, 0);
+  urg.start_measurement(qrk::Urg_driver::Distance, qrk::Urg_driver::Infinity_times, 2);
 }
 
 Urg2d::~Urg2d() {

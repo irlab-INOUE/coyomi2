@@ -13,6 +13,8 @@ struct Score {
 	double velocity;
 	double distance;
 	double score;
+  double obx;
+  double oby;
 	std::vector<Pose2d> path;
 
   Score() {
@@ -74,7 +76,7 @@ class DynamicWindowApproach {
   public:
     DynamicWindowApproach() {};
     DynamicWindowApproach(YAML::Node &coyomi_yaml);
-    std::tuple<double, double> run(const std::vector<LSP> &lsp,
+    std::tuple<double, double, double, double> run(const std::vector<LSP> &lsp,
         const Pose2d pose, const double robot_v, const double robot_w,
         const WAYPOINT target);
     void view(const Pose2d pose, const WAYPOINT target, const std::vector<LSP> &lsp);
