@@ -30,6 +30,7 @@ struct U {
   double velocity;
   double distance;
   double obstacle_distance;
+  double target_distance;
   double score;
   double obx;   // 最小距離と判断した障害物のローカル座標
   double oby;
@@ -56,6 +57,7 @@ class DynamicWindowApproach {
     double alpha;
     double beta;
     double gamma;
+    double delta;
     double obstacle_size;
     double deltaT;   //　予測ステップ時間幅
 

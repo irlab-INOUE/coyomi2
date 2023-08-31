@@ -17,6 +17,7 @@ DynamicWindowApproach::DynamicWindowApproach(YAML::Node &coyomi_yaml) {
   alpha                = coyomi_yaml["DWA"]["alpha"].as<double>();
   beta                 = coyomi_yaml["DWA"]["beta"].as<double>();
   gamma                = coyomi_yaml["DWA"]["gamma"].as<double>();
+  delta                = coyomi_yaml["DWA"]["delta"].as<double>();
   obstacle_size        = coyomi_yaml["DWA"]["obstacle_size"].as<double>();
 
   deltaT = T / path_divided_step;
@@ -83,6 +84,7 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
     if (angle < -M_PI) angle += 2*M_PI;
     if (angle >  M_PI) angle -= 2*M_PI;
     u_list[i].heading = M_PI - fabs(angle);
+    u_list[i].target_distance = std::hypot(target.x - x_dash, target.y - y_dash);
 
     // distance
     double min_dist = 9999999;
@@ -130,6 +132,23 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
       u_list[i].heading = 1.0;
     }
 	}
+	// target_distanceを規格化
+	double min_target_distance = HUGE_VALUE;
+	double max_target_distance = -HUGE_VALUE;
+  for (auto ev: u_list) {
+		if (min_target_distance > ev.target_distance) {
+			min_target_distance = ev.target_distance;
+		} else if (max_target_distance < ev.target_distance) {
+			max_target_distance = ev.target_distance;
+		}
+	}
+	for (int i = 0; i < u_list.size(); i++) {
+    if ((max_target_distance - min_target_distance) > 0.0) {
+      u_list[i].target_distance = 1.0 - (u_list[i].target_distance - min_target_distance)/(max_target_distance - min_target_distance);
+    } else {
+      u_list[i].target_distance = 0.0;
+    }
+	}
 	// velocityを規格化
 	double min_vel = HUGE_VALUE;
 	double max_vel = -HUGE_VALUE;
@@ -171,7 +190,7 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
       continue;
     }
 
-    double eval = alpha * u.heading + beta * u.distance + gamma * u.velocity;
+    double eval = alpha * u.heading + beta * u.distance + gamma * u.velocity + delta * u.target_distance;
     if (max_eval < eval) {
       max_eval = eval;
       best_score.v = u.v;
