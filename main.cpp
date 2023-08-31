@@ -10,7 +10,6 @@
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <termios.h>
@@ -180,14 +179,20 @@ void WaypointEditor(std::string MAP_PATH) {
     std::cout << "INDEX:" << wp_index << " " << wp[wp_index].x << " " << wp[wp_index].y << "\n";
     int key = cv::waitKey();
     if (key == 'q') return;
-    if (key == 'n') wp_index++;
-    else if (key == 'p') wp_index--;
-    else if (key == 'r') {
+    if (key == 'n') {
+      wp_index++;
+    } else if (key == 'p') {
+      wp_index -= 1;
+    } else if (key == 'r') {
+      wp.clear();
       wp = wpRead(std::string(MAP_PATH) + "/" + "wp.txt");
       wp_index = 0;
     }
-    if (wp_index >= wp.size()) wp_index = 0;
-    else if (wp_index < 0) wp_index = wp.size() - 1;
+    if (wp_index >= static_cast<int>(wp.size())) {
+      wp_index = 0;
+    } else if (wp_index < 0) {
+      wp_index = static_cast<int>(wp.size()) - 1;
+    }
     usleep(5000);
   }
 }
@@ -200,6 +205,8 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
+  int CURRENT_MAP_PATH_INDEX = 0;
+  if (argc > 1) CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
   /*
    * Configその他の読み込みセクション
    */
@@ -207,8 +214,7 @@ int main(int argc, char *argv[]) {
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
 	YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
   std::cerr << "coyomi.yaml is open.\n";
-  std::string MAP_PATH = coyomi_yaml["MapPath"][0]["path"].as<std::string>();
-
+  std::string MAP_PATH = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
 
   // Mode selector
   std::cerr << "Hello, Coyomi2" << "\n";
@@ -234,7 +240,6 @@ int main(int argc, char *argv[]) {
       break;
     }
   }
-
 
 	/**************************************************************************
 		共有メモリの確保
@@ -280,7 +285,6 @@ int main(int argc, char *argv[]) {
 	} else {
 		std::cerr << "ログは保管しません\n";
 	}
-
 
   if((fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
@@ -351,7 +355,7 @@ int main(int argc, char *argv[]) {
 
   // Reading Way Point
   std::vector<WAYPOINT> wp;
-  wp = wpRead(std::string(MAP_PATH) + "/" + "wp.txt");
+  wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
   shm_enc->current_wp_index = 0;
 
   // Create the multi threads
@@ -403,7 +407,7 @@ int main(int argc, char *argv[]) {
           //urg2d.view(5);
           fout_urg2d << "LASERSCANRT" << " " 
             << ts << " "
-            << result.size() * 3 << " " 
+            << static_cast<int>(result.size()) * 3 << " " 
             << "-135" << " " << "135" << " " 
             << "0.5" << " " << "3" << " ";
           for (auto d: result) {
@@ -434,33 +438,29 @@ int main(int argc, char *argv[]) {
         exit(EXIT_SUCCESS);
       } else if (i == 2) { // localization
         // Map file path
-        std::string path_to_map = std::string(MAP_PATH);
-        std::string map_name = path_to_map + "/" + "occMap.png";
-				map_name.copy(shm_loc->path_to_map_dir, map_name.size());
+        std::string MAP_NAME = MAP_PATH + "/" + coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+				MAP_NAME.copy(shm_loc->path_to_map_dir, MAP_NAME.size());
         // Likelyhood file path
-        std::string likelyhood_field = path_to_map + "/" + "lfm.txt";
-        likelyhood_field.copy(shm_loc->path_to_likelyhood_field, likelyhood_field.size());
+        std::string LIKELYHOOD_FIELD = MAP_PATH + "/" + coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
+        LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
         // Initial pose 
         double initial_pose_x = 0.0;
         double initial_pose_y = 0.0;
         double initial_pose_a = 0.0;
 
         shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
-        //std::cerr << "初期姿勢を" << shm_loc->x << "," << shm_loc->y << "," << shm_loc->a << "に設定\n";
         Pose2d currentPose(0.0, 0.0, 0.0);
         Pose2d previousPose = currentPose;
         // パーティクル初期配置
-        //std::cerr << "MCL setup...";
         MCL mcl(Pose2d(initial_pose_x, initial_pose_y, initial_pose_a));
-        mcl.set_lfm(likelyhood_field);
-        mcl.set_mapInfo(path_to_map + "/" + "mapInfo.yaml");
-        //std::cerr << "done.\n";
+        mcl.set_lfm(shm_loc->path_to_likelyhood_field);
+        mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
-        MapPath map_path(path_to_map, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+        MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
         Viewer view(map_path);                        // 現在のoccMapを表示する
         view.hold();
         view.show(0, 0, 5);
-        cv::moveWindow("occMap", 400, 0);
+        cv::moveWindow("occMap", 700, 0);
         // MCL(KLD_sampling)h 
         while(1) {
           view.plot_wp(wp);
@@ -641,6 +641,14 @@ int main(int argc, char *argv[]) {
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
         sleep(3);
 
+        CURRENT_MAP_PATH_INDEX++;
+        if (CURRENT_MAP_PATH_INDEX > 0) {
+          CURRENT_MAP_PATH_INDEX = 0;
+        } else {
+          // Change current map
+        }
+
+#if 0
         double omega = 45.0/180.0*M_PI;         // rad/s
         double achieve_angle = 10.0/180.0*M_PI;  // rad
         calc_vw2hex(Query_NET_ID_WRITE, 0, omega);
@@ -662,11 +670,16 @@ int main(int argc, char *argv[]) {
             break;
           }
         }
+#endif
         continue;
         //goto CLEANUP;
       }
     }
 
+    if (isFREE) {
+      v = 0.0;
+      w = 0.0;
+    }
     calc_vw2hex(Query_NET_ID_WRITE, v, w);
     simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
     auto time_now = high_resolution_clock::now();
@@ -742,8 +755,9 @@ void sigcatch(int sig) {
     kill(pid, SIGKILL);
   }
   pid_t wait_pid;
-  while ((wait_pid = wait(nullptr)) > 0)
-    std::cout << "wait:" << wait_pid << "\n";
+  while ((wait_pid = wait(nullptr)) > 0) {
+    // std::cout << "wait:" << wait_pid << "\n";
+  }
 
   pid_t pid = getpid();
   std::cout << "If main can't stop, execute next command " << TEXT_GREEN << "**kill " << pid << "** "
