@@ -35,6 +35,7 @@ URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 LOC *shm_loc        = nullptr;
 LOGDIR *shm_logdir  = nullptr;
+DISPLAY *shm_disp   = nullptr;
 
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
@@ -250,6 +251,7 @@ int main(int argc, char *argv[]) {
 	shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
 	shm_loc        =        (LOC *)shmAt(KEY_LOC, sizeof(LOC));
 	shm_logdir     =     (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
+  shm_disp       =    (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
 	/***************************************************************************
     LOG保管場所を作成する
@@ -385,10 +387,9 @@ int main(int argc, char *argv[]) {
       p_list.emplace_back(c_pid);
     } else {
       if (i == 0) {       // 2d-lidar
-        Urg2d urg2d;
-        shm_urg2d->start_angle = -135.0;
-        shm_urg2d->end_angle = 135.0;
-        shm_urg2d->step_angle = 0.5;
+        shm_urg2d->start_angle = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
+        shm_urg2d->end_angle   = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
+        shm_urg2d->step_angle  = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
         shm_urg2d->max_echo_size = 3;
         shm_urg2d->size = 
           ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1) 
@@ -396,6 +397,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < shm_urg2d->size; i++) {
           shm_urg2d->r[i] = 0;
         }
+        Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
 
         std::string path = shm_logdir->path;
         path += "/urglog";
@@ -408,8 +410,11 @@ int main(int argc, char *argv[]) {
           fout_urg2d << "LASERSCANRT" << " " 
             << ts << " "
             << static_cast<int>(result.size()) * 3 << " " 
-            << "-135" << " " << "135" << " " 
-            << "0.5" << " " << "3" << " ";
+            << 
+            std::to_string(shm_urg2d->start_angle) << " "
+            << std::to_string(shm_urg2d->end_angle) << " " 
+            << std::to_string(shm_urg2d->step_angle) << " "
+            << "3" << " ";
           for (auto d: result) {
             fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
           }
@@ -434,6 +439,7 @@ int main(int argc, char *argv[]) {
           bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
           sleep(1);
           bat_log.close();
+          shm_disp->battery = shm_bat->voltage;
         }
         exit(EXIT_SUCCESS);
       } else if (i == 2) { // localization
@@ -477,7 +483,7 @@ int main(int argc, char *argv[]) {
             double th = shm_urg2d->start_angle * M_PI/180.0;
             double dth = shm_urg2d->step_angle * M_PI/180.0;
             for (int k = 0; k < shm_urg2d->size; k++) {
-              lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, th);
+              lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, th, cos(th), sin(th));
               th += dth;
             }
             mcl.KLD_sampling(lsp, currentPose, previousPose);
@@ -516,29 +522,43 @@ int main(int argc, char *argv[]) {
         std::cerr << "Please waite 5 sec...";
         sleep(5);
         clear();
-        mvprintw(0, 0, "MCL Information");
-        mvprintw(1, 0, "X[m]     Y[m]      A[deg]");
-        mvprintw(4, 0, "Motor Information");
-        mvprintw(5, 0, "X[m]     Y[m]      A[deg]");
+        int ROW_MCL = 0;
+        int ROW_MOTOR = 7;
+        int ROW_TOTAL_TRAVEL = 14;
+        mvprintw(ROW_MCL,     0, "MCL Information");
+        mvprintw(ROW_MCL+1,   0, "X[m]     Y[m]      A[deg]");
+        mvprintw(ROW_MOTOR,   0, "Motor Information");
+        mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
         while (1) {
-          move(2, 0); clrtoeol();
-          mvprintw(2, 0, "%.3f", shm_loc->x);
-          mvprintw(2, 9, "%.3f", shm_loc->y);
-          mvprintw(2,19, "%.3f", shm_loc->a*180/M_PI);
-          move(3, 0); clrtoeol();
-          mvprintw(3, 0, "Current WP Index: %d", shm_enc->current_wp_index);
-          move(6, 0); clrtoeol();
-          mvprintw(6, 0, "%.3f", shm_enc->x);
-          mvprintw(6, 9, "%.3f", shm_enc->y);
-          mvprintw(6,19, "%.3f", shm_enc->a*180/M_PI);
-          move(7, 0); clrtoeol();
-          mvprintw(7, 0, "Total %.1f", shm_enc->total_travel);
-          move(8, 0); clrtoeol();
-          mvprintw(8, 0, "Voltage: %.1f", shm_enc->battery);
-          move(9, 0); clrtoeol();
-          mvprintw(9, 0, "TmpL_D %.1f  TmpR_D %.1f", shm_enc->temp_driver_L, shm_enc->temp_driver_R);
-          move(10, 0); clrtoeol();
-          mvprintw(10, 0, "TmpL_M %.1f  TmpR_M %.1f", shm_enc->temp_motor_L, shm_enc->temp_motor_R);
+          shm_disp->temp_driver_L = shm_enc->temp_driver_L;
+          shm_disp->temp_driver_R = shm_enc->temp_driver_R;
+          shm_disp->temp_motor_L = shm_enc->temp_motor_L;
+          shm_disp->temp_motor_R = shm_enc->temp_motor_R;
+
+          move(ROW_MCL+2, 0); clrtoeol();
+          mvprintw(ROW_MCL+2, 0, "%.3f", shm_disp->loc_x);
+          mvprintw(ROW_MCL+2, 9, "%.3f", shm_disp->loc_y);
+          mvprintw(ROW_MCL+2,19, "%.3f", shm_disp->loc_a*180/M_PI);
+          move(ROW_MCL+3, 0); clrtoeol();
+          printw("Current WP Index: %d", shm_disp->current_wp_index);
+          move(ROW_MCL+4, 0); clrtoeol();
+          printw("v: %.2f  w: %.2f", shm_disp->v, shm_disp->w);
+          move(ROW_MCL+5, 0); clrtoeol();
+          printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
+              atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
+          move(ROW_MOTOR+2, 0); clrtoeol();
+          mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
+          mvprintw(ROW_MOTOR+2, 9, "%.3f", shm_disp->enc_y);
+          mvprintw(ROW_MOTOR+2,19, "%.3f", shm_disp->enc_a*180/M_PI);
+          move(ROW_MOTOR+3, 0); clrtoeol();
+          printw("Voltage: %.1f", shm_disp->battery);
+          move(ROW_MOTOR+4, 0); clrtoeol();
+          printw("TmpL_D %.1f  TmpR_D %.1f", shm_disp->temp_driver_L, shm_disp->temp_driver_R);
+          move(ROW_MOTOR+5, 0); clrtoeol();
+          printw("TmpL_M %.1f  TmpR_M %.1f", shm_disp->temp_motor_L, shm_disp->temp_motor_R);
+
+          move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
+          printw("Total %.1f", shm_disp->total_travel);
           refresh();
         }
       }
@@ -577,7 +597,12 @@ int main(int argc, char *argv[]) {
     shm_enc->x = odo.rx;
     shm_enc->y = odo.ry;
     shm_enc->a = odo.ra;
+
+    shm_disp->enc_x = odo.rx;
+    shm_disp->enc_y = odo.ry;
+    shm_disp->enc_a = odo.ra;
   }
+
   while(1) {
     read_joystick(js, v, w);
     if (gotoEnd) goto CLEANUP;
@@ -586,18 +611,22 @@ int main(int argc, char *argv[]) {
     double th = shm_urg2d->start_angle * M_PI/180.0;
     double dth = shm_urg2d->step_angle * M_PI/180.0;
     for (int k = 0; k < shm_urg2d->size; k++) {
-      lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, th);
+      lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, th, cos(th), sin(th));
       th += dth;
     }
     Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
     if (MODE == '2') {
       double obx, oby;
       std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
+      shm_disp->min_obstacle_x = obx;
+      shm_disp->min_obstacle_y = oby;
 
+#if 1
       if (fabs(v) < 1e-6 && fabs(w) <1e-6) {
         if (oby >= 0) w = -M_PI/20.0;
         else w = M_PI/20.0;
       }
+#endif
 
       double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x, 
                                   wp[shm_enc->current_wp_index].y - estimatedPose.y);
@@ -691,6 +720,17 @@ int main(int argc, char *argv[]) {
     shm_enc->y = odo.ry;
     shm_enc->a = odo.ra;
 
+    shm_disp->enc_x = odo.rx;
+    shm_disp->enc_y = odo.ry;
+    shm_disp->enc_a = odo.ra;
+    shm_disp->loc_x = shm_loc->x;
+    shm_disp->loc_y = shm_loc->y;
+    shm_disp->loc_a = shm_loc->a;
+    shm_disp->total_travel = shm_enc->total_travel;
+    shm_disp->current_wp_index = shm_enc->current_wp_index;
+    shm_disp->v = v;
+    shm_disp->w = w;
+
     std::string path = shm_logdir->path;
     path += "/enclog";
     enc_log.open(path, std::ios_base::app);
@@ -729,6 +769,7 @@ CLEANUP:
 	shmdt(shm_bat);
 	shmdt(shm_loc);
 	shmdt(shm_logdir);
+	shmdt(shm_disp);
 	int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
@@ -737,6 +778,8 @@ CLEANUP:
 	shmctl(keyID, IPC_RMID, nullptr);
 	std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
 	keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+	keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 
   return 0;
@@ -784,6 +827,7 @@ void sigcatch(int sig) {
   shmdt(shm_bat);
 	shmdt(shm_loc);
 	shmdt(shm_logdir);
+	shmdt(shm_disp);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT);
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT);
@@ -791,6 +835,8 @@ void sigcatch(int sig) {
 	keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 	keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT);
+	shmctl(keyID, IPC_RMID, nullptr);
+	keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT);
 	shmctl(keyID, IPC_RMID, nullptr);
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;

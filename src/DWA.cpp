@@ -19,6 +19,8 @@ DynamicWindowApproach::DynamicWindowApproach(YAML::Node &coyomi_yaml) {
   gamma                = coyomi_yaml["DWA"]["gamma"].as<double>();
   delta                = coyomi_yaml["DWA"]["delta"].as<double>();
   obstacle_size        = coyomi_yaml["DWA"]["obstacle_size"].as<double>();
+  step_angle           = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
+  DT                   = coyomi_yaml["DWA"]["DW_TIME"].as<double>();
 
   deltaT = T / path_divided_step;
 
@@ -46,20 +48,43 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
     const double robot_v, const double robot_w,   // 現在のロボットの速度
     const WAYPOINT target                         // 現在のターゲット座標（グローバル座標系）
     ) {
+
+#if 0
+  // check right and left distance
+  double l1 = lsp[(-90 - (-135))/step_angle].r;
+  double l180 = lsp[(90 - (-135))/step_angle].r;
+  if ((l1  + l180) < (0.5 + 0.2)) {
+    if (l1 > l180) 
+      return std::make_tuple(0.0, -M_PI/20, 0.0, l180);
+    else
+      return std::make_tuple(0.0,  M_PI/20, 0.0, -l1);
+  }
+#endif
+
   // urgの近傍点リストを作成 local coordinate
   nearby_lsp.clear();
+  double min_distance_to_obstacle = 9999999;
+  double min_obx = 0;
+  double min_oby = 0;
   for (auto l: lsp) {
-    if (l.r < limit_distance) {
+    if (l.r < limit_distance && l.th > -M_PI/4 && l.th < M_PI/4) {
       nearby_lsp.emplace_back(l);
+      if (l.r < min_distance_to_obstacle) {
+        min_distance_to_obstacle = l.r;
+        min_obx = l.x;
+        min_oby = l.y;
+      }
     }
   }
 
   // 現在の速度を中心としてDynamicWindowを形成する
   std::vector<U> u_list;
-  double DT = 0.1;
   for (double v = fmax(v_min, robot_v - acceleration_limit*DT); v < fmin(v_max, robot_v + acceleration_limit*DT); v += dv) {
     for (double w = fmax(w_min, robot_w - w_acceleration_limit*DT); w < fmin(w_max, robot_w + w_acceleration_limit*DT); w += dw) {
-      u_list.emplace_back(v, w);
+      if (v <= sqrt(2*min_distance_to_obstacle*acceleration_limit)  && w <= sqrt(2*min_distance_to_obstacle*w_acceleration_limit))
+        u_list.emplace_back(v, w);
+      else 
+        continue;
     }
   }
   // (u.v, u.w) の場合にT秒後の自分のグローバルな姿勢を計算する
@@ -91,7 +116,7 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
     double tmp_x = 0;
     double tmp_y = 0;
     double tmp_a = 0;
-    for (double t = 0; t < T; t += deltaT) {
+    for (double t = deltaT; t < T; t += deltaT) {
       if (fabs(uw) < 1e-6) {
         tmp_x += uv * deltaT;
       } else {
@@ -212,7 +237,8 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
       if (best_score.w > 0.0) best_score.w = 0;
     }
     //std::cout << "List size: " << u_list.size() << " NG path: " << ng.size() << std::endl;
-    return std::make_tuple(best_score.v, best_score.w, best_score.obx, best_score.oby);
+    return std::make_tuple(best_score.v, best_score.w, min_obx, min_oby);
+    //return std::make_tuple(-0.1, 0.0, best_score.obx, best_score.oby);
   }
   return std::make_tuple(best_score.v, best_score.w, best_score.obx, best_score.oby);
 }

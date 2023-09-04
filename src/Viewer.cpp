@@ -45,9 +45,9 @@ void Viewer::show(int time) {
   double scale = 1.0;
   double length;
   if (imgMap.rows > imgMap.cols)
-    scale = imgMap.rows / 600.0;
+    scale = imgMap.rows / 500.0;
   else
-    scale = imgMap.cols / 750.0;
+    scale = imgMap.cols / 650.0;
   cv::Mat dst;
   cv::Mat acc;
   cv::resize(imgMap, dst, cv::Size(imgMap.cols/scale, imgMap.rows/scale));

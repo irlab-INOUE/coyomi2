@@ -19,12 +19,12 @@ class LSP {
     double y;
 
     LSP() {;};
-    LSP(long vd, double vr, double vth) {
+    LSP(long vd, double vr, double vth, double cs, double sn) {
       this->data = vd;  // [mm]
       this->r = vr;     // [m]
       this->th = vth;   // [rad]
-      this->x = vr * cos(vth);  // [m]
-      this->y = vr * sin(vth);  // [m]
+      this->x = vr * cs;  // [m]
+      this->y = vr * sn;  // [m]
     };
     LSP(const LSP &lp) {
       data = lp.data;
@@ -48,7 +48,7 @@ class Urg2d {
     const double csize = 6.0/600;
     cv::Mat baseImg;
   public:
-    Urg2d();
+    Urg2d(double, double, double);
     ~Urg2d();
     std::vector<LSP> getData();
     std::vector<LSP> getData(const cv::Mat &imgMap, const Pose2d &pose,

@@ -1,13 +1,13 @@
 #include "Urg2d.h"
 
-Urg2d::Urg2d () {
+Urg2d::Urg2d (double start_angle, double end_angle, double step_angle) {
   baseImg = cv::Mat(cv::Size(600, 600), CV_8UC3, cv::Scalar(182, 182, 182));
   cv::line(baseImg, cv::Point(IMG_ORIGIN_X, 0), cv::Point(IMG_ORIGIN_X, baseImg.rows), cv::Scalar(0, 0, 0), 1);
   cv::line(baseImg, cv::Point(0, IMG_ORIGIN_Y), cv::Point(baseImg.cols, IMG_ORIGIN_Y), cv::Scalar(0, 0, 0), 1);
 
-  double SCAN_START_ANGLE = -135;
-  double SCAN_END_ANGLE =    135;
-  for (double ang = SCAN_START_ANGLE; ang <= SCAN_END_ANGLE; ang += 0.5) {
+  double SCAN_START_ANGLE = start_angle;
+  double SCAN_END_ANGLE =    end_angle;
+  for (double ang = SCAN_START_ANGLE; ang <= SCAN_END_ANGLE; ang += step_angle) {
     ang_list.emplace_back(ang*M_PI/180);
     cos_list.emplace_back(cos(ang*M_PI/180));
     sin_list.emplace_back(sin(ang*M_PI/180));
@@ -29,9 +29,9 @@ Urg2d::Urg2d () {
     sleep(1);
   }
   // 計測範囲の設定
-  urg.set_scanning_parameter(urg.deg2step(SCAN_START_ANGLE), urg.deg2step(SCAN_END_ANGLE), 2);
+  urg.set_scanning_parameter(urg.deg2step(SCAN_START_ANGLE), urg.deg2step(SCAN_END_ANGLE), 0);//static_cast<int>(step_angle/0.25));
   // 計測開始命令を送信
-  urg.start_measurement(qrk::Urg_driver::Distance, qrk::Urg_driver::Infinity_times, 2);
+  urg.start_measurement(qrk::Urg_driver::Distance, qrk::Urg_driver::Infinity_times, 0);//static_cast<int>(step_angle/0.25));
 }
 
 Urg2d::~Urg2d() {
@@ -50,7 +50,7 @@ std::vector<LSP> Urg2d::getData() {
   }
   store_data.clear();
   for (int k = 0; k < data.size(); k++) {
-    store_data.emplace_back(data[k], data[k]/1000.0, ang_list[k]);
+    store_data.emplace_back(data[k], data[k]/1000.0, ang_list[k], cos_list[k], sin_list[k]);
   }
   return store_data;
 }
@@ -67,7 +67,7 @@ std::vector<LSP> Urg2d::getData(
       int cy = originY - (pose.y + r * sin(ang_list[i] + pose.a))/csize;
       // (cx, cy)の画素値をチェック
       if (r < 35 && imgMap_original.at<cv::Vec3b>(cy, cx)[0] < 50) {
-        data.emplace_back(r*1000, r, ang_list[i]);
+        data.emplace_back(r*1000, r, ang_list[i], cos_list[i], sin_list[i]);
         break;
       }
     }

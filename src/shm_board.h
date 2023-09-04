@@ -166,4 +166,26 @@ struct BAT {
   double voltage;
 };
 
+// for DISPLAY
+#define KEY_DISPLAY 1301
+struct DISPLAY {
+  double enc_x;
+  double enc_y;
+  double enc_a;
+  double loc_x;
+  double loc_y;
+  double loc_a;
+  double total_travel;
+  double battery;
+  double temp_driver_L;
+  double temp_driver_R;
+  double temp_motor_L;
+  double temp_motor_R;
+  int current_wp_index;
+  double v;
+  double w;
+  double min_obstacle_x;
+  double min_obstacle_y;
+};
+
 #endif // COYOMI_INCLUDE_SHM_BOARD_H

@@ -60,6 +60,8 @@ class DynamicWindowApproach {
     double delta;
     double obstacle_size;
     double deltaT;   //　予測ステップ時間幅
+    double step_angle;
+    double DT;
 
     // Viewer用の設定
     double REAL_WIDTH;
