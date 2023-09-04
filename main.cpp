@@ -26,7 +26,7 @@
 #include "Config.h"
 
 #define N 256 	// 日時の型変換に使うバッファ数
-               
+
 int fd;
 int fd_js;    // file descriptor to joystick
 // 共有したい構造体毎にアドレスを割り当てる
@@ -118,9 +118,9 @@ void read_joystick(js_event &js, double &v, double &w) {
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
             usleep(1000000);
             isFREE = !isFREE;
-            if (isFREE) 
+            if (isFREE)
               free_motors();
-            else 
+            else
               turn_on_motors();
             break;
           case 6:
@@ -391,8 +391,8 @@ int main(int argc, char *argv[]) {
         shm_urg2d->end_angle   = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
         shm_urg2d->step_angle  = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
         shm_urg2d->max_echo_size = 3;
-        shm_urg2d->size = 
-          ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1) 
+        shm_urg2d->size =
+          ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1)
           * shm_urg2d->max_echo_size;
         for (int i = 0; i < shm_urg2d->size; i++) {
           shm_urg2d->r[i] = 0;
@@ -407,12 +407,12 @@ int main(int argc, char *argv[]) {
           long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
           std::vector<LSP> result = urg2d.getData();
           //urg2d.view(5);
-          fout_urg2d << "LASERSCANRT" << " " 
+          fout_urg2d << "LASERSCANRT" << " "
             << ts << " "
-            << static_cast<int>(result.size()) * 3 << " " 
-            << 
+            << static_cast<int>(result.size()) * 3 << " "
+            <<
             std::to_string(shm_urg2d->start_angle) << " "
-            << std::to_string(shm_urg2d->end_angle) << " " 
+            << std::to_string(shm_urg2d->end_angle) << " "
             << std::to_string(shm_urg2d->step_angle) << " "
             << "3" << " ";
           for (auto d: result) {
@@ -449,7 +449,7 @@ int main(int argc, char *argv[]) {
         // Likelyhood file path
         std::string LIKELYHOOD_FIELD = MAP_PATH + "/" + coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
         LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
-        // Initial pose 
+        // Initial pose
         double initial_pose_x = 0.0;
         double initial_pose_y = 0.0;
         double initial_pose_a = 0.0;
@@ -467,7 +467,7 @@ int main(int argc, char *argv[]) {
         view.hold();
         view.show(0, 0, 5);
         cv::moveWindow("occMap", 700, 0);
-        // MCL(KLD_sampling)h 
+        // MCL(KLD_sampling)h
         while(1) {
           view.plot_wp(wp);
           view.plot_current_wp(wp[shm_enc->current_wp_index]);
@@ -506,8 +506,8 @@ int main(int argc, char *argv[]) {
           mcl_log.open(path, std::ios_base::app);
           auto time_now = high_resolution_clock::now();
           long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
-          mcl_log 
-            << ts << " " 
+          mcl_log
+            << ts << " "
             << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
             << particle.size() << " "
             << "end" << "\n";
@@ -628,14 +628,14 @@ int main(int argc, char *argv[]) {
       }
 #endif
 
-      double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x, 
+      double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
                                   wp[shm_enc->current_wp_index].y - estimatedPose.y);
       if (wp[shm_enc->current_wp_index].stop_check == 2) {
         if (dist2wp > arrived_check_distance && dist2wp < 4*arrived_check_distance) {
           double dwa_v = v;
           v = v * 0.8;
-          if (v < 0.1) v = 0.1; 
-        } 
+          if (v < 0.1) v = 0.1;
+        }
       }
       if (dist2wp < arrived_check_distance) {
         if (wp[shm_enc->current_wp_index].stop_check == 1) {
@@ -661,7 +661,7 @@ int main(int argc, char *argv[]) {
         }
 #endif
         //isFREE = !isFREE;
-        //if (isFREE) 
+        //if (isFREE)
         //  free_motors();
       }
       if (shm_enc->current_wp_index >= wp.size()) {
@@ -734,8 +734,8 @@ int main(int argc, char *argv[]) {
     std::string path = shm_logdir->path;
     path += "/enclog";
     enc_log.open(path, std::ios_base::app);
-    enc_log 
-      << ts << " " 
+    enc_log
+      << ts << " "
       << odo.rx << " " << odo.ry << " " << odo.ra << " "
       << v << " " << w << " "
       << "end" << "\n";
