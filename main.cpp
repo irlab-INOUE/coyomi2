@@ -623,8 +623,9 @@ int main(int argc, char *argv[]) {
 
 #if 1
       if (fabs(v) < 1e-6 && fabs(w) <1e-6) {
-        if (oby >= 0) w = -M_PI/20.0;
-        else w = M_PI/20.0;
+        if (oby >= 0) w = -M_PI/8.0;
+        else w = M_PI/8.0;
+        //4sleep(1);
       }
 #endif
 
