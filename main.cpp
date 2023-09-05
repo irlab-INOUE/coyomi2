@@ -35,8 +35,8 @@ URG2D *shm_urg2d    = nullptr;
 BAT *shm_bat        = nullptr;
 LOC *shm_loc        = nullptr;
 LOGDIR *shm_logdir  = nullptr;
-DISPLAY *shm_disp   = nullptr;
 WP_LIST *shm_wp_list = nullptr;
+DISPLAY *shm_disp   = nullptr;
 
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
@@ -162,12 +162,12 @@ std::vector<WAYPOINT> wpRead(std::string wpname) {
   return wp;
 }
 
-void WaypointEditor(std::string MAP_PATH) {
+void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_NAME) {
   // Reading Way Point
   std::vector<WAYPOINT> wp;
-  wp = wpRead(MAP_PATH + "/" + "wp.txt");
+  wp = wpRead(MAP_PATH + "/" + WP_NAME);
   int wp_index = 0;
-  std::string map_name = MAP_PATH + "/" + "occMap.png";
+  std::string map_name = MAP_PATH + "/" + OCC_NAME;
   MapPath map_path(MAP_PATH, map_name, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
   Viewer view(map_path);                        // 現在のoccMapを表示する
   view.hold();
@@ -234,7 +234,13 @@ int main(int argc, char *argv[]) {
     }
     else if (MODE == '3') {
       std::cout << "Hello, Coyomi2 Waypoint editor.\n";
-      WaypointEditor("wp.txt");
+      int CURRENT_MAP_PATH_INDEX;
+      std::cout << "Input CURRENT_MAP_PATH_INDEX number >> ";
+      std::cin >> CURRENT_MAP_PATH_INDEX;
+      std::string MAP_PATH = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+      std::string WP_NAME = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>();
+      std::string OCC_NAME = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+      WaypointEditor(MAP_PATH, WP_NAME, OCC_NAME);
       return 0;
       break;
     }
@@ -704,7 +710,7 @@ int main(int argc, char *argv[]) {
         shm_enc->current_wp_index = 0;
         calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-        sleep(3);
+        sleep(1);
 
         // Change current map
         shm_loc->CURRENT_MAP_PATH_INDEX++;
@@ -722,8 +728,8 @@ int main(int argc, char *argv[]) {
           shm_wp_list->wp_list[i].a = wp[i].a;
           shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
         }
-        shm_enc->current_wp_index = 0;
-        shm_loc->change_map_trigger = ChangeMapTrigger::kChange;	// 地図・初期位置のリセットトリガー
+        // 地図・初期位置のリセットトリガー
+        shm_loc->change_map_trigger = ChangeMapTrigger::kChange;
         while(shm_loc->change_map_trigger == ChangeMapTrigger::kChange) {
           usleep(100000);
         }
