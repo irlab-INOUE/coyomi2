@@ -10,6 +10,9 @@ struct WAYPOINT {
   int stop_check;
 
   WAYPOINT() { ; };
+  WAYPOINT(double vx, double vy, double va, int stop) {
+    x = vx; y = vy; a = va; stop_check = stop;
+  };
   WAYPOINT(double vx, double vy) {
     x = vx;
     y = vy;

@@ -10,7 +10,7 @@ MapPath:
   -
     path: map/log230731_1F
     occupancy_grid_map: occMap.png
-    way_point: wp.txt
+    way_point: wp_elev_test.txt
     likelyhood_field: lfm.txt
     mapInfo: mapInfo.yaml
   -
@@ -61,7 +61,7 @@ DWA:    # Dynamic Window Approach parameters
   w_min: -100.0               # [deg/s] DWの角速度の下限値
   path_divided_step: 10       # pathを離散化するステップ T/path_diveded_step
   alpha: 0.5                  # heading weight
-  beta: 0.2                   # distance weight
+  beta: 0.3                   # distance weight
   gamma: 0.1                  # velocity weight
   delta: 0.2                  # target distance weight
   obstacle_size: 0.6          # [m] 障害物から離れる距離

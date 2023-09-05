@@ -120,7 +120,7 @@ struct CTRL {
 };
 
 // for ROUTE_LIST
-#define KEY_ROUTE_LIST 1288
+#define KEY_WP_LIST 1288
 enum class ChangeWPTrigger {
 	kContinue = 0,
 	kChange = 1,
@@ -129,8 +129,9 @@ struct ROUTE_POINT {
 	double x;
 	double y;
 	double a;
+  int stop_check;
 };
-struct ROUTE_LIST {
+struct WP_LIST {
 	char path_to_wp_file[256]; 			// 現在使用中のWPファイルへのフルパス
 	ChangeWPTrigger change_wp_trigger;	// WPのリセットトリガー
 	int size_wp_list;
@@ -156,6 +157,7 @@ struct LOC {
   double x;
   double y;
   double a;
+  int CURRENT_MAP_PATH_INDEX;
 };
 
 // for Battery
@@ -182,6 +184,7 @@ struct DISPLAY {
   double temp_motor_L;
   double temp_motor_R;
   int current_wp_index;
+  int current_map_path_index;
   double v;
   double w;
   double min_obstacle_x;

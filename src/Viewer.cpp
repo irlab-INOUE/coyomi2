@@ -11,9 +11,9 @@ Viewer::Viewer(MapPath path) {
 	try {
 		std::string path_to_yaml = path.path + std::string("/mapInfo.yaml");
 		mapInfo_yaml = YAML::LoadFile(path_to_yaml);
-    std::cerr << "mapInfo.yaml is open.\n";
+    //std::cerr << "mapInfo.yaml is open.\n";
 	} catch(YAML::BadFile &e) {
-		std::cerr << "read error! mapInfo.yaml is not exist."<< std::endl;
+		//std::cerr << "read error! mapInfo.yaml is not exist."<< std::endl;
 		exit(1);
 	}
 
