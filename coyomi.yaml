@@ -10,7 +10,7 @@ MapPath:
   -
     path: map/log230731_1F
     occupancy_grid_map: occMap.png
-    way_point: wp_elev_test.txt
+    way_point: wp_elev.txt
     likelyhood_field: lfm.txt
     mapInfo: mapInfo.yaml
   -
