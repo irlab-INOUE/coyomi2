@@ -5,14 +5,14 @@ MCL::MCL() {
 }
 
 MCL::MCL(const Pose2d pose) {
-  NUM = 1000;
+  NUM = 2000;
   rng = cv::RNG(cv::getTickCount());
 
   for (int i = 0; i < NUM; i++) {
     particle.emplace_back(
         pose.x + rng.uniform(-0.5, 0.5),
         pose.y + rng.uniform(-0.5, 0.5),
-        pose.a + rng.uniform(-45/180.0*M_PI, 45/180.0*M_PI));
+        pose.a + rng.uniform(-179/180.0*M_PI, 179/180.0*M_PI));
   }
 }
 
@@ -310,7 +310,7 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
     else da += 2*M_PI;
   }
 #endif
-  
+
   _tran	  = std::hypot(dx, dy);
 
   if (_tran < 1e-6) { // 場所が変わっていない処理をする

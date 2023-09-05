@@ -104,8 +104,7 @@ void read_joystick(js_event &js, double &v, double &w) {
             break;
           case 4:
             //std::cerr << "End\n";
-            v = 0.0;
-            w = 0.0;
+            v = 0.0; w = 0.0;
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
             usleep(1500000);
@@ -113,8 +112,7 @@ void read_joystick(js_event &js, double &v, double &w) {
             break;
           case 5:
             //std::cerr << "FREE\n";
-            v = 0.0;
-            w = 0.0;
+            v = 0.0; w = 0.0;
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
             usleep(1000000);
@@ -468,9 +466,9 @@ int main(int argc, char *argv[]) {
           LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
           usleep(100000);
           // Initial pose
-          double initial_pose_x = 0.0;
-          double initial_pose_y = 0.0;
-          double initial_pose_a = 0.0;
+          double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+          double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+          double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
           shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
           Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
@@ -483,7 +481,7 @@ int main(int argc, char *argv[]) {
           MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
           Viewer view(map_path);                        // 現在のoccMapを表示する
           view.hold();
-          view.show(0, 0, 5);
+          view.show(initial_pose_x, initial_pose_y, 5);
           cv::moveWindow("occMap", 700, 0);
           shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
           std::vector<WAYPOINT> wp;
@@ -690,7 +688,8 @@ int main(int argc, char *argv[]) {
         }
         shm_enc->current_wp_index += 1;
 #ifdef THETAV
-        calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+        v = 0; w = 0;
+        calc_vw2hex(Query_NET_ID_WRITE, v, w);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
         sleep(2);
 
@@ -708,17 +707,17 @@ int main(int argc, char *argv[]) {
       }
       if (shm_enc->current_wp_index >= wp.size()) {
         shm_enc->current_wp_index = 0;
-        calc_vw2hex(Query_NET_ID_WRITE, 0, 0);
+        v = 0; w = 0;
+        calc_vw2hex(Query_NET_ID_WRITE, v, w);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
         sleep(1);
 
         // Change current map
         shm_loc->CURRENT_MAP_PATH_INDEX++;
-        if (shm_loc->CURRENT_MAP_PATH_INDEX > 1) {
+        if (shm_loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
           shm_loc->CURRENT_MAP_PATH_INDEX = 0;
         }
         MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-        wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
         // Reading Way Point
         wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
         shm_wp_list->size_wp_list = wp.size();

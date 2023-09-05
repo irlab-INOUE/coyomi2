@@ -13,12 +13,27 @@ MapPath:
     way_point: wp_elev.txt
     likelyhood_field: lfm.txt
     mapInfo: mapInfo.yaml
+    init_x: 0.0
+    init_y: 0.0
+    init_a: 0.0   # deg
+    #-
+    #path: map/log230729_2F/go
+    #occupancy_grid_map: occMap.png
+    #way_point: wp.txt
+    #likelyhood_field: lfm.txt
+    #mapInfo: mapInfo.yaml
+    #init_x: 0.0
+    #init_y: 0.0
+    #init_a: 0.0    # deg
   -
-    path: map/log230729_2F/go
+    path: map/log230731_1F
     occupancy_grid_map: occMap.png
-    way_point: wp.txt
+    way_point: wp_elev_back.txt
     likelyhood_field: lfm.txt
     mapInfo: mapInfo.yaml
+    init_x: 1.0
+    init_y: -11.5
+    init_a: -180.0    # deg
   #-
   #  path: map/log230801_outside
   #  occupancy_grid_map: occMap.png
