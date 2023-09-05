@@ -59,8 +59,8 @@ void Viewer::show(int time) {
 }
 
 void Viewer::show(double x, double y, int time) {
-  int wx = 1200;
-  int wy = 1000;
+  int wx = 800;
+  int wy = 650;
   int cx = x / csize + originX;
   int cy =-y / csize + originY;
   int x0 = cx - wx/2;
