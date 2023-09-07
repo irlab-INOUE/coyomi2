@@ -43,9 +43,11 @@ class Urg2d {
     qrk::Urg_driver urg;
     std::vector<LSP> store_data;
 
-    const int IMG_ORIGIN_X = 300;
-    const int IMG_ORIGIN_Y = 400;
-    const double csize = 6.0/600;
+    const int IMG_WIDTH = 400;
+    const int IMG_HEIGHT = 400;
+    const int IMG_ORIGIN_X = 200;
+    const int IMG_ORIGIN_Y = 200;
+    const double csize = 12.0/400;
     cv::Mat baseImg;
   public:
     Urg2d(double, double, double);

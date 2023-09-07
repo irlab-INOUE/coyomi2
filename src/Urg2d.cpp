@@ -1,7 +1,7 @@
 #include "Urg2d.h"
 
 Urg2d::Urg2d (double start_angle, double end_angle, double step_angle) {
-  baseImg = cv::Mat(cv::Size(600, 600), CV_8UC3, cv::Scalar(182, 182, 182));
+  baseImg = cv::Mat(cv::Size(IMG_WIDTH, IMG_HEIGHT), CV_8UC3, cv::Scalar(182, 182, 182));
   cv::line(baseImg, cv::Point(IMG_ORIGIN_X, 0), cv::Point(IMG_ORIGIN_X, baseImg.rows), cv::Scalar(0, 0, 0), 1);
   cv::line(baseImg, cv::Point(0, IMG_ORIGIN_Y), cv::Point(baseImg.cols, IMG_ORIGIN_Y), cv::Scalar(0, 0, 0), 1);
 

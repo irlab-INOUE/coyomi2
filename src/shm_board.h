@@ -71,6 +71,9 @@ struct URG2D {
   int size;
   int max_echo_size;
   long r[5000];
+  double ang[1081];
+  double cs[1081];
+  double sn[1081];
 };
 
 // for 3D-LIDAR

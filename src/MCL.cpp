@@ -174,7 +174,7 @@ void MCL::KLD_sampling(const std::vector<LSP> &lsp, const Pose2d &curX, const Po
   // KDLサンプリングの諸パラメータ
   double M_x = 0.0;
   int M_k	   = 0;
-  int M_xmin = 20;
+  int M_xmin = 40;
   std::vector<Pose2i> bin;
 
   //１ステップ前のパーティクル数
@@ -254,9 +254,9 @@ void MCL::KLD_sampling(const std::vector<LSP> &lsp, const Pose2d &curX, const Po
     double pb = fmax(0.0, 1.0 - w_fast / w_slow);
     if (pb > rng.uniform(0.0, 1.0)) {
       Pose2d pt;
-      pt.x = estimatedPose.x + rng.uniform(-0.2, 0.2);
-      pt.y = estimatedPose.y + rng.uniform(-0.2, 0.2);
-      pt.a = estimatedPose.a + rng.uniform(-M_PI/10, M_PI/10);
+      pt.x = estimatedPose.x + rng.uniform(-0.5, 0.5);
+      pt.y = estimatedPose.y + rng.uniform(-0.5, 0.5);
+      pt.a = estimatedPose.a + rng.uniform(-20*M_PI/180.0, 20*M_PI/180.0);
       amcl_particles.emplace_back(pt);
     } else {
       int index = draw_index_with_probability(particle);
@@ -296,7 +296,7 @@ int MCL::draw_index_with_probability(const std::vector<Pose2d>& particle) {
 Pose2d MCL::sample_motion_model(const Pose2d& particle,
     const Pose2d& curX, const Pose2d& prevX) {
   // オドメトリ動作モデルのノイズ
-  const std::vector<double> a{0.01, 0.01, 0.01, 0.01};
+  const std::vector<double> a{0.005, 0.005, 0.005, 0.005};
   // オドメトリ動作モデルパラメータ
   double _rot1, _tran, _rot2, rot1, rot2, tran;
 
