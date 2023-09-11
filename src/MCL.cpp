@@ -12,7 +12,7 @@ MCL::MCL(const Pose2d pose) {
     particle.emplace_back(
         pose.x + rng.uniform(-0.5, 0.5),
         pose.y + rng.uniform(-0.5, 0.5),
-        pose.a + rng.uniform(-179/180.0*M_PI, 179/180.0*M_PI));
+        pose.a + rng.uniform(-10/180.0*M_PI, 10/180.0*M_PI));
   }
 }
 
@@ -195,7 +195,8 @@ void MCL::KLD_sampling(const std::vector<LSP> &lsp, const Pose2d &curX, const Po
     int bin_flag = 0;
     tmpBin.x = int(new_p.x / 0.5); //ヒストグラムの幅 0.5[m]
     tmpBin.y = int(new_p.y / 0.5); //ヒストグラムの幅 0.5[m]
-    tmpBin.a = int(new_p.a / (15.0/180*M_PI)); //ヒストグラムの幅 15[deg]
+    double tmp_angle_deg_0_360 = (new_p.a + M_PI)/M_PI * 180.0;
+    tmpBin.a = int(tmp_angle_deg_0_360/15.0); //ヒストグラムの幅 15[deg]
     for (auto b : bin) {
       if ((tmpBin.x == b.x) && (tmpBin.y == b.y) && (tmpBin.a == b.a)) {
         bin_flag = 1;
@@ -311,7 +312,7 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   }
 #endif
 
-  _tran	  = std::hypot(dx, dy);
+  _tran	= std::hypot(dx, dy);
 
   if (_tran < 1e-6) { // 場所が変わっていない処理をする
     if (fabs(da) < 1e-6) { // 向きも変わっていない場合
@@ -323,37 +324,51 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
     }
   }
   else { // 通常の処理
-    _rot1 = atan2(dy, dx) - prevX.a;
+    if (dx >= 0.0) {  // forward
+      _rot1 = atan2(dy, dx) - prevX.a;
 #if 0
-    if (_rot1 > M_PI/2) {
-      _rot1 -= M_PI;
-      _tran = -_tran;
-    }
-    else if (_rot1 < -M_PI/2) {
-      _rot1 += M_PI;
-      _tran = -_tran;
-    }
+      if (_rot1 > M_PI/2) {
+        _rot1 -= M_PI;
+        _tran = -_tran;
+      }
+      else if (_rot1 < -M_PI/2) {
+        _rot1 += M_PI;
+        _tran = -_tran;
+      }
 #else
-    if (fabs(_rot1) > M_PI) {
-      if (_rot1 > 0) _rot1 -= 2*M_PI;
-      else _rot1 += 2*M_PI;
-    }
-    _rot2 = curX.a - prevX.a - _rot1;
-    if (fabs(_rot2) > M_PI) {
-      if (_rot2 > 0) _rot2 -= 2*M_PI;
-      else _rot2 += 2*M_PI;
+      if (fabs(_rot1) > M_PI) {
+        if (_rot1 > 0) _rot1 -= 2*M_PI;
+        else _rot1 += 2*M_PI;
+      }
+      _rot2 = curX.a - prevX.a - _rot1;
+      if (fabs(_rot2) > M_PI) {
+        if (_rot2 > 0) _rot2 -= 2*M_PI;
+        else _rot2 += 2*M_PI;
+      }
+#endif
+    } else {  // backward
+      _rot1 = atan2(dy, dx) - prevX.a - M_PI;
+      _tran = -_tran;
+      if (fabs(_rot1) > M_PI) {
+        if (_rot1 > 0) _rot1 -= 2*M_PI;
+        else _rot1 += 2*M_PI;
+      }
+      _rot2 = curX.a - prevX.a - _rot1;
+      if (fabs(_rot2) > M_PI) {
+        if (_rot2 > 0) _rot2 -= 2*M_PI;
+        else _rot2 += 2*M_PI;
+      }
     }
   }
-#endif
 
 #if 1
   _rot1 = atan2(sin(_rot1), cos(_rot1));
   _rot2 = atan2(sin(_rot2), cos(_rot2));
 #endif
 
-  rot1 = _rot1 + rng.gaussian(sqrt(a[0] * _rot1 * _rot1 + a[1] * _tran * _tran));
-  tran = _tran + rng.gaussian(sqrt(a[2] * _tran * _tran + a[3] * _rot1 * _rot1 + a[3] * _rot2 * _rot2));
-  rot2 = _rot2 + rng.gaussian(sqrt(a[0] * _rot2 * _rot2 + a[1] * _tran * _tran));
+  rot1 = _rot1 + rng.gaussian(a[0] * _rot1 * _rot1 + a[1] * _tran * _tran);
+  tran = _tran + rng.gaussian(a[2] * _tran * _tran + a[3] * _rot1 * _rot1 + a[3] * _rot2 * _rot2);
+  rot2 = _rot2 + rng.gaussian(a[0] * _rot2 * _rot2 + a[1] * _tran * _tran);
 
   Pose2d new_particle;
   new_particle.x = particle.x + tran * cos(particle.a + rot1);
