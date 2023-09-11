@@ -195,7 +195,9 @@ void MCL::KLD_sampling(const std::vector<LSP> &lsp, const Pose2d &curX, const Po
     int bin_flag = 0;
     tmpBin.x = int(new_p.x / 0.5); //ヒストグラムの幅 0.5[m]
     tmpBin.y = int(new_p.y / 0.5); //ヒストグラムの幅 0.5[m]
-    double tmp_angle_deg_0_360 = (new_p.a + M_PI)/M_PI * 180.0;
+    double tmp_angle_deg_0_360 = new_p.a/M_PI*180.0;
+    if (tmp_angle_deg_0_360 < 0.0)
+      tmp_angle_deg_0_360 = tmp_angle_deg_0_360 + 360.0;
     tmpBin.a = int(tmp_angle_deg_0_360/15.0); //ヒストグラムの幅 15[deg]
     for (auto b : bin) {
       if ((tmpBin.x == b.x) && (tmpBin.y == b.y) && (tmpBin.a == b.a)) {
