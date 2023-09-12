@@ -451,6 +451,24 @@ int main(int argc, char *argv[]) {
   shm_enc->current_wp_index = 0;
 
 	/**************************************************************************
+    initial pose setup
+	 ***************************************************************************/
+  shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+  shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+  shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+
+	/**************************************************************************
+    initial enc setup
+	 ***************************************************************************/
+  long long first_ts = get_current_time();
+  ODOMETORY first_odo;
+  read_state(first_odo, first_ts);
+  shm_enc->ts = first_ts;
+  shm_enc->x = first_odo.rx;
+  shm_enc->y = first_odo.ry;
+  shm_enc->a = first_odo.ra;
+
+	/**************************************************************************
     Multi threads setup
 	 ***************************************************************************/
   for (int i = 0; i < 4; i++) {
@@ -550,15 +568,16 @@ int main(int argc, char *argv[]) {
             = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
           LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
           // Initial pose
-          double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-          double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-          double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
-
-          shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
+          if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
+            double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+            double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+            double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+            shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
+          }
           Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
           Pose2d previousPose = currentPose;
           // パーティクル初期配置
-          MCL mcl(Pose2d(initial_pose_x, initial_pose_y, initial_pose_a));
+          MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
           mcl.set_lfm(shm_loc->path_to_likelyhood_field);
           mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
