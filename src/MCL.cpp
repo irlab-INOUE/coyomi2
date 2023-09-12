@@ -299,7 +299,7 @@ int MCL::draw_index_with_probability(const std::vector<Pose2d>& particle) {
 Pose2d MCL::sample_motion_model(const Pose2d& particle,
     const Pose2d& curX, const Pose2d& prevX) {
   // オドメトリ動作モデルのノイズ
-  const std::vector<double> a{0.005, 0.005, 0.005, 0.005};
+  const std::vector<double> a{0.01, 0.00, 0.00, 0.01};
   // オドメトリ動作モデルパラメータ
   double _rot1, _tran, _rot2, rot1, rot2, tran;
 
@@ -307,12 +307,6 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   double dx = curX.x - prevX.x;
   double dy = curX.y - prevX.y;
   double da = curX.a - prevX.a;
-#if 1
-  if (fabs(da) > M_PI) {
-    if (da > M_PI) da -= 2*M_PI;
-    else da += 2*M_PI;
-  }
-#endif
 
   _tran	= std::hypot(dx, dy);
 
@@ -324,43 +318,21 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
       _rot1 = 0.0;
       _rot2 = da;
     }
-  }
-  else { // 通常の処理
-    if (dx >= 0.0) {  // forward
-      _rot1 = atan2(dy, dx) - prevX.a;
-#if 0
-      if (_rot1 > M_PI/2) {
-        _rot1 -= M_PI;
-        _tran = -_tran;
-      }
-      else if (_rot1 < -M_PI/2) {
-        _rot1 += M_PI;
-        _tran = -_tran;
-      }
-#else
-      if (fabs(_rot1) > M_PI) {
-        if (_rot1 > 0) _rot1 -= 2*M_PI;
-        else _rot1 += 2*M_PI;
-      }
-      _rot2 = curX.a - prevX.a - _rot1;
-      if (fabs(_rot2) > M_PI) {
-        if (_rot2 > 0) _rot2 -= 2*M_PI;
-        else _rot2 += 2*M_PI;
-      }
-#endif
-    } else {  // backward
-      _rot1 = atan2(dy, dx) - prevX.a - M_PI;
-      _tran = -_tran;
-      if (fabs(_rot1) > M_PI) {
-        if (_rot1 > 0) _rot1 -= 2*M_PI;
-        else _rot1 += 2*M_PI;
-      }
-      _rot2 = curX.a - prevX.a - _rot1;
-      if (fabs(_rot2) > M_PI) {
-        if (_rot2 > 0) _rot2 -= 2*M_PI;
-        else _rot2 += 2*M_PI;
-      }
+  } else {
+    _rot1 = atan2(dy, dx) - prevX.a;
+    if (_rot1 > M_PI) _rot1 -= 2*M_PI;
+    else if (_rot1 < -M_PI) _rot1 += 2*M_PI;
+
+    if (fabs(_rot1) > M_PI/2) {   // backward
+      _rot1 = _rot1 - M_PI;
+      _tran = -std::hypot(dx, dy);
+    } else {
+      _tran = std::hypot(dx, dy);
     }
+
+    _rot2 = curX.a - prevX.a - _rot1;
+    if (_rot2 > M_PI) _rot2 -= 2*M_PI;
+    else if (_rot2 < -M_PI) _rot2 += 2*M_PI;
   }
 
 #if 1
@@ -368,9 +340,9 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   _rot2 = atan2(sin(_rot2), cos(_rot2));
 #endif
 
-  rot1 = _rot1 + rng.gaussian(a[0] * _rot1 * _rot1 + a[1] * _tran * _tran);
-  tran = _tran + rng.gaussian(a[2] * _tran * _tran + a[3] * _rot1 * _rot1 + a[3] * _rot2 * _rot2);
-  rot2 = _rot2 + rng.gaussian(a[0] * _rot2 * _rot2 + a[1] * _tran * _tran);
+  rot1 = _rot1 - rng.gaussian(a[0] * _rot1 * _rot1 + a[1] * _tran * _tran);
+  tran = _tran - rng.gaussian(a[2] * _tran * _tran + a[3] * _rot1 * _rot1 + a[3] * _rot2 * _rot2);
+  rot2 = _rot2 - rng.gaussian(a[0] * _rot2 * _rot2 + a[1] * _tran * _tran);
 
   Pose2d new_particle;
   new_particle.x = particle.x + tran * cos(particle.a + rot1);

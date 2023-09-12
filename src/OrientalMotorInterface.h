@@ -27,7 +27,7 @@ void read_res(uint8_t *buf, int length);
 void show_state(uint8_t *buf, const long long &ts);
 void read_odo(uint8_t *buf, ODOMETORY &odo);
 
-// CRC create 
+// CRC create
 void calcBcc(uint8_t *sendData, int length) {
   unsigned int crcH, crcL;
   int crc=0xFFFF;
@@ -167,12 +167,12 @@ void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
   Query_NET_ID_WRITE[42] =  static_cast<int>(motor_wl_rpm)        & 0xFF;
 #if 0
   for (int i = 15; i < 19; i++) {
-    std::cerr << std::hex << std::setw(2) << std::setfill('0') 
+    std::cerr << std::hex << std::setw(2) << std::setfill('0')
       << static_cast<int>(Query_NET_ID_WRITE[i]) << " ";
   }
   std::cerr << "\n";
   for (int i = 39; i < 43; i++) {
-    std::cerr << std::hex << std::setw(2) << std::setfill('0') 
+    std::cerr << std::hex << std::setw(2) << std::setfill('0')
       << static_cast<int>(Query_NET_ID_WRITE[i]) << " ";
   }
   std::cerr << "\n";
@@ -242,6 +242,8 @@ void read_odo(uint8_t *buf, ODOMETORY &odo) {
   odo.rx += dl * cos(odo.ra);
   odo.ry += dl * sin(odo.ra);
   odo.ra += dth;
+  if (odo.ra > M_PI) odo.ra -= 2*M_PI;
+  else if (odo.ra < -M_PI) odo.ra += 2*M_PI;
   odo.dist_R = dist_R;
   odo.dist_L = dist_L;
   odo.travel = travel;
