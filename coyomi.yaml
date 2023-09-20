@@ -10,6 +10,7 @@ MapPath:
   -
       path: map/log230907_1F
       occupancy_grid_map: occMap.png
+      cost_map: cost_map.png
       way_point: wp_min.txt
       likelyhood_field: lfm.txt
       mapInfo: mapInfo.yaml
@@ -29,6 +30,7 @@ MapPath:
   #  -
   #    path: map/log230908_2F
   #    occupancy_grid_map: occMap.png
+  #    cost_map: cost_map.png
   #    way_point: wp.txt
   #    likelyhood_field: lfm.txt
   #    mapInfo: mapInfo.yaml

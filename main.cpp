@@ -25,6 +25,7 @@
 #include "checkDirectory.h"
 #include "Config.h"
 #include "wave_front_planner.h"
+#include "CreateCostMap.h"
 
 #define N 256 	// 日時の型変換に使うバッファ数
 
@@ -439,13 +440,18 @@ int main(int argc, char *argv[]) {
   shm_loc->CURRENT_MAP_PATH_INDEX = 0;
   if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
   std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  std::string OCC_NAME = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  MapPath map_path_cost(MAP_PATH, OCC_NAME, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+  CreateCostMap ccm(map_path_cost);
+  cv::Mat imgMap_cost = ccm.run();
+  cv::imwrite(MAP_PATH + "/cost_map.png", imgMap_cost);
   // Reading Way Point
   std::vector<WAYPOINT> tmp_wp, wp;
   tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
   WAYPOINT prev_target(0, 0, 0, 0);
   for (auto w: tmp_wp) {
     wavefrontplanner::Config cfg;
-    cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+    cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["cost_map"].as<std::string>();
     cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
     cfg.start_x_m = prev_target.x;
     cfg.start_y_m = prev_target.y;
@@ -824,6 +830,8 @@ int main(int argc, char *argv[]) {
         }
         if (dist2wp < 0.5) {
           shm_enc->current_wp_index += 1;
+          // create path from current pose using wave front planner
+
         }
       } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
@@ -886,13 +894,18 @@ int main(int argc, char *argv[]) {
         }
 #endif
         // Reading Way Point
+        std::string OCC_NAME = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+        MapPath map_path_cost(MAP_PATH, OCC_NAME, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+        CreateCostMap ccm(map_path_cost);
+        cv::Mat imgMap_cost = ccm.run();
+        cv::imwrite(MAP_PATH + "/cost_map.png", imgMap_cost);
         tmp_wp.clear();
         wp.clear();
         tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
         WAYPOINT prev_target(0, 0, 0, 0);
         for (auto w: tmp_wp) {
           wavefrontplanner::Config cfg;
-          cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+          cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["cost_map"].as<std::string>();
           cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
           cfg.start_x_m = prev_target.x;
           cfg.start_y_m = prev_target.y;
