@@ -193,5 +193,4 @@ struct DISPLAY {
   double min_obstacle_x;
   double min_obstacle_y;
 };
-
 #endif // COYOMI_INCLUDE_SHM_BOARD_H

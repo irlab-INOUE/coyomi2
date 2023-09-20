@@ -97,12 +97,18 @@ void Viewer::show(double x, double y, int time) {
 }
 void Viewer::plot_wp(std::vector<WAYPOINT> wp_list) {
   for (auto wp: wp_list) {
-    cv::circle(imgMap,
-        cv::Point(originX + wp.x/csize, originY - wp.y/csize),
-        0.5/csize, cv::Scalar(225, 105, 65), -1, cv::LINE_8);
-    cv::circle(imgMap,
-        cv::Point(originX + wp.x/csize, originY - wp.y/csize),
-        1.0/csize, cv::Scalar(225, 105, 65), 2, cv::LINE_8);
+    if (wp.stop_check == 0) {
+      cv::circle(imgMap,
+          cv::Point(originX + wp.x/csize, originY - wp.y/csize),
+          0.2/csize, cv::Scalar(225, 105, 65), -1, cv::LINE_8);
+    } else {
+      cv::circle(imgMap,
+          cv::Point(originX + wp.x/csize, originY - wp.y/csize),
+          0.5/csize, cv::Scalar(225, 105, 65), -1, cv::LINE_8);
+      cv::circle(imgMap,
+          cv::Point(originX + wp.x/csize, originY - wp.y/csize),
+          1.0/csize, cv::Scalar(225, 105, 65), 2, cv::LINE_8);
+    }
   }
 }
 

@@ -54,7 +54,7 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
   double l1 = lsp[(-90 - (-135))/step_angle].r;
   double l180 = lsp[(90 - (-135))/step_angle].r;
   if ((l1  + l180) < (0.5 + 0.2)) {
-    if (l1 > l180) 
+    if (l1 > l180)
       return std::make_tuple(0.0, -M_PI/20, 0.0, l180);
     else
       return std::make_tuple(0.0,  M_PI/20, 0.0, -l1);
@@ -83,7 +83,7 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
     for (double w = fmax(w_min, robot_w - w_acceleration_limit*DT); w < fmin(w_max, robot_w + w_acceleration_limit*DT); w += dw) {
       if (v <= sqrt(2*min_distance_to_obstacle*acceleration_limit)  && w <= sqrt(2*min_distance_to_obstacle*w_acceleration_limit))
         u_list.emplace_back(v, w);
-      else 
+      else
         continue;
     }
   }
@@ -109,7 +109,10 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
     if (angle < -M_PI) angle += 2*M_PI;
     if (angle >  M_PI) angle -= 2*M_PI;
     u_list[i].heading = M_PI - fabs(angle);
-    u_list[i].target_distance = std::hypot(target.x - x_dash, target.y - y_dash);
+    double dx = target.x - x_dash; if (dx < 0) dx = -dx;
+    double dy = target.y - y_dash; if (dy < 0) dy = -dy;
+    u_list[i].target_distance = dx + dy;
+    //u_list[i].target_distance = std::hypot(target.x - x_dash, target.y - y_dash);
 
     // distance
     double min_dist = 9999999;
@@ -126,7 +129,10 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
       }
       // 最近傍点との距離を測る
       for (auto np: nearby_lsp) {
-        double dist = std::hypot(np.x - tmp_x, np.y - tmp_y);
+        double dx = np.x - tmp_x; if (dx < 0) dx = -dx;
+        double dy = np.y - tmp_y; if (dy < 0) dy = -dy;
+        double dist = dx + dy;
+        //double dist = std::hypot(np.x - tmp_x, np.y - tmp_y);
         if (min_dist > dist && np.th > -M_PI/4 && np.th < M_PI/4) {
           min_dist = dist;
           u_list[i].obx = np.x;

@@ -8,33 +8,33 @@ Size:
 
 MapPath:
   -
-    path: map/log230907_1F
-    occupancy_grid_map: occMap.png
-    way_point: wp.txt
-    likelyhood_field: lfm.txt
-    mapInfo: mapInfo.yaml
-    init_x: 0.0
-    init_y: 0.0
-    init_a: 0.0   # deg
-    #  -
-    #    path: map/log230731_1F
-    #    occupancy_grid_map: occMap.png
-    #    way_point: wp.txt
-    #    #way_point: wp_elev.txt
-    #    likelyhood_field: lfm.txt
-    #    mapInfo: mapInfo.yaml
-    #    init_x: 0.0
-    #    init_y: 0.0
-    #    init_a: 0.0   # deg
-    #  -
-    #    path: map/log230729_2F/go
-    #    occupancy_grid_map: occMap.png
-    #    way_point: wp.txt
-    #    likelyhood_field: lfm.txt
-    #    mapInfo: mapInfo.yaml
-    #    init_x: 0.0
-    #    init_y: 0.0
-    #    init_a: 0.0    # deg
+      path: map/log230907_1F
+      occupancy_grid_map: occMap.png
+      way_point: wp_min.txt
+      likelyhood_field: lfm.txt
+      mapInfo: mapInfo.yaml
+      init_x: 0.0
+      init_y: 0.0
+      init_a: 0.0   # deg
+    #-
+    #  path: map/log230731_1F
+    #  occupancy_grid_map: occMap.png
+    #  way_point: wp.txt
+    #  #way_point: wp_elev.txt
+    #  likelyhood_field: lfm.txt
+    #  mapInfo: mapInfo.yaml
+    #  init_x: 0.0
+    #  init_y: 0.0
+    #  init_a: 0.0   # deg
+  #  -
+  #    path: map/log230908_2F
+  #    occupancy_grid_map: occMap.png
+  #    way_point: wp.txt
+  #    likelyhood_field: lfm.txt
+  #    mapInfo: mapInfo.yaml
+  #    init_x: 0.0
+  #    init_y: 0.0
+  #    init_a: 0.0    # deg
     #  -
     #    path: map/log230731_1F
     #    occupancy_grid_map: occMap.png
@@ -44,14 +44,17 @@ MapPath:
     #    init_x: 1.0
     #    init_y: -11.5
     #    init_a: -180.0    # deg
-  #-
-  #  path: map/log230801_outside
-  #  occupancy_grid_map: occMap.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #-
-  #  path: map/RWRC2022_1022_one
+    #-
+    #path: map/log230801_outside
+    #occupancy_grid_map: occMap.png
+    #way_point: wp.txt
+    #likelyhood_field: lfm.txt
+    #mapInfo: mapInfo.yaml
+    #init_x: 0.0
+    #init_y: 0.0
+    #init_a: 0.0   # deg
+  #-#
+  # # path: map/RWRC2022_1022_one
   #  occupancy_grid_map: occMap.png
   #  map_RGBA: map_RGBA.png
   #  way_point: wp.txt
@@ -65,7 +68,7 @@ MapPath:
 MotionControlParameter:
   velocity_down_coefficient: 0.9      # 単位なし
   back_velocity: 0.4                  # [m/s]
-  arrived_check_distance: 0.3         # [m] RWRCでは2.0がよさそう
+  arrived_check_distance: 3.0         # [m] RWRCでは2.0がよさそう
   auto_loop: false                     # ゴール地点で自動でループするか．false:キー入力を待つ
 
 2DLIDAR:
@@ -85,7 +88,7 @@ DWA:    # Dynamic Window Approach parameters
   v_min: 0.0  				        # [m/s] DWの速度の下限値
   w_max: 100.0                # [deg/s] DWの角速度の上限値
   w_min: -100.0               # [deg/s] DWの角速度の下限値
-  path_divided_step: 10       # pathを離散化するステップ T/path_diveded_step
+  path_divided_step: 5       # pathを離散化するステップ T/path_diveded_step
   alpha: 0.5                  # heading weight
   beta: 0.3                   # distance weight
   gamma: 0.1                  # velocity weight

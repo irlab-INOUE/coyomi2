@@ -24,6 +24,7 @@
 #include "DWA.h"
 #include "checkDirectory.h"
 #include "Config.h"
+#include "wave_front_planner.h"
 
 #define N 256 	// 日時の型変換に使うバッファ数
 
@@ -439,8 +440,28 @@ int main(int argc, char *argv[]) {
   if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
   std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Reading Way Point
-  std::vector<WAYPOINT> wp;
-  wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+  std::vector<WAYPOINT> tmp_wp, wp;
+  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+  WAYPOINT prev_target(0, 0, 0, 0);
+  for (auto w: tmp_wp) {
+    wavefrontplanner::Config cfg;
+    cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+    cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+    cfg.start_x_m = prev_target.x;
+    cfg.start_y_m = prev_target.y;
+    cfg.goal_x_m  = w.x;
+    cfg.goal_y_m  = w.y;
+    wavefrontplanner::WaveFrontPlanner wfp;
+    wfp.Init(cfg);
+    std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
+    for (auto p: path) {
+      WAYPOINT w(p.x, p.y, 0, 0);
+      wp.emplace_back(w);
+    }
+    wp.back().stop_check = w.stop_check;
+    prev_target.x = w.x;
+    prev_target.y = w.y;
+  }
   shm_wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
     shm_wp_list->wp_list[i].x = wp[i].x;
@@ -449,6 +470,13 @@ int main(int argc, char *argv[]) {
     shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
   shm_enc->current_wp_index = 0;
+#if 0
+  std::ofstream wplog("./wplog");
+  for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
+    wplog << shm_wp_list->wp_list[i].x << " " << shm_wp_list->wp_list[i].y
+      << " " << shm_wp_list->wp_list[i].a << " " << shm_wp_list->wp_list[i].stop_check << "\n";
+  }
+#endif
 
 	/**************************************************************************
     initial pose setup
@@ -463,6 +491,7 @@ int main(int argc, char *argv[]) {
   long long first_ts = get_current_time();
   ODOMETORY first_odo;
   read_state(first_odo, first_ts);
+  sleep(1);
   shm_enc->ts = first_ts;
   shm_enc->x = first_odo.rx;
   shm_enc->y = first_odo.ry;
@@ -471,7 +500,7 @@ int main(int argc, char *argv[]) {
 	/**************************************************************************
     Multi threads setup
 	 ***************************************************************************/
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 5; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -489,6 +518,9 @@ int main(int argc, char *argv[]) {
           break;
         case 3:
           std::cerr << "Start state display: " << c_pid << "\n";
+          break;
+        case 4:
+          std::cerr << "Start sound on: " << c_pid << "\n";
           break;
         default:
           std::cerr << "Error\n";
@@ -584,7 +616,7 @@ int main(int argc, char *argv[]) {
           MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
           Viewer view(map_path);                        // 現在のoccMapを表示する
           view.hold();
-          view.show(initial_pose_x, initial_pose_y, 5);
+          view.show(shm_loc->x, shm_loc->y, 5);
           cv::moveWindow("occMap", 700, 0);
           shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
           std::vector<WAYPOINT> wp;
@@ -636,7 +668,7 @@ int main(int argc, char *argv[]) {
 
             // 次のループの準備
             previousPose = currentPose;
-            //usleep(20000);
+            usleep(30000);
           }
         }
         exit(EXIT_SUCCESS);
@@ -689,6 +721,25 @@ int main(int argc, char *argv[]) {
           printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
           refresh();
         }
+        exit(EXIT_SUCCESS);
+      } else if (i == 4) { // sound on
+        int prev_wp_index = 0;
+        std::string path = shm_logdir->path;
+        path += "/sound_log";
+        std::ofstream sound_log;
+        while (1) {
+          sound_log.open(path, std::ios_base::app);
+          long long ts = get_current_time();
+          sound_log << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
+          sound_log.close();
+          if (prev_wp_index != shm_enc->current_wp_index) {
+            std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
+            int ret = std::system(cmd.c_str());
+            prev_wp_index = shm_disp->current_wp_index;
+          }
+          sleep(1);
+        }
+        exit(EXIT_SUCCESS);
       }
     }
   }
@@ -710,6 +761,9 @@ int main(int argc, char *argv[]) {
   usleep(100000);
   isFREE = !isFREE;
   free_motors();
+  std::string start_bell_cmd = "paplay /usr/share/sounds/freedesktop/stereo/bell.oga";
+  int start_bell_ret = std::system(start_bell_cmd.c_str());
+
   while (isFREE) {
     double tmp_v, tmp_w;
     read_joystick(js, tmp_v, tmp_w, j_calib);
@@ -727,6 +781,7 @@ int main(int argc, char *argv[]) {
     shm_disp->enc_y = odo.ry;
     shm_disp->enc_a = odo.ra;
   }
+  start_bell_ret = std::system(start_bell_cmd.c_str());
 
   while(1) {
     double tmp_v, tmp_w;
@@ -749,9 +804,12 @@ int main(int argc, char *argv[]) {
       shm_disp->min_obstacle_y = oby;
 
 #if 1
+      // rotate ricovery
       if (fabs(v) < 1e-6 && fabs(w) <1e-6) {
         if (oby >= 0) w = -M_PI/8.0;
         else w = M_PI/8.0;
+        v = 0.3 * w;  // rodate radius is 0.3[m]
+        if (v > 0.0) v = -v;
         //sleep(1);
       }
 #endif
@@ -759,14 +817,17 @@ int main(int argc, char *argv[]) {
       double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
                                   wp[shm_enc->current_wp_index].y - estimatedPose.y);
       if (wp[shm_enc->current_wp_index].stop_check == 2) {
-        if (dist2wp > arrived_check_distance && dist2wp < 4*arrived_check_distance) {
+        if (dist2wp < arrived_check_distance) {
           double dwa_v = v;
           v = v * 0.8;
           if (v < 0.1) v = 0.1;
         }
-      }
-      if (dist2wp < arrived_check_distance) {
-        if (wp[shm_enc->current_wp_index].stop_check == 1) {
+        if (dist2wp < 0.5) {
+          shm_enc->current_wp_index += 1;
+        }
+      } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
+        if (dist2wp < 0.5) {
+          shm_enc->current_wp_index += 1;
           isFREE = !isFREE;
           free_motors();
           while (isFREE) {
@@ -783,6 +844,7 @@ int main(int argc, char *argv[]) {
             shm_disp->enc_a = odo.ra;
           }
         }
+      } else if (dist2wp < arrived_check_distance) {
         shm_enc->current_wp_index += 1;
 #ifdef THETAV
         v = 0; w = 0;
@@ -812,8 +874,41 @@ int main(int argc, char *argv[]) {
           shm_loc->CURRENT_MAP_PATH_INDEX = 0;
         }
         MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+#if 0
         // Reading Way Point
         wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+        shm_wp_list->size_wp_list = wp.size();
+        for (int i = 0; i < wp.size(); i++) {
+          shm_wp_list->wp_list[i].x = wp[i].x;
+          shm_wp_list->wp_list[i].y = wp[i].y;
+          shm_wp_list->wp_list[i].a = wp[i].a;
+          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+        }
+#endif
+        // Reading Way Point
+        tmp_wp.clear();
+        wp.clear();
+        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+        WAYPOINT prev_target(0, 0, 0, 0);
+        for (auto w: tmp_wp) {
+          wavefrontplanner::Config cfg;
+          cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+          cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+          cfg.start_x_m = prev_target.x;
+          cfg.start_y_m = prev_target.y;
+          cfg.goal_x_m  = w.x;
+          cfg.goal_y_m  = w.y;
+          wavefrontplanner::WaveFrontPlanner wfp;
+          wfp.Init(cfg);
+          std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
+          for (auto p: path) {
+            WAYPOINT w(p.x, p.y, 0, 0);
+            wp.emplace_back(w);
+          }
+          wp.back().stop_check = w.stop_check;
+          prev_target.x = w.x;
+          prev_target.y = w.y;
+        }
         shm_wp_list->size_wp_list = wp.size();
         for (int i = 0; i < wp.size(); i++) {
           shm_wp_list->wp_list[i].x = wp[i].x;
