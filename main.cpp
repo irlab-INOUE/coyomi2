@@ -155,16 +155,8 @@ void read_joystick(js_event &js, double &v, double &w,
   double axis1 =2.0 * axis[1] / (j_calib[1].max - j_calib[1].min + 10);
   double axis2 =2.0 * axis[0] / (j_calib[0].max - j_calib[0].min + 10);
   double axis3 =2.0 * axis[3] / (j_calib[3].max - j_calib[3].min + 10);
-  // method 1
   v = -axis1 * 0.8;
   w = -axis0 * 100*M_PI/180.0;
-  // method 2
-#if 0
-  double wl = -axis1;
-  double wr = -axis3;
-  v = (wl + wr)/2;
-  w = (wr - wl)/WHEEL_T;
-#endif
 }
 
 std::vector<WAYPOINT> wpRead(std::string wpname) {
@@ -197,7 +189,7 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
   Viewer view(map_path);                        // 現在のoccMapを表示する
   view.hold();
   view.show(0, 0, 5);
-  cv::moveWindow("occMap", 400, 0);
+  cv::moveWindow("occMap", 800, 0);
   while (1) {
     view.reset();
     view.plot_wp(wp);
@@ -559,7 +551,7 @@ int main(int argc, char *argv[]) {
           fout_urg2d.open(path, std::ios_base::app);
           long long ts = get_current_time();
           std::vector<LSP> result = urg2d.getData();
-          urg2d.view(5);
+          //urg2d.view(5);
           fout_urg2d << "LASERSCANRT" << " "
             << ts << " "
             << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "
@@ -882,17 +874,7 @@ int main(int argc, char *argv[]) {
           shm_loc->CURRENT_MAP_PATH_INDEX = 0;
         }
         MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-#if 0
-        // Reading Way Point
-        wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
-        shm_wp_list->size_wp_list = wp.size();
-        for (int i = 0; i < wp.size(); i++) {
-          shm_wp_list->wp_list[i].x = wp[i].x;
-          shm_wp_list->wp_list[i].y = wp[i].y;
-          shm_wp_list->wp_list[i].a = wp[i].a;
-          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
-        }
-#endif
+
         // Reading Way Point
         std::string OCC_NAME = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
         MapPath map_path_cost(MAP_PATH, OCC_NAME, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
@@ -978,19 +960,25 @@ int main(int argc, char *argv[]) {
 
 CLEANUP:
   endwin();   // ncurses end
+
+  // print out logs
   std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
   std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
+
   // turn off exitation on RL motor
   turn_off_motors();
 
+  // close file discriptors
   close(fd);
   close(fd_js);
 
+  // close log files
   enc_log.close();
   fout_urg2d.close();
   bat_log.close();
   mcl_log.close();
 
+  // Wait until stoped threads
 	for (auto pid: p_list) {
 		kill(pid, SIGKILL);
 	}
