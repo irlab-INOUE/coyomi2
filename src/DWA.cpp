@@ -128,15 +128,20 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
         tmp_a +=  uw * deltaT;
       }
       // 最近傍点との距離を測る
-      for (auto np: nearby_lsp) {
-        double dx = np.x - tmp_x; if (dx < 0) dx = -dx;
-        double dy = np.y - tmp_y; if (dy < 0) dy = -dy;
-        double dist = dx + dy;
-        //double dist = std::hypot(np.x - tmp_x, np.y - tmp_y);
-        if (min_dist > dist && np.th > -M_PI/4 && np.th < M_PI/4) {
-          min_dist = dist;
-          u_list[i].obx = np.x;
-          u_list[i].oby = np.y;
+      if (nearby_lsp.size() == 0) {
+        u_list[i].obx = 99999;
+        u_list[i].oby = 99999;
+      } else {
+        for (auto np: nearby_lsp) {
+          double dx = np.x - tmp_x; if (dx < 0) dx = -dx;
+          double dy = np.y - tmp_y; if (dy < 0) dy = -dy;
+          double dist = dx + dy;
+          //double dist = std::hypot(np.x - tmp_x, np.y - tmp_y);
+          if (min_dist > dist && np.th > -M_PI/4 && np.th < M_PI/4) {
+            min_dist = dist;
+            u_list[i].obx = np.x;
+            u_list[i].oby = np.y;
+          }
         }
       }
     }
