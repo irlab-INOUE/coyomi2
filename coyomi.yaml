@@ -7,16 +7,16 @@ Size:
   weight: 70      #[kg]
 
 MapPath:
-  -
-      path: map/log230907_1F
-      occupancy_grid_map: occMap.png
-      cost_map: cost_map.png
-      way_point: wp_min.txt
-      likelyhood_field: lfm.txt
-      mapInfo: mapInfo.yaml
-      init_x: 0.0
-      init_y: 0.0
-      init_a: 0.0   # deg
+  #-
+  #    path: map/log230907_1F
+  #    occupancy_grid_map: occMap.png
+  #    cost_map: cost_map.png
+  #    way_point: wp.txt
+  #    likelyhood_field: lfm.txt
+  #    mapInfo: mapInfo.yaml
+  #    init_x: 0.0
+  #    init_y: 0.0
+  #    init_a: 0.0   # deg
     #-
     #  path: map/log230731_1F
     #  occupancy_grid_map: occMap.png
@@ -46,15 +46,16 @@ MapPath:
     #    init_x: 1.0
     #    init_y: -11.5
     #    init_a: -180.0    # deg
-    #-
-    #path: map/log230801_outside
-    #occupancy_grid_map: occMap.png
-    #way_point: wp.txt
-    #likelyhood_field: lfm.txt
-    #mapInfo: mapInfo.yaml
-    #init_x: 0.0
-    #init_y: 0.0
-    #init_a: 0.0   # deg
+  -
+    path: map/log230801_outside
+    occupancy_grid_map: occMap.png
+    cost_map: cost_map.png
+    way_point: wp.txt
+    likelyhood_field: lfm.txt
+    mapInfo: mapInfo.yaml
+    init_x: 0.0
+    init_y: 0.0
+    init_a: 0.0   # deg
   #-#
   # # path: map/RWRC2022_1022_one
   #  occupancy_grid_map: occMap.png
@@ -80,7 +81,7 @@ MotionControlParameter:
   max_echo_size: 3
 
 DWA:    # Dynamic Window Approach parameters
-  limit_distance: 1.0         # [m] 障害物との距離の制限
+  limit_distance: 1.5         # [m] 障害物との距離の制限
   dv: 0.02                    # [m/s] DWの速度分解能
   dw: 0.02                    # [rad/s] DWの角速度分解能
   acceleration_limit: 1.0     # [m/s^2]
