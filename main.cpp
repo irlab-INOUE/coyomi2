@@ -157,6 +157,9 @@ void read_joystick(js_event &js, double &v, double &w,
   double axis3 =2.0 * axis[3] / (j_calib[3].max - j_calib[3].min + 10);
   v = -axis1 * 0.8;
   w = -axis0 * 100*M_PI/180.0;
+  if (v < 0.0) {
+    w = -w;
+  }
 }
 
 std::vector<WAYPOINT> wpRead(std::string wpname) {
