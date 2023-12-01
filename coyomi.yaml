@@ -8,27 +8,27 @@ Size:
 
 MapPath:
   -
-      path: map/log230923_113905
-      # path: map/log230923_132821
-      occupancy_grid_map: occMap.png
-      cost_map: cost_map.png
-      way_point: wp.txt
-      likelyhood_field: lfm.txt
-      mapInfo: mapInfo.yaml
-      init_x: 0
-      init_y: 0
-      init_a: 0   # deg
-      #-
-      #path: map/log230907_1F
-      #occupancy_grid_map: occMap.png
-      #cost_map: cost_map.png
-      #way_point: wp.txt
-      #likelyhood_field: lfm.txt
-      #mapInfo: mapInfo.yaml
-      #init_x: 0.0
-      #init_y: 0.0
-      #init_a: 0.0   # deg
-    #-#
+        path: map/log230923_113905
+        # path: map/log230923_132821
+        occupancy_grid_map: occMap.png
+        cost_map: cost_map.png
+        way_point: wp.txt
+        likelyhood_field: lfm.txt
+        mapInfo: mapInfo.yaml
+        init_x: 0
+        init_y: -3.0
+        init_a: 0   # deg
+  #  -
+  #    path: map/log230907_1F
+  #    occupancy_grid_map: occMap.png
+  #    cost_map: cost_map.png
+  #    way_point: wp.txt
+  #    likelyhood_field: lfm.txt
+  #    mapInfo: mapInfo.yaml
+  #    init_x: 0.0
+  #    init_y: 0.0
+  #    init_a: 0.0   # deg
+  #  #-#
     #  path: map/log230731_1F
     #  occupancy_grid_map: occMap.png
     #  way_point: wp.txt
@@ -82,7 +82,7 @@ MapPath:
 MotionControlParameter:
   velocity_down_coefficient: 0.9      # 単位なし
   back_velocity: 0.4                  # [m/s]
-  arrived_check_distance: 3.0         # [m] RWRCでは2.0がよさそう
+  arrived_check_distance: 2.0         # [m] RWRCでは2.0がよさそう
   auto_loop: false                     # ゴール地点で自動でループするか．false:キー入力を待つ
 
 2DLIDAR:
@@ -97,7 +97,7 @@ DWA:    # Dynamic Window Approach parameters
   dw: 0.02                    # [rad/s] DWの角速度分解能
   acceleration_limit: 1.0     # [m/s^2]
   w_acceleration_limit: 180   # [deg/s^2]
-  T: 1.0						          # [s] 評価する時間
+  T: 2.0						          # [s] 評価する時間
   v_max: 0.8                  # [m/s] DWの速度の上限値
   v_min: 0.0  				        # [m/s] DWの速度の下限値
   w_max: 100.0                # [deg/s] DWの角速度の上限値
@@ -107,5 +107,5 @@ DWA:    # Dynamic Window Approach parameters
   beta: 0.3                   # distance weight
   gamma: 0.1                  # velocity weight
   delta: 0.2                  # target distance weight
-  obstacle_size: 0.6          # [m] 障害物から離れる距離
+  obstacle_size: 0.65         # [m] 障害物から離れる距離
   DW_TIME: 0.3                # [s] Time width for dynamic window

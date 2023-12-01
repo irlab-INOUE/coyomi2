@@ -161,6 +161,7 @@ struct LOC {
   double y;
   double a;
   int CURRENT_MAP_PATH_INDEX;
+  bool MCL_EXE;
 };
 
 // for Battery

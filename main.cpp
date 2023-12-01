@@ -28,6 +28,7 @@
 #include "CreateCostMap.h"
 
 #define N 256 	// 日時の型変換に使うバッファ数
+//#define THETAV
 
 int fd;
 int fd_js;    // file descriptor to joystick
@@ -357,6 +358,7 @@ int main(int argc, char *argv[]) {
   // calibrate axis until JS_EVENT_BUTTON pressed
   bool loop_out_flag = false;
   std::vector<joy_calib> j_calib(6);
+#if 0
   std::cerr << "Calibrate js axis. Rotate LEFT axis to the all direction, then press any button\n";
   while (1) {
     /* read the joystick state */
@@ -384,6 +386,14 @@ int main(int argc, char *argv[]) {
   for (auto j: j_calib) {
     std::cout << j.min << " " << j.max << " " << j.zero << "\n";
   }
+#endif
+  j_calib[0].min = -32767; j_calib[0].max =  32767; j_calib[0].zero = 0;
+  j_calib[1].min = -32767; j_calib[1].max =  32767; j_calib[1].zero = 0;
+  j_calib[2].min = 0; j_calib[2].max = 0; j_calib[2].zero = 0;
+  j_calib[3].min = 0; j_calib[3].max = 0; j_calib[3].zero = 0;
+  j_calib[4].min = 0; j_calib[4].max = 0; j_calib[4].zero = 0;
+  j_calib[5].min = 0; j_calib[5].max = 0; j_calib[5].zero = 0;
+
   std::cerr << "Joypad ready completed" << std::endl;
 
 	/**************************************************************************
@@ -430,6 +440,13 @@ int main(int argc, char *argv[]) {
   init_pair(1,COLOR_BLUE, COLOR_BLACK);
 
 	/**************************************************************************
+    initial pose setup
+	 ***************************************************************************/
+  shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+  shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+  shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+
+	/**************************************************************************
     Waypoint setup
 	 ***************************************************************************/
   shm_loc->CURRENT_MAP_PATH_INDEX = 0;
@@ -443,7 +460,9 @@ int main(int argc, char *argv[]) {
   // Reading Way Point
   std::vector<WAYPOINT> tmp_wp, wp;
   tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
-  WAYPOINT prev_target(0, 0, 0, 0);
+
+  WAYPOINT prev_target(shm_loc->x, shm_loc->y, shm_loc->a, 0);
+  //WAYPOINT prev_target(0, -5, 0, 0);
   for (auto w: tmp_wp) {
     wavefrontplanner::Config cfg;
     cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["cost_map"].as<std::string>();
@@ -456,8 +475,14 @@ int main(int argc, char *argv[]) {
     wfp.Init(cfg);
     std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
     for (auto p: path) {
-      WAYPOINT w(p.x, p.y, 0, 0);
-      wp.emplace_back(w);
+      if (w.stop_check == 9) {
+        WAYPOINT wd(p.x, p.y, 0, 9);
+        wp.emplace_back(wd);
+      }
+      else {
+        WAYPOINT wd(p.x, p.y, 0, 0);
+        wp.emplace_back(wd);
+      }
     }
     wp.back().stop_check = w.stop_check;
     prev_target.x = w.x;
@@ -470,21 +495,15 @@ int main(int argc, char *argv[]) {
     shm_wp_list->wp_list[i].a = wp[i].a;
     shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
-  shm_enc->current_wp_index = 0;
-#if 0
+  int lookAhead = 4;
+  shm_enc->current_wp_index = lookAhead;
+#if 1
   std::ofstream wplog("./wplog");
   for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
     wplog << shm_wp_list->wp_list[i].x << " " << shm_wp_list->wp_list[i].y
       << " " << shm_wp_list->wp_list[i].a << " " << shm_wp_list->wp_list[i].stop_check << "\n";
   }
 #endif
-
-	/**************************************************************************
-    initial pose setup
-	 ***************************************************************************/
-  shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-  shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-  shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
 	/**************************************************************************
     initial enc setup
@@ -591,6 +610,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_SUCCESS);
       } else if (i == 2) { // localization
         while (1) {
+          shm_loc->MCL_EXE = true;
           MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
           // Map file path
           std::string MAP_NAME
@@ -636,17 +656,28 @@ int main(int argc, char *argv[]) {
             double _rot = currentPose.a - previousPose.a;
             double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
             std::vector<LSP> lsp;
+            double odo_x, odo_y, odo_a;
+            Pose2d estimatedPose;
             if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
               ;
             } else {
               for (int k = 0; k < shm_urg2d->size; k++) {
                 lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
               }
-              mcl.KLD_sampling(lsp, currentPose, previousPose);
+              if (shm_loc->MCL_EXE) {
+                mcl.KLD_sampling(lsp, currentPose, previousPose);
+                estimatedPose = mcl.get_best_pose();
+              } else {
+                odo_x = shm_loc->x + _tran * cos(shm_loc->a);
+                odo_y = shm_loc->y + _tran * sin(shm_loc->a);
+                odo_a = shm_loc->a + _rot;
+                estimatedPose.x = odo_x;
+                estimatedPose.y = odo_y;
+                estimatedPose.a = odo_a;
+                mcl.set_currentPose(estimatedPose);
+              }
             }
-            Pose2d estimatedPose = mcl.get_best_pose();
             std::vector<Pose2d> particle = mcl.get_particle_set();
-
             view.reset();
             view.robot(estimatedPose);
             view.urg(estimatedPose, lsp);
@@ -663,7 +694,7 @@ int main(int argc, char *argv[]) {
             mcl_log
               << ts << " "
               << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-              << particle.size() << " "
+              << particle.size() << " " << shm_loc->MCL_EXE << " "
               << "end" << "\n";
             mcl_log.close();
 
@@ -682,6 +713,7 @@ int main(int argc, char *argv[]) {
         int ROW_TOTAL_TRAVEL = 14;
         int ROW_PATH = 15;
         int ROW_CURRENT_MAP_PATH_INDEX = 16;
+        int ROW_MCL_EXE = 17;
         mvprintw(ROW_MCL,     0, "MCL Information");
         mvprintw(ROW_MCL+1,   0, "X[m]     Y[m]      A[deg]");
         mvprintw(ROW_MOTOR,   0, "Motor Information");
@@ -720,6 +752,8 @@ int main(int argc, char *argv[]) {
           printw("%s", shm_loc->path_to_map_dir);
           move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
           printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
+          move(ROW_MCL_EXE, 0); clrtoeol();
+          printw("MCL_EXE %d", shm_loc->MCL_EXE);
           refresh();
         }
         exit(EXIT_SUCCESS);
@@ -755,7 +789,7 @@ int main(int argc, char *argv[]) {
   int lidar_view_countdown = number_of_lidar_view_count;
   tcflush(fd, TCIOFLUSH);
   DynamicWindowApproach dwa(coyomi_yaml);
-  double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
+  double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>() * lookAhead;
 
   calc_vw2hex(Query_NET_ID_WRITE, v, w);
   simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
@@ -793,7 +827,15 @@ int main(int argc, char *argv[]) {
     for (int k = 0; k < shm_urg2d->size; k++) {
       lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
     }
+
     Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
+
+    if (wp[shm_enc->current_wp_index].stop_check == 9) {
+      shm_loc->MCL_EXE = false;
+    } else {
+      shm_loc->MCL_EXE = true;
+    }
+
     if (MODE == '1') {
       v = tmp_v; w = tmp_w;
       //isFREE = true;
@@ -826,11 +868,11 @@ int main(int argc, char *argv[]) {
         if (dist2wp < 0.5) {
           shm_enc->current_wp_index += 1;
           // create path from current pose using wave front planner
-
         }
       } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
           shm_enc->current_wp_index += 1;
+#if 1
           isFREE = !isFREE;
           free_motors();
           while (isFREE) {
@@ -846,26 +888,30 @@ int main(int argc, char *argv[]) {
             shm_disp->enc_y = odo.ry;
             shm_disp->enc_a = odo.ra;
           }
+#endif
+#ifdef THETAV
+          v = 0; w = 0;
+          calc_vw2hex(Query_NET_ID_WRITE, v, w);
+          simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+          sleep(2);
+
+          std::string lx = std::to_string(estimatedPose.x);
+          std::string ly = std::to_string(estimatedPose.y);
+          std::string cmd = "./bin/capture " + lx + " " + ly;
+          int ret = std::system(cmd.c_str());
+          if (ret == -1) {
+            std::cerr << "script error" << std::endl;
+          }
+#endif
         }
+      } else if (wp[shm_enc->current_wp_index].stop_check == 5) {
+        ;
       } else if (dist2wp < arrived_check_distance) {
         shm_enc->current_wp_index += 1;
-#ifdef THETAV
-        v = 0; w = 0;
-        calc_vw2hex(Query_NET_ID_WRITE, v, w);
-        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-        sleep(2);
-
-        std::string lx = std::to_string(estimatedPose.x);
-        std::string ly = std::to_string(estimatedPose.y);
-        std::string cmd = "./bin/capture " + lx + " " + ly;
-        int ret = std::system(cmd.c_str());
-        if (ret == -1) {
-          std::cerr << "script error" << std::endl;
-        }
-#endif
       }
+
       if (shm_enc->current_wp_index >= wp.size()) {
-        shm_enc->current_wp_index = 0;
+        shm_enc->current_wp_index = lookAhead;
         v = 0; w = 0;
         calc_vw2hex(Query_NET_ID_WRITE, v, w);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
@@ -887,7 +933,8 @@ int main(int argc, char *argv[]) {
         tmp_wp.clear();
         wp.clear();
         tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
-        WAYPOINT prev_target(0, 0, 0, 0);
+        WAYPOINT prev_target(shm_loc->x, shm_loc->y, shm_loc->a, 0);
+        //WAYPOINT prev_target(0, 0, 0, 0);
         for (auto w: tmp_wp) {
           wavefrontplanner::Config cfg;
           cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["cost_map"].as<std::string>();
@@ -900,8 +947,14 @@ int main(int argc, char *argv[]) {
           wfp.Init(cfg);
           std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
           for (auto p: path) {
-            WAYPOINT w(p.x, p.y, 0, 0);
-            wp.emplace_back(w);
+            if (w.stop_check == 9) {
+              WAYPOINT wd(p.x, p.y, 0, 9);
+              wp.emplace_back(wd);
+            }
+            else {
+              WAYPOINT wd(p.x, p.y, 0, 0);
+              wp.emplace_back(wd);
+            }
           }
           wp.back().stop_check = w.stop_check;
           prev_target.x = w.x;

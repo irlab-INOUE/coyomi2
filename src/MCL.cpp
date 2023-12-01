@@ -22,9 +22,9 @@ void MCL::set_currentPose(const Pose2d pose) {
   particle.clear();
   for (int i = 0; i < NUM; i++) {
     particle.emplace_back(
-        pose.x + rng.uniform(-0.5, 0.5),
-        pose.y + rng.uniform(-0.5, 0.5),
-        pose.a + rng.uniform(-45/180.0*M_PI, 45/180.0*M_PI));
+        pose.x + rng.uniform(-0.3, 0.3),
+        pose.y + rng.uniform(-0.3, 0.3),
+        pose.a + rng.uniform(-15/180.0*M_PI, 15/180.0*M_PI));
   }
 }
 
