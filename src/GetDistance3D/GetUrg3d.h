@@ -15,8 +15,8 @@
 
 #include<urg3d_sensor.h>
 
-typedef struct { 
-
+typedef struct {
+  int spot;
   double x;
   double y;
   double z;
@@ -24,7 +24,7 @@ typedef struct {
   double phi;     // vertical rad
   double theta;   // horizontal rad
   double i;       // refrection intensity
-} pointUrg3d; 
+} pointUrg3d;
 
 struct Info{
   double Xmax;
@@ -67,6 +67,7 @@ class GetUrg3d{
     GetUrg3d(std::string adr, long port);
     void setUrg3dAdr(std::string adr, long port);
     int initUrg3d();
+    void getAXData();
     std::vector<pointUrg3d> get1Frame();
     std::vector<pointUrg3d> get1Frame_file(std::string path="");
     void savePointUrg3d(std::string path = "");

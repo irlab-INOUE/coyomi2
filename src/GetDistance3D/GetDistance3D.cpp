@@ -57,6 +57,7 @@ int main(int argc, char *argv[])
 	for (;;) {
 		auto time_now = high_resolution_clock::now(); 	// 現在日時を取得
 		long long tp = duration_cast<microseconds>(time_now.time_since_epoch()).count(); // エポックからの経過時間をmsecで取得
+    urg3d.getAXData();
 		data = urg3d.get1Frame();
 #if 0
 		data = urg3d.rotateY(39.0/180.0*M_PI);
@@ -88,7 +89,7 @@ int main(int argc, char *argv[])
 			//std::cout << data[i].x << " " << data[i].y << " " << data[i].z << " ";
 			//std::cout << data[i].r << " " << data[i].theta << " " << data[i].phi << " " << data[i].i;
 			//std::cout << std::endl;
-
+      ofs << data[i].spot << " ";
 			ofs << data[i].x << " " << -data[i].y << " " << -data[i].z << " ";
 			ofs << data[i].r << " " << -data[i].phi << " " << -data[i].theta << " " << data[i].i;
 			ofs << std::endl;
