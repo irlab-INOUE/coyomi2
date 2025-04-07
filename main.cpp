@@ -264,12 +264,16 @@ int main(int argc, char *argv[]) {
         else if (MODE == '3') {
             std::cout << "Hello, Coyomi2 Waypoint editor.\n";
             int CURRENT_MAP_PATH_INDEX;
+
             std::cout << "Input CURRENT_MAP_PATH_INDEX number >> ";
             std::cin >> CURRENT_MAP_PATH_INDEX;
+
             std::string MAP_PATH = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-            std::string WP_NAME = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>();
+            std::string WP_NAME  = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>();
             std::string OCC_NAME = coyomi_yaml["MapPath"][CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+
             WaypointEditor(MAP_PATH, WP_NAME, OCC_NAME);
+
             return 0;
             break;
         }
