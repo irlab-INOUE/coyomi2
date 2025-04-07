@@ -26,5 +26,4 @@
 #define TEXT_WHITE "\e[37m"
 #define TEXT_COLOR_RESET "\e[0m"
 
-
 #endif // COYOMI_CONFIG_H
