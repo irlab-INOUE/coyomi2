@@ -31,13 +31,13 @@
 int fd;
 int fd_js;    // file descriptor to joystick
 // 共有したい構造体毎にアドレスを割り当てる
-ENC *shm_enc        = nullptr;
-URG2D *shm_urg2d    = nullptr;
-BAT *shm_bat        = nullptr;
-LOC *shm_loc        = nullptr;
-LOGDIR *shm_logdir  = nullptr;
+ENC *shm_enc         = nullptr;
+URG2D *shm_urg2d     = nullptr;
+BAT *shm_bat         = nullptr;
+LOC *shm_loc         = nullptr;
+LOGDIR *shm_logdir   = nullptr;
 WP_LIST *shm_wp_list = nullptr;
-DISPLAY *shm_disp   = nullptr;
+DISPLAY *shm_disp    = nullptr;
 
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
