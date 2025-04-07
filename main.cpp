@@ -345,7 +345,7 @@ int main(int argc, char *argv[]) {
     }
 
     /**************************************************************************
-    Joystick setup
+        Joystick setup
      ***************************************************************************/
     struct js_event js;
     ioctl(fd_js, JSIOCGAXES, &num_of_axis);
@@ -395,7 +395,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "Joypad ready completed" << std::endl;
 
     /**************************************************************************
-    Serial port setup
+        Serial port setup
      ***************************************************************************/
     struct termios tio;
     memset(&tio, 0, sizeof(tio));
@@ -408,7 +408,7 @@ int main(int argc, char *argv[]) {
     tcsetattr(fd, TCSANOW, &tio);
 
     /**************************************************************************
-    Motor driver setup
+        Motor driver setup
      ***************************************************************************/
     // BLV-R Driver setup
     // ID Share Config.
@@ -425,7 +425,7 @@ int main(int argc, char *argv[]) {
     turn_on_motors();
 
     /**************************************************************************
-    Ncurses setup
+        Ncurses setup
      ***************************************************************************/
     int key;    // curses用キーボード入力判定
     WINDOW *win = initscr();
@@ -438,7 +438,7 @@ int main(int argc, char *argv[]) {
     init_pair(1,COLOR_BLUE, COLOR_BLACK);
 
     /**************************************************************************
-    Waypoint setup
+        Waypoint setup
      ***************************************************************************/
     shm_loc->CURRENT_MAP_PATH_INDEX = 0;
     if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
@@ -483,14 +483,14 @@ int main(int argc, char *argv[]) {
 #endif
 
     /**************************************************************************
-    initial pose setup
+        initial pose setup
      ***************************************************************************/
     shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
     shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
     shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
     /**************************************************************************
-    initial enc setup
+        initial enc setup
      ***************************************************************************/
     long long first_ts = get_current_time();
     ODOMETORY first_odo;
@@ -502,7 +502,7 @@ int main(int argc, char *argv[]) {
     shm_enc->a = first_odo.ra;
 
     /**************************************************************************
-    Multi threads setup
+        Multi threads setup
      ***************************************************************************/
     for (int i = 0; i < 5; i++) {
         pid_t c_pid = fork();
@@ -748,9 +748,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    //----------------------------------------------------------
-    // Starting Main Process
-    //----------------------------------------------------------
+    /**************************************************************************
+        Starting Main Process
+     ***************************************************************************/
     double v = 0.0;
     double w = 0.0;
     ODOMETORY odo;
