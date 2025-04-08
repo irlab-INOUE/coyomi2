@@ -7,16 +7,16 @@ Size:
   weight: 70      #[kg]
 
 MapPath:
-  -
-    path: map/saitama_00
-    occupancy_grid_map: occMap.png
-    cost_map: cost_map.png
-    way_point: wp.txt
-    likelyhood_field: lfm.txt
-    mapInfo: mapInfo.yaml
-    init_x: 0.0
-    init_y: 0.0
-    init_a: 0.0   # deg
+  #-
+  #  path: map/saitama_00
+  #  occupancy_grid_map: occMap.png
+  #  cost_map: cost_map.png
+  #  way_point: wp.txt
+  #  likelyhood_field: lfm.txt
+  #  mapInfo: mapInfo.yaml
+  #  init_x: 0.0
+  #  init_y: 0.0
+  #  init_a: 0.0   # deg
   #-
   #      path: map/log230923_113905
   #      # path: map/log230923_132821
@@ -28,16 +28,16 @@ MapPath:
   #      init_x: 0
   #      init_y: -3.0
   #      init_a: 0   # deg
-  #-
-  #  path: map/log230907_1F
-  #  occupancy_grid_map: occMap.png
-  #  cost_map: cost_map.png
-  #  way_point: wp.txt
-  #  likelyhood_field: lfm.txt
-  #  mapInfo: mapInfo.yaml
-  #  init_x: 0.0
-  #  init_y: 0.0
-  #  init_a: 0.0   # deg
+  -
+    path: map/log230907_1F
+    occupancy_grid_map: occMap.png
+    cost_map: cost_map.png
+    way_point: wp.txt
+    likelyhood_field: lfm.txt
+    mapInfo: mapInfo.yaml
+    init_x: 0.0
+    init_y: 0.0
+    init_a: 0.0   # deg
   #  #-#
     #  path: map/log230731_1F
     #  occupancy_grid_map: occMap.png
