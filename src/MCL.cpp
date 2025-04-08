@@ -22,9 +22,9 @@ void MCL::set_currentPose(const Pose2d pose) {
   particle.clear();
   for (int i = 0; i < NUM; i++) {
     particle.emplace_back(
-        pose.x + rng.uniform(-0.5, 0.5),
-        pose.y + rng.uniform(-0.5, 0.5),
-        pose.a + rng.uniform(-45/180.0*M_PI, 45/180.0*M_PI));
+        pose.x + rng.uniform(-0.3, 0.3),
+        pose.y + rng.uniform(-0.3, 0.3),
+        pose.a + rng.uniform(-15/180.0*M_PI, 15/180.0*M_PI));
   }
 }
 
@@ -299,7 +299,7 @@ int MCL::draw_index_with_probability(const std::vector<Pose2d>& particle) {
 Pose2d MCL::sample_motion_model(const Pose2d& particle,
     const Pose2d& curX, const Pose2d& prevX) {
   // オドメトリ動作モデルのノイズ
-  const std::vector<double> a{0.01, 0.00, 0.00, 0.01};
+  const std::vector<double> a{0.01, 0.01, 0.01, 0.01};
   // オドメトリ動作モデルパラメータ
   double _rot1, _tran, _rot2, rot1, rot2, tran;
 
