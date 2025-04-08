@@ -94,7 +94,8 @@ Connection_information::Connection_information(int argc,
 }
 
 Connection_information::Connection_information() : pimpl(new pImpl) {
-  pimpl->set_ethernet_connection();
+    //pimpl->set_ethernet_connection();
+    pimpl->set_serial_connection();
 }
 
 Connection_information::~Connection_information(void)
