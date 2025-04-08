@@ -4,17 +4,18 @@
 #cmakedefine DEFAULT_LOG_DIR "@DEFAULT_LOG_DIR@"
 #cmakedefine DEFAULT_ROOT "@DEFAULT_ROOT@"
 
-#define MAX_BUFFER_SIZE 512 
+#define MAX_BUFFER_SIZE 512
 #define BAUDRATE B230400
 #define SERIAL_INTERVAL_SEND 4000
 #define SERIAL_INTERVAL_RESP 4000
 
-#define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ035HQB-if00-port0"
+#define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ034S3S-if00-port0"
+
 #define JS_PORT       "/dev/input/js0"
 
 #define WHEEL_D 0.311
 #define WHEEL_T 0.461
-#define GEAR_RATIO 50.0 
+#define GEAR_RATIO 50.0
 #define STEP_RESOLUTION 0.01/180*M_PI
 
 #define FORWARD_MAX_SPEED   1.5

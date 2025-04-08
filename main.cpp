@@ -115,14 +115,18 @@ void read_joystick(js_event &js, double &v, double &w,
 
         switch(js.number) {
           case 2:
+            // A pressed; D
             break;
           case 3:
+            // B pressed; R
             break;
           case 0:
+            // X pressed; L
             break;
           case 1:
+            // Y pressed; T
             break;
-          case 4:
+          case 10:
             //std::cerr << "End\n";
             v = 0.0; w = 0.0;
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
@@ -130,7 +134,7 @@ void read_joystick(js_event &js, double &v, double &w,
             usleep(1500000);
             gotoEnd = true;
             break;
-          case 5:
+          case 12:
             //std::cerr << "FREE\n";
             v = 0.0; w = 0.0;
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
@@ -152,14 +156,17 @@ void read_joystick(js_event &js, double &v, double &w,
       }
       break;
   }
-  double axis0 =2.0 * axis[0] / (j_calib[0].max - j_calib[0].min + 10);
+  double axis0 =-2.0 * axis[0] / (j_calib[0].max - j_calib[0].min + 10);
   double axis1 =2.0 * axis[1] / (j_calib[1].max - j_calib[1].min + 10);
   double axis2 =2.0 * axis[0] / (j_calib[0].max - j_calib[0].min + 10);
   double axis3 =2.0 * axis[3] / (j_calib[3].max - j_calib[3].min + 10);
   v = -axis1 * 0.8;
-  w = -axis0 * 100*M_PI/180.0;
+  w = axis0 * 40*M_PI/180.0;
   if (v < 0.0) {
     w = -w;
+    if (v < -0.5) {
+      v = -0.5;
+    }
   }
 }
 
@@ -573,7 +580,7 @@ int main(int argc, char *argv[]) {
           fout_urg2d.open(path, std::ios_base::app);
           long long ts = get_current_time();
           std::vector<LSP> result = urg2d.getData();
-          //urg2d.view(5);
+          urg2d.view(5);
           fout_urg2d << "LASERSCANRT" << " "
             << ts << " "
             << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "

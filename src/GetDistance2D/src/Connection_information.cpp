@@ -29,11 +29,11 @@ struct Connection_information::pImpl
             device_or_ip_name_ = device;
         } else {
 #if defined(QRK_WINDOWS_OS)
-        device_or_ip_name_ = "COM3";
+        //device_or_ip_name_ = "COM3";
 #elif defined(QRK_LINUX_OS)
         device_or_ip_name_ = "/dev/ttyACM0";
 #else
-        device_or_ip_name_ = "/dev/tty.usbmodemfa131";
+        //device_or_ip_name_ = "/dev/tty.usbmodemfa131";
 #endif
         }
         baudrate_or_port_number_ = 115200;
@@ -66,10 +66,11 @@ Connection_information::Connection_information(int argc,
 {
 #ifdef DEFAULT
 	const char* device = NULL;
-	pimpl->set_ethernet_connection(device);
+  pimpl->set_serial_connection(device);
+	//pimpl->set_ethernet_connection(device);
 	return;
 #endif
-#define SWITCH
+//#define SWITCH
 #ifdef SWITCH
     for (int i = 1; i < argc; ++i) {
         const char* device = NULL;
@@ -94,7 +95,8 @@ Connection_information::Connection_information(int argc,
 }
 
 Connection_information::Connection_information() : pimpl(new pImpl) {
-  pimpl->set_ethernet_connection();
+  pimpl->set_serial_connection();
+  //pimpl->set_ethernet_connection();
 }
 
 Connection_information::~Connection_information(void)

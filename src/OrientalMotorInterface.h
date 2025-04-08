@@ -155,7 +155,7 @@ void read_state(ODOMETORY &odo, const long long &ts) {
 void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
   double wr = v/(WHEEL_D/2) + w*WHEEL_T/(1.0*WHEEL_D);
   double wl = v/(WHEEL_D/2) - w*WHEEL_T/(1.0*WHEEL_D);
-  double motor_wr_rpm = wr / 2 / M_PI * static_cast<double>(GEAR_RATIO) * 60;
+  double motor_wr_rpm =-wr / 2 / M_PI * static_cast<double>(GEAR_RATIO) * 60;
   double motor_wl_rpm = wl / 2 / M_PI * static_cast<double>(GEAR_RATIO) * 60;
   Query_NET_ID_WRITE[15] = (static_cast<int>(motor_wr_rpm) >> 24) & 0xFF;
   Query_NET_ID_WRITE[16] = (static_cast<int>(motor_wr_rpm) >> 16) & 0xFF;
