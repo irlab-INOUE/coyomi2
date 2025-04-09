@@ -37,7 +37,7 @@ Urg2d::Urg2d (double start_angle, double end_angle, double step_angle) {
 
 Urg2d::~Urg2d() {
   //cv::destroyWindow("testImg");
-  urg.sleep();
+  //urg.sleep();
 }
 
 std::vector<LSP> Urg2d::getData() {

@@ -234,7 +234,7 @@ void read_odo(uint8_t *buf, ODOMETORY &odo) {
   int position_L       = static_cast<int>(buf[START + OFFSET] << 24 | buf[START+1 + OFFSET] << 16 | buf[START+2 + OFFSET] << 8 | buf[START+3 + OFFSET]);
 
   double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
-  double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double dist_R =-position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   double travel = (dist_L + dist_R)/2.0;
   double rotation = (dist_R - dist_L)/WHEEL_T;
   double dl = travel - odo.travel;

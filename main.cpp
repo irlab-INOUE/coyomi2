@@ -455,17 +455,19 @@ int main(int argc, char *argv[]) {
         cfg.start_y_m = prev_target.y;
         cfg.goal_x_m  = w.x;
         cfg.goal_y_m  = w.y;
-        wavefrontplanner::WaveFrontPlanner wfp;
-        wfp.Init(cfg);
-        std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
-        for (auto p: path) {
-            WAYPOINT w(p.x, p.y, 0, 0);
-            wp.emplace_back(w);
-        }
+        //wavefrontplanner::WaveFrontPlanner wfp;
+        //wfp.Init(cfg);
+        //std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
+        //for (auto p: path) {
+        //    WAYPOINT w(p.x, p.y, 0, 0);
+        //    wp.emplace_back(w);
+        //}
+        wp.emplace_back(w);
         wp.back().stop_check = w.stop_check;
         prev_target.x = w.x;
         prev_target.y = w.y;
     }
+    std::cout << "wave front completed" << std::endl;
     shm_wp_list->size_wp_list = wp.size();
     for (int i = 0; i < wp.size(); i++) {
         shm_wp_list->wp_list[i].x = wp[i].x;
@@ -621,7 +623,7 @@ int main(int argc, char *argv[]) {
                     Viewer view(map_path);                        // 現在のoccMapを表示する
                     view.hold();
                     view.show(shm_loc->x, shm_loc->y, 5);
-                    cv::moveWindow("occMap", 700, 0);
+                    //cv::moveWindow("occMap", 700, 0);
                     shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
                     std::vector<WAYPOINT> wp;
                     for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
