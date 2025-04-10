@@ -56,5 +56,6 @@ class Urg2d {
     std::vector<LSP> getData(const cv::Mat &imgMap, const Pose2d &pose,
         const int originX, const int originY, const double csize);
     int view(int wait_time);
+    void close();
 };
 

@@ -47,6 +47,19 @@ using namespace std::chrono;
 
 void sigcatch( int );
 
+void signal_handler_SIGTERM(int signum) {
+  if (signum == SIGTERM) {
+    exit(0);
+  }
+};
+
+bool LIDAR_STOP = false;
+void signal_handler_SIGTERM_inLIDAR(int signum) {
+  if (signum == SIGTERM) {
+    LIDAR_STOP = true;
+  }
+};
+
 bool isFREE = false;
 bool gotoEnd = false;
 
@@ -533,6 +546,7 @@ int main(int argc, char *argv[]) {
       p_list.emplace_back(c_pid);
     } else {
       if (i == 0) {       // 2d-lidar
+        signal(SIGTERM, signal_handler_SIGTERM_inLIDAR);
         shm_urg2d->start_angle = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
         shm_urg2d->end_angle   = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
         shm_urg2d->step_angle  = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
@@ -578,9 +592,14 @@ int main(int argc, char *argv[]) {
           for (int k = 0; k < result.size(); k++) {
             shm_urg2d->r[k] = result[k].data;
           }
+          if (LIDAR_STOP) {
+            urg2d.close();
+            exit(0);
+          }
         }
         exit(EXIT_SUCCESS);
       } else if (i == 1) { // battery
+        signal(SIGTERM, signal_handler_SIGTERM);
         std::string path = shm_logdir->path;
         path += "/batlog";
         while (1) {
@@ -593,6 +612,7 @@ int main(int argc, char *argv[]) {
         }
         exit(EXIT_SUCCESS);
       } else if (i == 2) { // localization
+        signal(SIGTERM, signal_handler_SIGTERM);
         while (1) {
           MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
           // Map file path
@@ -677,6 +697,7 @@ int main(int argc, char *argv[]) {
         }
         exit(EXIT_SUCCESS);
       } else if (i == 3) { // State display
+        signal(SIGTERM, signal_handler_SIGTERM);
         std::cerr << "Please waite 5 sec...";
         sleep(5);
         clear();
@@ -727,6 +748,7 @@ int main(int argc, char *argv[]) {
         }
         exit(EXIT_SUCCESS);
       } else if (i == 4) { // sound on
+        signal(SIGTERM, signal_handler_SIGTERM);
         int prev_wp_index = 0;
         std::string path = shm_logdir->path;
         path += "/sound_log";
@@ -985,7 +1007,7 @@ CLEANUP:
   mcl_log.close();
 
   for (auto pid: p_list) {
-    kill(pid, SIGKILL);
+    kill(pid, SIGTERM);
   }
   pid_t wait_pid;
   while ((wait_pid = wait(nullptr)) > 0)
@@ -1026,7 +1048,7 @@ void sigcatch(int sig) {
   std::cerr << TEXT_COLOR_RESET;
 
   for (auto pid: p_list) {
-    kill(pid, SIGKILL);
+    kill(pid, SIGTERM);
   }
   pid_t wait_pid;
   while ((wait_pid = wait(nullptr)) > 0) {

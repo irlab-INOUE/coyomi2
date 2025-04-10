@@ -106,3 +106,7 @@ int Urg2d::view(int wait_time) {
   cv::imshow("testImg", testImg);
   return cv::waitKey(wait_time);
 }
+
+void Urg2d::close() {
+  urg.close();
+}
