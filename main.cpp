@@ -439,6 +439,9 @@ int main(int argc, char *argv[]) {
 
     /**************************************************************************
         Waypoint setup
+        Note:
+          For the wavefront planner to work properly, the occMap should have
+          traversable areas marked in white.
      ***************************************************************************/
     shm_loc->CURRENT_MAP_PATH_INDEX = 0;
     if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
@@ -455,13 +458,13 @@ int main(int argc, char *argv[]) {
         cfg.start_y_m = prev_target.y;
         cfg.goal_x_m  = w.x;
         cfg.goal_y_m  = w.y;
-        //wavefrontplanner::WaveFrontPlanner wfp;
-        //wfp.Init(cfg);
-        //std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
-        //for (auto p: path) {
-        //    WAYPOINT w(p.x, p.y, 0, 0);
-        //    wp.emplace_back(w);
-        //}
+        wavefrontplanner::WaveFrontPlanner wfp;
+        wfp.Init(cfg);
+        std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
+        for (auto p: path) {
+            WAYPOINT w(p.x, p.y, 0, 0);
+            wp.emplace_back(w);
+        }
         wp.emplace_back(w);
         wp.back().stop_check = w.stop_check;
         prev_target.x = w.x;
