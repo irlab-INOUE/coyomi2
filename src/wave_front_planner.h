@@ -109,8 +109,13 @@ class WaveFrontPlanner {
     double goal_x_m_;
     double goal_y_m_;
 
+    int divided_pixel;
+
+    std::vector<std::vector<MapState>> map_state;
+
   public:
     WaveFrontPlanner();
+    WaveFrontPlanner(Config &cfg);
     void Init(Config &cfg);
     void SetStartPosition(const double x, const double y);
     void SetGoalPosition(const double x, const double y);
@@ -122,8 +127,8 @@ WaveFrontPlanner::WaveFrontPlanner() {
   ;
 }
 
-void WaveFrontPlanner::Init(Config &cfg) {
-  cfg_ = cfg;
+WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
+  std::cerr << "Hello, wave front planner\n";
   img_ = cv::imread(cfg.map_path);
 
 	YAML::Node config;
@@ -138,6 +143,66 @@ void WaveFrontPlanner::Init(Config &cfg) {
   map_info_.originY = config["originY"].as<int>() + map_info_.margin;
   map_info_.csize   = config["csize"].as<double>();
 
+  cv::Mat occMap = cv::imread(cfg.map_path, cv::IMREAD_GRAYSCALE);
+  // 地図をdivided_size (m)区画に分割し，領域の種別に分ける
+  // 障害物がある(その区画内に1ピクセル以上) or
+  // 未計測(その区画内がすべて未計測の場合)
+  // フリースペース
+  const double divided_size = 0.5;
+  divided_pixel = floor(divided_size / map_info_.csize);
+  // gridを確認
+  cv::Mat display_grid;
+  occMap.copyTo(display_grid);
+  for (int ix = 0; ix < display_grid.cols; ix += divided_pixel) {
+    cv::line(display_grid, cv::Point(ix, 0), cv::Point(ix, occMap.rows),
+        cv::Scalar(100, 100, 100), 1);
+  }
+  for (int iy = 0; iy < display_grid.rows; iy += divided_pixel) {
+    cv::line(display_grid, cv::Point(0, iy), cv::Point(occMap.cols, iy),
+        cv::Scalar(100, 100, 100), 1);
+  }
+  //cv::imshow("GRID", display_grid);
+  //cv::waitKey(0);
+
+  int grid_num_width = floor(occMap.cols / divided_pixel) + 1;
+  int grid_num_height = floor(occMap.rows / divided_pixel) + 1;
+  std::vector<std::vector<MapState>> _state(grid_num_height, std::vector<MapState>(grid_num_width));
+  map_state = _state;
+
+  for (int iy = 0; iy < occMap.rows; iy += divided_pixel) {
+    double center_y = (-iy + map_info_.originY) * map_info_.csize - divided_size/2;
+    for (int ix = 0; ix < occMap.cols; ix += divided_pixel) {
+      double center_x = (ix - map_info_.originX) * map_info_.csize + divided_size/2;
+      bool finish = false;
+      for (int sy = 0; sy < divided_pixel; sy++) {
+        int check_pixel_y = iy + sy;
+        if (check_pixel_y >= occMap.rows) check_pixel_y = occMap.rows - 1;
+
+        for (int sx = 0; sx < divided_pixel; sx++) {
+          int check_pixel_x = ix + sx;
+          if (check_pixel_x >= occMap.cols) check_pixel_x = occMap.cols - 1;
+
+          int color = occMap.at<uchar>(check_pixel_y, check_pixel_x);
+
+          if (color < 220) {
+            MapState state(center_x, center_y, divided_size, divided_size, MapStatus::kObstacle);
+            map_state[floor(static_cast<double>(iy)/divided_pixel)]
+                     [floor(static_cast<double>(ix)/divided_pixel)] = state;
+            finish = true;
+            break;
+          }
+        }
+        if (finish) break;
+
+        // for free space
+        MapState state(center_x, center_y, divided_size, divided_size, MapStatus::kFree);
+        map_state[iy/divided_pixel][ix/divided_pixel] = state;
+      }
+    }
+  }
+}
+
+void WaveFrontPlanner::Init(Config &cfg) {
   start_x_m_ = cfg.start_x_m;
   start_y_m_ = cfg.start_y_m;
 
@@ -156,76 +221,11 @@ void WaveFrontPlanner::SetGoalPosition(const double x, const double y) {
 }
 
 std::vector<Path> WaveFrontPlanner::SearchGoal() {
-  cv::Mat occMap = cv::imread(cfg_.map_path, cv::IMREAD_GRAYSCALE);
-  // 地図をdivided_size (m)区画に分割し，領域の種別に分ける
-  // 障害物がある(その区画内に1ピクセル以上) or
-  // 未計測(その区画内がすべて未計測の場合)
-  // フリースペース
-  const double divided_size = 0.5;
-  int divided_pixel = floor(divided_size / map_info_.csize);
-  // gridを確認
-  cv::Mat display_grid;
-  occMap.copyTo(display_grid);
-  for (int ix = 0; ix < display_grid.cols; ix += divided_pixel) {
-    cv::line(display_grid, cv::Point(ix, 0), cv::Point(ix, occMap.rows),
-        cv::Scalar(100, 100, 100), 1);
-  }
-  for (int iy = 0; iy < display_grid.rows; iy += divided_pixel) {
-    cv::line(display_grid, cv::Point(0, iy), cv::Point(occMap.cols, iy),
-        cv::Scalar(100, 100, 100), 1);
-  }
-  //cv::imshow("GRID", display_grid);
-  //cv::waitKey(5);
-
-  int grid_num_width = floor(occMap.cols / divided_pixel) + 1;
-  int grid_num_height = floor(occMap.rows / divided_pixel) + 1;
-  std::vector<std::vector<MapState>> map_state(
-      grid_num_height,
-      std::vector<MapState>(grid_num_width));
-  for (int iy = 0; iy < occMap.rows; iy += divided_pixel) {
-    double center_y = (-iy + map_info_.originY) * map_info_.csize -
-                      divided_size/2;
-    for (int ix = 0; ix < occMap.cols; ix += divided_pixel) {
-      double center_x = (ix - map_info_.originX) * map_info_.csize +
-                        divided_size/2;
-      bool finish = false;
-      for (int sy = 0; sy < divided_pixel; sy++) {
-        int check_pixel_y = iy + sy;
-        if (check_pixel_y >= occMap.rows) check_pixel_y = occMap.rows - 1;
-
-        for (int sx = 0; sx < divided_pixel; sx++) {
-          int check_pixel_x = ix + sx;
-          if (check_pixel_x >= occMap.cols) check_pixel_x = occMap.cols - 1;
-
-          int color = occMap.at<uchar>(check_pixel_y, check_pixel_x);
-
-          if (color < 220) {
-            MapState state(center_x, center_y, divided_size, divided_size,
-                           MapStatus::kObstacle);
-            map_state[floor(static_cast<double>(iy)/divided_pixel)]
-                     [floor(static_cast<double>(ix)/divided_pixel)] = state;
-            finish = true;
-            break;
-          }
-        }
-        if (finish) break;
-
-        // for free space
-        MapState state(center_x, center_y, divided_size, divided_size,
-                      MapStatus::kFree);
-        map_state[iy/divided_pixel][ix/divided_pixel] = state;
-      }
-    }
-  }
   // start and goal をセット
-  int index_start_x = (start_x_m_/map_info_.csize + map_info_.originX) /
-                       divided_pixel;
-  int index_start_y = (-start_y_m_/map_info_.csize + map_info_.originY) /
-                       divided_pixel;
-  int index_goal_x = (goal_x_m_/map_info_.csize + map_info_.originX) /
-                       divided_pixel;
-  int index_goal_y = (-goal_y_m_/map_info_.csize + map_info_.originY) /
-                       divided_pixel;
+  int index_start_x = (start_x_m_/map_info_.csize + map_info_.originX) / divided_pixel;
+  int index_start_y = (-start_y_m_/map_info_.csize + map_info_.originY) / divided_pixel;
+  int index_goal_x = (goal_x_m_/map_info_.csize + map_info_.originX) / divided_pixel;
+  int index_goal_y = (-goal_y_m_/map_info_.csize + map_info_.originY) / divided_pixel;
   map_state[index_start_y][index_start_x].state_ = MapStatus::kStart;
   map_state[index_goal_y][index_goal_x].state_ = MapStatus::kGoal;
 

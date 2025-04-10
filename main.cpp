@@ -444,15 +444,16 @@ int main(int argc, char *argv[]) {
     std::vector<WAYPOINT> tmp_wp, wp;
     tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
     WAYPOINT prev_target(0, 0, 0, 0);
+    wavefrontplanner::Config cfg;
+    cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+    cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+    wavefrontplanner::WaveFrontPlanner wfp(cfg);
     for (auto w: tmp_wp) {
         wavefrontplanner::Config cfg;
-        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
         cfg.start_x_m = prev_target.x;
         cfg.start_y_m = prev_target.y;
         cfg.goal_x_m  = w.x;
         cfg.goal_y_m  = w.y;
-        wavefrontplanner::WaveFrontPlanner wfp;
         wfp.Init(cfg);
         std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
         for (auto p: path) {
@@ -893,15 +894,16 @@ int main(int argc, char *argv[]) {
                 wp.clear();
                 tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
                 WAYPOINT prev_target(0, 0, 0, 0);
+                wavefrontplanner::Config cfg;
+                cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+                cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+                wavefrontplanner::WaveFrontPlanner wfp(cfg);
                 for (auto w: tmp_wp) {
                     wavefrontplanner::Config cfg;
-                    cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-                    cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
                     cfg.start_x_m = prev_target.x;
                     cfg.start_y_m = prev_target.y;
                     cfg.goal_x_m  = w.x;
                     cfg.goal_y_m  = w.y;
-                    wavefrontplanner::WaveFrontPlanner wfp;
                     wfp.Init(cfg);
                     std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
                     for (auto p: path) {
