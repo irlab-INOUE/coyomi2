@@ -67,7 +67,7 @@ std::tuple<double, double, double, double> DynamicWindowApproach::run(
   double min_obx = 0;
   double min_oby = 0;
   for (auto l: lsp) {
-    if (l.r < limit_distance && l.th > -M_PI/4 && l.th < M_PI/4) {
+    if (0.1 < l.r && l.r < limit_distance && l.th > -M_PI/4 && l.th < M_PI/4) {
       nearby_lsp.emplace_back(l);
       if (l.r < min_distance_to_obstacle) {
         min_distance_to_obstacle = l.r;

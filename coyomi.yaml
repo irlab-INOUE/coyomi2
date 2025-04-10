@@ -38,7 +38,7 @@ MapPath:
   #  init_x: 0.0
   #  init_y: 0.0
   #  init_a: 0.0   # deg
-  #  #-#
+    #-#
     #  path: map/log230731_1F
     #  occupancy_grid_map: occMap.png
     #  way_point: wp.txt
