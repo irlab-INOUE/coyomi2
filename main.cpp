@@ -72,8 +72,8 @@ struct joy_calib {
   int zero;
 
   joy_calib() {
-    max = 0;
-    min = 0;
+    max = 32767;
+    min = -32768;
     zero = 0;
   };
 
@@ -126,10 +126,10 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
             v = -0.5; w = 0.0;
             break;
           case 0:
-            v = 0.0; w = 0.5;
+            v = 0.0; w = 1.0;
             break;
           case 3:
-            v = 0.0; w = -0.5;
+            v = 0.0; w = -1.0;
             break;
           case 10:
             //std::cerr << "End\n";
@@ -373,7 +373,7 @@ int main(int argc, char *argv[]) {
             loop_out_flag = true;
             break;
           case SDL_JOYAXISMOTION:
-            j_calib[static_cast<int>(e.jaxis.axis)].set_val(e.jaxis.value);
+            //j_calib[static_cast<int>(e.jaxis.axis)].set_val(e.jaxis.value);
             j_calib[static_cast<int>(e.jaxis.axis)].set_zero(e.jaxis.value);
             break;
           default:

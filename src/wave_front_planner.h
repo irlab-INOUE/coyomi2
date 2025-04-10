@@ -166,8 +166,7 @@ WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
 
   int grid_num_width = floor(occMap.cols / divided_pixel) + 1;
   int grid_num_height = floor(occMap.rows / divided_pixel) + 1;
-  std::vector<std::vector<MapState>> _state(grid_num_height, std::vector<MapState>(grid_num_width));
-  map_state_ = _state;
+  map_state_ = std::vector<std::vector<MapState>>(grid_num_height, std::vector<MapState>(grid_num_width));
 
   for (int iy = 0; iy < occMap.rows; iy += divided_pixel) {
     double center_y = (-iy + map_info_.originY) * map_info_.csize - divided_size/2;
