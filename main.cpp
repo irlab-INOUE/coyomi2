@@ -6,7 +6,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <fcntl.h>
-#include <linux/joystick.h>
+#include <SDL.h>
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
@@ -29,7 +29,8 @@
 #define N 256 	// 日時の型変換に使うバッファ数
 
 int fd;
-int fd_js;    // file descriptor to joystick
+SDL_Joystick* joystick;
+
 // 共有したい構造体毎にアドレスを割り当てる
 ENC *shm_enc         = nullptr;
 URG2D *shm_urg2d     = nullptr;
@@ -46,9 +47,6 @@ using namespace std::chrono;
 
 void sigcatch( int );
 
-// joystick setup parameter
-int *axis = NULL, num_of_axis = 0, num_of_buttons = 0;
-char *button = NULL, name_of_joystick[80];
 bool isFREE = false;
 bool gotoEnd = false;
 
@@ -94,76 +92,88 @@ struct joy_calib {
     };
 };
 
-void read_joystick(js_event &js, double &v, double &w,
-                   const std::vector<joy_calib> &j_calib) {
-    /* read the joystick state */
-    ssize_t a = read(fd_js, &js, sizeof(struct js_event));
-    /* see what to do with the event */
-    switch (js.type & ~JS_EVENT_INIT) {
-        case JS_EVENT_AXIS:
-            axis[js.number] = js.value;
-            break;
-        case JS_EVENT_BUTTON:
-            button[js.number] = js.value;
-            if(js.value){
-                while (js.value) {
-                    ssize_t a = read(fd_js, &js, sizeof(struct js_event));
-                    usleep(1000);
-                }
+void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) {
+  const int DEAD_ZONE = 8000;
+  double axis0 = 0;
+  double axis1 = 0;
 
-                switch(js.number) {
-                    case 2:
-                        break;
-                    case 3:
-                        break;
-                    case 0:
-                        break;
-                    case 1:
-                        break;
-                    case 10:
-                        //std::cerr << "End\n";
-                        v = 0.0; w = 0.0;
-                        calc_vw2hex(Query_NET_ID_WRITE, v, w);
-                        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-                        usleep(1500000);
-                        gotoEnd = true;
-                        break;
-                    case 12:
-                        //std::cerr << "FREE\n";
-                        v = 0.0; w = 0.0;
-                        calc_vw2hex(Query_NET_ID_WRITE, v, w);
-                        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-                        usleep(1000000);
-                        isFREE = !isFREE;
-                        if (isFREE)
-                            free_motors();
-                        else
-                            turn_on_motors();
-                        break;
-                    case 6:
-                        break;
-                    case 7:
-                        break;
-                    default:
-                        break;
-                }
-            }
+  /* read the joystick state */
+  SDL_Event e;
+  while (SDL_PollEvent(&e)) {
+    switch (e.type) {
+      case SDL_JOYBUTTONUP:
+          case 1:
+            v = 0.0; w = 0.0;
             break;
+          case 2:
+            v = 0.0; w = 0.0;
+            break;
+          case 0:
+            v = 0.0; w = 0.0;
+            break;
+          case 3:
+            v = 0.0; w = 0.0;
+            break;
+          default:
+            v = 0.0; w = 0.0;
+            break;
+      case SDL_JOYBUTTONDOWN:
+        switch (static_cast<int>(e.jbutton.button)) {
+          case 1:
+            v = 0.5; w = 0.0;
+            break;
+          case 2:
+            v = -0.5; w = 0.0;
+            break;
+          case 0:
+            v = 0.0; w = 0.5;
+            break;
+          case 3:
+            v = 0.0; w = -0.5;
+            break;
+          case 10:
+            //std::cerr << "End\n";
+            v = 0.0; w = 0.0;
+            calc_vw2hex(Query_NET_ID_WRITE, v, w);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            usleep(1500000);
+            gotoEnd = true;
+            break;
+          case 12:
+            //std::cerr << "FREE\n";
+            v = 0.0; w = 0.0;
+            calc_vw2hex(Query_NET_ID_WRITE, v, w);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            usleep(1000000);
+            isFREE = !isFREE;
+            if (isFREE)
+              free_motors();
+            else
+              turn_on_motors();
+            break;
+          default:
+            v = 0.0; w = 0.0;
+            break;
+        }
     }
-    double axis0 =2.0 * axis[0] / (j_calib[0].max - j_calib[0].min + 10);
-    double axis1 =2.0 * axis[1] / (j_calib[1].max - j_calib[1].min + 10);
-    double axis2 =2.0 * axis[0] / (j_calib[0].max - j_calib[0].min + 10);
-    double axis3 =2.0 * axis[3] / (j_calib[3].max - j_calib[3].min + 10);
-    // method 1
-    v = -axis1 * 0.8;
-    w = -axis0 * 10*M_PI/180.0;
-    // method 2
-#if 0
-    double wl = -axis1;
-    double wr = -axis3;
-    v = (wl + wr)/2;
-    w = (wr - wl)/WHEEL_T;
-#endif
+    if (std::abs(e.jaxis.value) > DEAD_ZONE) {
+      int axis_index = static_cast<int>(e.jaxis.axis);
+      switch (axis_index) {
+        case 0:
+          axis0 =2.0 * e.jaxis.value / (j_calib[0].max - j_calib[0].min + 10);
+          break;
+        case 1:
+          axis1 =2.0 * e.jaxis.value / (j_calib[1].max - j_calib[1].min + 10);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  // method 1
+  //v = -axis1 * 0.8;
+  //w = -axis0 * 10*M_PI/180.0;
+  // method 2
 }
 
 std::vector<WAYPOINT> wpRead(std::string wpname) {
@@ -337,60 +347,44 @@ int main(int argc, char *argv[]) {
         std::cerr << "Get fd: " << fd << "\n";
     }
 
-    if ((fd_js = open(JS_PORT, O_RDONLY)) == -1) {
-        std::cerr << "Can't open serial port\n";
-        return false;
-    } else {
-        std::cerr << "Get fd_js: " << fd_js << "\n";
-    }
-
     /**************************************************************************
         Joystick setup
      ***************************************************************************/
-    struct js_event js;
-    ioctl(fd_js, JSIOCGAXES, &num_of_axis);
-    ioctl(fd_js, JSIOCGBUTTONS, &num_of_buttons);
-    ioctl(fd_js, JSIOCGNAME(80), &name_of_joystick);
+    if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
+      std::cerr << "Failure SDL initialize. " << SDL_GetError() << std::endl;
+      return 1;
+    }
+    joystick = SDL_JoystickOpen(0);
+    std::cerr << "Joystick detected:" << SDL_JoystickName(joystick) << std::endl;
+    std::cerr << SDL_JoystickNumAxes(joystick) << " axis" << std::endl;
+    std::cerr << SDL_JoystickNumButtons(joystick) << " buttons" << std::endl << std::endl;
 
-    axis = (int *)calloc(num_of_axis, sizeof(int));
-    button = (char *)calloc(num_of_buttons, sizeof(char));
-
-    std::cerr << "Joystick detected:" << name_of_joystick << std::endl;
-    std::cerr << num_of_axis << " axis" << std::endl;
-    std::cerr << num_of_buttons << " buttons" << std::endl << std::endl;
-
-    fcntl(fd_js, F_SETFL, O_NONBLOCK);   /* use non-blocking mode */
-    js.number = 0;
-    js.value = 0;
     // calibrate axis until JS_EVENT_BUTTON pressed
     bool loop_out_flag = false;
     std::vector<joy_calib> j_calib(6);
     std::cerr << "Calibrate js axis. Rotate LEFT axis to the all direction, then press any button\n";
+    SDL_Event e;
     while (1) {
-        /* read the joystick state */
-        ssize_t a = read(fd_js, &js, sizeof(struct js_event));
-
-        /* see what to do with the event */
-        switch (js.type & ~JS_EVENT_INIT) {
-            case JS_EVENT_AXIS:
-                axis[js.number] = js.value;
-                j_calib[js.number].set_val(js.value);
-                j_calib[js.number].set_zero(js.value);
-                break;
-            case JS_EVENT_BUTTON:
-                if(js.value){
-                    std::cout << "Pressed JS_EVENT_BUTTON\n";
-                    loop_out_flag = true;
-                }
-                break;
+      while (!loop_out_flag) {
+        while (SDL_PollEvent(&e))
+          switch (e.type) {
+            case SDL_JOYBUTTONDOWN:
+              std::cout << "Pressed SDL_JOYBUTTONDOWN\n";
+              loop_out_flag = true;
+              break;
+            case SDL_JOYAXISMOTION:
+              j_calib[static_cast<int>(e.jaxis.axis)].set_val(e.jaxis.value);
+              j_calib[static_cast<int>(e.jaxis.axis)].set_zero(e.jaxis.value);
+              break;
             default:
-                break;
-        }
-        if (loop_out_flag) break;
-        usleep(10000);
+              break;
+          }
+      }
+      if (loop_out_flag) break;
+      usleep(10000);
     }
     for (auto j: j_calib) {
-        std::cout << j.min << " " << j.max << " " << j.zero << "\n";
+      std::cout << j.min << " " << j.max << " " << j.zero << "\n";
     }
     std::cerr << "Joypad ready completed" << std::endl;
 
@@ -775,7 +769,7 @@ int main(int argc, char *argv[]) {
 
     while (isFREE) {
         double tmp_v, tmp_w;
-        read_joystick(js, tmp_v, tmp_w, j_calib);
+        read_joystick(tmp_v, tmp_w, j_calib);
         if (gotoEnd) goto CLEANUP;
         usleep(100000);
 
@@ -794,7 +788,7 @@ int main(int argc, char *argv[]) {
 
     while(1) {
         double tmp_v, tmp_w;
-        read_joystick(js, tmp_v, tmp_w, j_calib);
+        read_joystick(tmp_v, tmp_w, j_calib);
         if (gotoEnd) goto CLEANUP;
 
         std::vector<LSP> lsp;
@@ -840,7 +834,7 @@ int main(int argc, char *argv[]) {
                     isFREE = !isFREE;
                     free_motors();
                     while (isFREE) {
-                        read_joystick(js, v, w, j_calib);
+                        read_joystick(v, w, j_calib);
                         long long ts = get_current_time();
                         read_state(odo, ts);
                         shm_enc->ts = ts;
@@ -980,7 +974,8 @@ CLEANUP:
     turn_off_motors();
 
     close(fd);
-    close(fd_js);
+    SDL_JoystickClose(joystick);
+    SDL_Quit();
 
     enc_log.close();
     fout_urg2d.close();
@@ -1048,7 +1043,8 @@ void sigcatch(int sig) {
     turn_off_motors();
     std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
 
-    close(fd_js);
+    SDL_JoystickClose(joystick);
+    SDL_Quit();
     close(fd);
 
     enc_log.close();

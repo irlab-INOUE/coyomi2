@@ -27,6 +27,13 @@ find_package (OpenCV REQUIRED)
 
 FILE(GLOB URG2D_FILES ${PROJECT_SOURCE_DIR}/src/GetDistance2D/src/*.cpp)
 
+# SDL2のパッケージを探す
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SDL2 REQUIRED sdl2)
+# インクルードディレクトリとライブラリディレクトリの設定
+include_directories(${SDL2_INCLUDE_DIRS})
+link_directories(${SDL2_LIBRARY_DIRS})
+
 #### 実行ファイルの作成
 set(EXECUTABLE_OUTPUT_PATH ${BIN_DIR})   # 実行ファイルの保存場所
 add_executable (main main.cpp
@@ -38,4 +45,4 @@ add_executable (main main.cpp
   ${URG2D_FILES}
   )
 
-target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp ncurses)
+target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp ncurses ${SDL2_LIBRARIES})
