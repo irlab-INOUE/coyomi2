@@ -57,7 +57,7 @@ void send_cmd(uint8_t *cmd, int length) {
   }
   std::cerr << "\n";
 #endif
-  int n = write(fd, cmd, length);
+  int n = write(fd_motor, cmd, length);
   usleep(SERIAL_INTERVAL_SEND);
 }
 
@@ -68,7 +68,7 @@ void simple_send_cmd(uint8_t *cmd, int length) {
 }
 
 int ReadByte(uint8_t *buf) {
-  return read(fd, buf, sizeof(uint8_t));
+  return read(fd_motor, buf, sizeof(uint8_t));
 }
 
 void read_res(uint8_t *buf2, int length) {

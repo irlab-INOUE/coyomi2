@@ -28,7 +28,7 @@
 
 #define N 256 	// 日時の型変換に使うバッファ数
 
-int fd;
+int fd_motor;
 SDL_Joystick* joystick;
 
 // 共有したい構造体毎にアドレスを割り当てる
@@ -340,11 +340,11 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
         Connect check & open serial port
      ***************************************************************************/
-  if((fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY)) == -1) {
+  if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
     return false;
   } else {
-    std::cerr << "Get fd: " << fd << "\n";
+    std::cerr << "Get fd_motor: " << fd_motor << "\n";
   }
 
   /**************************************************************************
@@ -399,7 +399,7 @@ int main(int argc, char *argv[]) {
   tio.c_cc[VTIME] = 1;
   cfsetispeed(&tio, BAUDRATE);
   cfsetospeed(&tio, BAUDRATE);
-  tcsetattr(fd, TCSANOW, &tio);
+  tcsetattr(fd_motor, TCSANOW, &tio);
 
   /**************************************************************************
         Motor driver setup
@@ -756,7 +756,7 @@ int main(int argc, char *argv[]) {
   ODOMETORY odo;
   int number_of_lidar_view_count = 1;
   int lidar_view_countdown = number_of_lidar_view_count;
-  tcflush(fd, TCIOFLUSH);
+  tcflush(fd_motor, TCIOFLUSH);
   DynamicWindowApproach dwa(coyomi_yaml);
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
 
@@ -975,7 +975,7 @@ CLEANUP:
   // turn off exitation on RL motor
   turn_off_motors();
 
-  close(fd);
+  close(fd_motor);
   SDL_JoystickClose(joystick);
   SDL_Quit();
 
@@ -1047,7 +1047,7 @@ void sigcatch(int sig) {
 
   SDL_JoystickClose(joystick);
   SDL_Quit();
-  close(fd);
+  close(fd_motor);
 
   enc_log.close();
   fout_urg2d.close();

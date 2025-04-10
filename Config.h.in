@@ -9,7 +9,7 @@
 #define SERIAL_INTERVAL_SEND 4000
 #define SERIAL_INTERVAL_RESP 4000
 
-#define SERIAL_PORT   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ034S3S-if00-port0"
+#define SERIAL_PORT_MOTOR   "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AQ034S3S-if00-port0"
 #define JS_PORT       "/dev/input/js0"
 
 #define WHEEL_D 0.311
