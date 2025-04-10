@@ -111,7 +111,7 @@ class WaveFrontPlanner {
 
     int divided_pixel;
 
-    std::vector<std::vector<MapState>> map_state;
+    std::vector<std::vector<MapState>> map_state_;
 
   public:
     WaveFrontPlanner();
@@ -167,7 +167,7 @@ WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
   int grid_num_width = floor(occMap.cols / divided_pixel) + 1;
   int grid_num_height = floor(occMap.rows / divided_pixel) + 1;
   std::vector<std::vector<MapState>> _state(grid_num_height, std::vector<MapState>(grid_num_width));
-  map_state = _state;
+  map_state_ = _state;
 
   for (int iy = 0; iy < occMap.rows; iy += divided_pixel) {
     double center_y = (-iy + map_info_.originY) * map_info_.csize - divided_size/2;
@@ -186,7 +186,7 @@ WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
 
           if (color < 220) {
             MapState state(center_x, center_y, divided_size, divided_size, MapStatus::kObstacle);
-            map_state[floor(static_cast<double>(iy)/divided_pixel)]
+            map_state_[floor(static_cast<double>(iy)/divided_pixel)]
                      [floor(static_cast<double>(ix)/divided_pixel)] = state;
             finish = true;
             break;
@@ -196,7 +196,7 @@ WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
 
         // for free space
         MapState state(center_x, center_y, divided_size, divided_size, MapStatus::kFree);
-        map_state[iy/divided_pixel][ix/divided_pixel] = state;
+        map_state_[iy/divided_pixel][ix/divided_pixel] = state;
       }
     }
   }
@@ -226,6 +226,8 @@ std::vector<Path> WaveFrontPlanner::SearchGoal() {
   int index_start_y = (-start_y_m_/map_info_.csize + map_info_.originY) / divided_pixel;
   int index_goal_x = (goal_x_m_/map_info_.csize + map_info_.originX) / divided_pixel;
   int index_goal_y = (-goal_y_m_/map_info_.csize + map_info_.originY) / divided_pixel;
+
+  std::vector<std::vector<MapState>> map_state = map_state_;
   map_state[index_start_y][index_start_x].state_ = MapStatus::kStart;
   map_state[index_goal_y][index_goal_x].state_ = MapStatus::kGoal;
 

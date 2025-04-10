@@ -465,7 +465,7 @@ int main(int argc, char *argv[]) {
     prev_target.x = w.x;
     prev_target.y = w.y;
   }
-  std::cout << "wave front completed" << std::endl;
+  std::cout << "wave front completed. path size=" << wp.size() << std::endl;
   shm_wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
     shm_wp_list->wp_list[i].x = wp[i].x;
