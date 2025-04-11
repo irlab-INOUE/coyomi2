@@ -932,10 +932,12 @@ int main(int argc, char *argv[]) {
             WAYPOINT w(p.x, p.y, 0, 0);
             wp.emplace_back(w);
           }
+          wp.emplace_back(w);  // この行が抜けていたので追記
           wp.back().stop_check = w.stop_check;
           prev_target.x = w.x;
           prev_target.y = w.y;
         }
+        std::cout << "wave front completed. path size=" << wp.size() << std::endl;
         shm_wp_list->size_wp_list = wp.size();
         for (int i = 0; i < wp.size(); i++) {
           shm_wp_list->wp_list[i].x = wp[i].x;
