@@ -701,6 +701,22 @@ int main(int argc, char *argv[]) {
         std::cerr << "Please waite 5 sec...";
         sleep(5);
         clear();
+
+        // 下部10行分のサブウィンドウを作成
+        int screen_height, screen_width;
+        getmaxyx(stdscr, screen_height, screen_width); // 端末サイズ取得
+        int log_height = 10;
+        int log_width = screen_width;
+        int log_starty = screen_height - log_height;
+        int log_startx = 0;
+        WINDOW* log_win = newwin(log_height, log_width, log_starty, log_startx);
+
+        LOG_DATA log;
+        sem_init(&log.sem, 1, 1); // 1 = プロセス間共有
+        log.current_index = 0;
+        std::string log_text = "TEST LOG START";
+        add_log(&log, log_text);
+
         int ROW_MCL = 0;
         int ROW_MOTOR = 7;
         int ROW_TOTAL_TRAVEL = 14;
@@ -744,7 +760,12 @@ int main(int argc, char *argv[]) {
           printw("%s", shm_loc->path_to_map_dir);
           move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
           printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
+
+          std::string log_text = std::to_string(shm_disp->enc_x);
+          add_log(&log, log_text);
+          draw_log_window(log_win, &log, log_width, log_height);
           refresh();
+
         }
         exit(EXIT_SUCCESS);
       } else if (i == 4) { // sound on
