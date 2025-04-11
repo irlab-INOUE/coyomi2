@@ -201,26 +201,27 @@ const int LOG_HEIGHT = 10;
 #define LOG_SIZE 1024
 #define NUM_LOGS 1000
 // 共有メモリのデータ構造
+#define KEY_LOG 1302
 struct LOG_DATA {
-    sem_t sem;            // セマフォで排他制御
+    sem_t *sem;            // セマフォで排他制御
     size_t current_index; // 現在のログインデックス
     char logs[NUM_LOGS][LOG_SIZE]; // ログ用の固定サイズ配列
     int operation_flag;   // 操作フラグ（イベント駆動）
 };
 // ログの追加
 void add_log(LOG_DATA *shared, const std::string& log) {
-    sem_wait(&shared->sem); // セマフォで排他制御
+    //sem_wait(shared->sem); // セマフォで排他制御
 
     if (shared->current_index < NUM_LOGS) {
         strncpy(shared->logs[shared->current_index], log.c_str(), LOG_SIZE - 1);
         shared->logs[shared->current_index][LOG_SIZE - 1] = '\0';
         shared->current_index++;
     } else {
-        std::cerr << "ログがいっぱいです!" << std::endl;
+        //std::cerr << "ログがいっぱいです!" << std::endl;
         shared->current_index = 0;
     }
 
-    sem_post(&shared->sem); // セマフォを解放
+    //sem_post(shared->sem); // セマフォを解放
 }
 
 void draw_log_window(WINDOW* win, LOG_DATA *shared, int width, int height) {
@@ -236,7 +237,7 @@ void draw_log_window(WINDOW* win, LOG_DATA *shared, int width, int height) {
         mvwprintw(win, 0, 2, " Log Window ");
     }
 
-    sem_wait(&shared->sem); // セマフォで排他制御
+    //sem_wait(shared->sem); // セマフォで排他制御
     int max_lines = height - 2;
     int start = std::max(0, (int)shared->current_index - max_lines);
 
@@ -247,7 +248,7 @@ void draw_log_window(WINDOW* win, LOG_DATA *shared, int width, int height) {
             mvwprintw(win, i + 1, 2, "%-*s", width - 4, "");  // 空行でクリア
         }
     }
-    sem_post(&shared->sem); // セマフォを解放
+    //sem_post(shared->sem); // セマフォを解放
 
     wrefresh(win);
 }

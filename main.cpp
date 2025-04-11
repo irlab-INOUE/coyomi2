@@ -39,6 +39,7 @@ LOC *shm_loc         = nullptr;
 LOGDIR *shm_logdir   = nullptr;
 WP_LIST *shm_wp_list = nullptr;
 DISPLAY *shm_disp    = nullptr;
+LOG_DATA *shm_log    = nullptr;
 
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
@@ -313,6 +314,7 @@ int main(int argc, char *argv[]) {
   shm_logdir     =     (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
   shm_disp       =    (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
   shm_wp_list    =    (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
+  shm_log        =   (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
     LOG保管場所を作成する
@@ -349,6 +351,12 @@ int main(int argc, char *argv[]) {
   } else {
     std::cerr << "ログは保管しません\n";
   }
+
+  /**************************************************************************
+    セマフォの初期化
+   ***************************************************************************/
+  //sem_init(shm_log->sem, 1, 1); // 1 = プロセス間共有
+  shm_log->current_index = 0;
 
   /**************************************************************************
         Connect check & open serial port
@@ -711,11 +719,8 @@ int main(int argc, char *argv[]) {
         int log_startx = 0;
         WINDOW* log_win = newwin(log_height, log_width, log_starty, log_startx);
 
-        LOG_DATA log;
-        sem_init(&log.sem, 1, 1); // 1 = プロセス間共有
-        log.current_index = 0;
         std::string log_text = "TEST LOG START";
-        add_log(&log, log_text);
+        add_log(shm_log, log_text);
 
         int ROW_MCL = 0;
         int ROW_MOTOR = 7;
@@ -727,6 +732,7 @@ int main(int argc, char *argv[]) {
         mvprintw(ROW_MOTOR,   0, "Motor Information");
         mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
         while (1) {
+          // update status window
           shm_disp->temp_driver_L = shm_enc->temp_driver_L;
           shm_disp->temp_driver_R = shm_enc->temp_driver_R;
           shm_disp->temp_motor_L = shm_enc->temp_motor_L;
@@ -736,36 +742,44 @@ int main(int argc, char *argv[]) {
           mvprintw(ROW_MCL+2, 0, "%.3f", shm_disp->loc_x);
           mvprintw(ROW_MCL+2, 9, "%.3f", shm_disp->loc_y);
           mvprintw(ROW_MCL+2,19, "%.1f", shm_disp->loc_a*180/M_PI);
+
           move(ROW_MCL+3, 0); clrtoeol();
           printw("Current WP Index: %d", shm_disp->current_wp_index);
+
           move(ROW_MCL+4, 0); clrtoeol();
           printw("v: %.2f  w: %.2f", shm_disp->v, shm_disp->w);
+
           move(ROW_MCL+5, 0); clrtoeol();
           printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
                  atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
+
           move(ROW_MOTOR+2, 0); clrtoeol();
           mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
           mvprintw(ROW_MOTOR+2, 9, "%.3f", shm_disp->enc_y);
           mvprintw(ROW_MOTOR+2,19, "%.1f", shm_disp->enc_a*180/M_PI);
+
           move(ROW_MOTOR+3, 0); clrtoeol();
           printw("Voltage: %.1f", shm_disp->battery);
+
           move(ROW_MOTOR+4, 0); clrtoeol();
           printw("TmpL_D %.1f  TmpR_D %.1f", shm_disp->temp_driver_L, shm_disp->temp_driver_R);
+
           move(ROW_MOTOR+5, 0); clrtoeol();
           printw("TmpL_M %.1f  TmpR_M %.1f", shm_disp->temp_motor_L, shm_disp->temp_motor_R);
 
           move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
           printw("Total %.1f", shm_disp->total_travel);
+
           move(ROW_PATH, 0); clrtoeol();
           printw("%s", shm_loc->path_to_map_dir);
+
           move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
           printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
 
-          std::string log_text = std::to_string(shm_disp->enc_x);
-          add_log(&log, log_text);
-          draw_log_window(log_win, &log, log_width, log_height);
-          refresh();
+          // update Log window
+          draw_log_window(log_win, shm_log, log_width, log_height);
 
+          refresh();
         }
         exit(EXIT_SUCCESS);
       } else if (i == 4) { // sound on
@@ -783,7 +797,12 @@ int main(int argc, char *argv[]) {
             std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
             int ret = std::system(cmd.c_str());
             prev_wp_index = shm_disp->current_wp_index;
+            // WP更新をログメッセージ出す
+            std::string log_text = "WP updated. Next target->" + std::to_string(shm_disp->current_wp_index);
+            add_log(shm_log, log_text);
           }
+          std::string log_text = "Running process. TimeStamp-> " + std::to_string(ts);
+          add_log(shm_log, log_text);
           sleep(1);
         }
         exit(EXIT_SUCCESS);
@@ -1044,6 +1063,7 @@ CLEANUP:
   shmdt(shm_logdir);
   shmdt(shm_disp);
   shmdt(shm_wp_list);
+  shmdt(shm_log);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
@@ -1055,6 +1075,8 @@ CLEANUP:
   keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
+  shmctl(keyID, IPC_RMID, nullptr);
+  keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
 
   return 0;
@@ -1107,6 +1129,7 @@ void sigcatch(int sig) {
   shmdt(shm_logdir);
   shmdt(shm_disp);
   shmdt(shm_wp_list);
+  shmdt(shm_log);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
@@ -1118,6 +1141,8 @@ void sigcatch(int sig) {
   keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
+  shmctl(keyID, IPC_RMID, nullptr);
+  keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
