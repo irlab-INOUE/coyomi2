@@ -203,14 +203,14 @@ const int LOG_HEIGHT = 10;
 // 共有メモリのデータ構造
 #define KEY_LOG 1302
 struct LOG_DATA {
-    sem_t *sem;            // セマフォで排他制御
+    sem_t sem;            // セマフォで排他制御
     size_t current_index; // 現在のログインデックス
     char logs[NUM_LOGS][LOG_SIZE]; // ログ用の固定サイズ配列
     int operation_flag;   // 操作フラグ（イベント駆動）
 };
 // ログの追加
 void add_log(LOG_DATA *shared, const std::string& log) {
-    //sem_wait(shared->sem); // セマフォで排他制御
+    sem_wait(&shared->sem); // セマフォで排他制御
 
     if (shared->current_index < NUM_LOGS) {
         strncpy(shared->logs[shared->current_index], log.c_str(), LOG_SIZE - 1);
@@ -221,7 +221,7 @@ void add_log(LOG_DATA *shared, const std::string& log) {
         shared->current_index = 0;
     }
 
-    //sem_post(shared->sem); // セマフォを解放
+    sem_post(&shared->sem); // セマフォを解放
 }
 
 void draw_log_window(WINDOW* win, LOG_DATA *shared, int width, int height) {
