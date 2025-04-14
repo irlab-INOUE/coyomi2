@@ -1055,6 +1055,7 @@ CLEANUP:
   while ((wait_pid = wait(nullptr)) > 0)
     std::cout << "wait:" << wait_pid << "\n";
 
+  sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
   std::ofstream shmid(std::string(shm_logdir->path) + "/shmID.txt");
   shmdt(shm_urg2d);
@@ -1121,6 +1122,7 @@ void sigcatch(int sig) {
   bat_log.close();
   mcl_log.close();
 
+  sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
   std::ofstream shmid(std::string(shm_logdir->path) + "/shmID.txt");
   shmdt(shm_urg2d);
