@@ -317,9 +317,9 @@ int main(int argc, char *argv[]) {
   shm_log        =   (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
-    LOG保管場所を作成する
-    DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
-    なければ作成する
+   * LOG保管場所を作成する
+   * DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
+   * なければ作成する
    ***************************************************************************/
   std::string storeDir = DEFAULT_LOG_DIR;
   // 現在日付時刻のディレクトリを作成する
@@ -429,10 +429,10 @@ int main(int argc, char *argv[]) {
   init_pair(1,COLOR_BLUE, COLOR_BLACK);
 
   /**************************************************************************
-    Waypoint setup
-Note:
-For the wavefront planner to work properly, the occMap should have
-traversable areas marked in white.
+   * Waypoint setup
+   * Note:
+   * For the wavefront planner to work properly, the occMap should have
+   * traversable areas marked in white.
    ***************************************************************************/
   shm_loc->CURRENT_MAP_PATH_INDEX = 0;
   if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
