@@ -885,20 +885,6 @@ traversable areas marked in white.
         }
       } else if (dist2wp < arrived_check_distance) {
         shm_enc->current_wp_index += 1;
-#ifdef THETAV
-        v = 0; w = 0;
-        calc_vw2hex(Query_NET_ID_WRITE, v, w);
-        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-        sleep(2);
-
-        std::string lx = std::to_string(estimatedPose.x);
-        std::string ly = std::to_string(estimatedPose.y);
-        std::string cmd = "./bin/capture " + lx + " " + ly;
-        int ret = std::system(cmd.c_str());
-        if (ret == -1) {
-          std::cerr << "script error" << std::endl;
-        }
-#endif
       }
       if (shm_enc->current_wp_index >= wp.size()) {
         shm_enc->current_wp_index = 0;
