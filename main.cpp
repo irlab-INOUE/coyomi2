@@ -381,32 +381,8 @@ int main(int argc, char *argv[]) {
   std::cerr << SDL_JoystickNumButtons(joystick) << " buttons" << std::endl << std::endl;
 
   // calibrate axis until JS_EVENT_BUTTON pressed
-  bool loop_out_flag = false;
   std::vector<joy_calib> j_calib(6);
-  std::cerr << "Calibrate js axis. Rotate LEFT axis to the all direction, then press any button\n";
   SDL_Event e;
-  while (1) {
-    while (!loop_out_flag) {
-      while (SDL_PollEvent(&e))
-        switch (e.type) {
-          case SDL_JOYBUTTONDOWN:
-            std::cout << "Pressed SDL_JOYBUTTONDOWN\n";
-            loop_out_flag = true;
-            break;
-          case SDL_JOYAXISMOTION:
-            //j_calib[static_cast<int>(e.jaxis.axis)].set_val(e.jaxis.value);
-            j_calib[static_cast<int>(e.jaxis.axis)].set_zero(e.jaxis.value);
-            break;
-          default:
-            break;
-        }
-    }
-    if (loop_out_flag) break;
-    usleep(10000);
-  }
-  for (auto j: j_calib) {
-    std::cout << j.min << " " << j.max << " " << j.zero << "\n";
-  }
   std::cerr << "Joypad ready completed" << std::endl;
 
   /**************************************************************************
@@ -816,8 +792,6 @@ int main(int argc, char *argv[]) {
   double v = 0.0;
   double w = 0.0;
   ODOMETORY odo;
-  int number_of_lidar_view_count = 1;
-  int lidar_view_countdown = number_of_lidar_view_count;
   tcflush(fd_motor, TCIOFLUSH);
   DynamicWindowApproach dwa(coyomi_yaml);
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
@@ -825,7 +799,6 @@ int main(int argc, char *argv[]) {
   calc_vw2hex(Query_NET_ID_WRITE, v, w);
   simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
   usleep(100000);
-  isFREE = !isFREE;
   free_motors();
   std::string start_bell_cmd = "paplay /usr/share/sounds/freedesktop/stereo/bell.oga";
   int start_bell_ret = std::system(start_bell_cmd.c_str());
