@@ -899,17 +899,6 @@ traversable areas marked in white.
           shm_loc->CURRENT_MAP_PATH_INDEX = 0;
         }
         MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-#if 0
-        // Reading Way Point
-        wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
-        shm_wp_list->size_wp_list = wp.size();
-        for (int i = 0; i < wp.size(); i++) {
-          shm_wp_list->wp_list[i].x = wp[i].x;
-          shm_wp_list->wp_list[i].y = wp[i].y;
-          shm_wp_list->wp_list[i].a = wp[i].a;
-          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
-        }
-#endif
         // Reading Way Point
         tmp_wp.clear();
         wp.clear();
