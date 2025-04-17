@@ -304,8 +304,8 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-        共有メモリの確保
-     ***************************************************************************/
+    共有メモリの確保
+   ***************************************************************************/
   // 共有したい構造体毎にアドレスを割り当てる
   shm_enc        =        (ENC *)shmAt(KEY_ENC, sizeof(ENC));
   shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
@@ -319,8 +319,8 @@ int main(int argc, char *argv[]) {
   /***************************************************************************
     LOG保管場所を作成する
     DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
-        なければ作成する
-     ***************************************************************************/
+    なければ作成する
+   ***************************************************************************/
   std::string storeDir = DEFAULT_LOG_DIR;
   // 現在日付時刻のディレクトリを作成する
   time_t now = time(NULL);
@@ -359,8 +359,8 @@ int main(int argc, char *argv[]) {
   shm_log->current_index = 0;
 
   /**************************************************************************
-        Connect check & open serial port
-     ***************************************************************************/
+    Connect check & open serial port
+   ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
     return false;
@@ -369,8 +369,8 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-        Joystick setup
-     ***************************************************************************/
+    Joystick setup
+   ***************************************************************************/
   if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
     std::cerr << "Failure SDL initialize. " << SDL_GetError() << std::endl;
     return 1;
@@ -386,8 +386,8 @@ int main(int argc, char *argv[]) {
   std::cerr << "Joypad ready completed" << std::endl;
 
   /**************************************************************************
-        Serial port setup
-     ***************************************************************************/
+    Serial port setup
+   ***************************************************************************/
   struct termios tio;
   memset(&tio, 0, sizeof(tio));
   tio.c_cflag = CS8 | CLOCAL | CREAD | PARENB;
@@ -399,8 +399,8 @@ int main(int argc, char *argv[]) {
   tcsetattr(fd_motor, TCSANOW, &tio);
 
   /**************************************************************************
-        Motor driver setup
-     ***************************************************************************/
+    Motor driver setup
+   ***************************************************************************/
   // BLV-R Driver setup
   // ID Share Config.
   std::cerr << "ID Share configration...";
@@ -416,8 +416,8 @@ int main(int argc, char *argv[]) {
   turn_on_motors();
 
   /**************************************************************************
-        Ncurses setup
-     ***************************************************************************/
+    Ncurses setup
+   ***************************************************************************/
   int key;    // curses用キーボード入力判定
   WINDOW *win = initscr();
   noecho();
@@ -429,11 +429,11 @@ int main(int argc, char *argv[]) {
   init_pair(1,COLOR_BLUE, COLOR_BLACK);
 
   /**************************************************************************
-        Waypoint setup
-        Note:
-          For the wavefront planner to work properly, the occMap should have
-          traversable areas marked in white.
-     ***************************************************************************/
+    Waypoint setup
+Note:
+For the wavefront planner to work properly, the occMap should have
+traversable areas marked in white.
+   ***************************************************************************/
   shm_loc->CURRENT_MAP_PATH_INDEX = 0;
   if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
   std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
@@ -480,15 +480,15 @@ int main(int argc, char *argv[]) {
 #endif
 
   /**************************************************************************
-        initial pose setup
-     ***************************************************************************/
+    initial pose setup
+   ***************************************************************************/
   shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
   shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
   shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
   /**************************************************************************
-        initial enc setup
-     ***************************************************************************/
+    initial enc setup
+   ***************************************************************************/
   long long first_ts = get_current_time();
   ODOMETORY first_odo;
   read_state(first_odo, first_ts);
@@ -499,8 +499,8 @@ int main(int argc, char *argv[]) {
   shm_enc->a = first_odo.ra;
 
   /**************************************************************************
-        Multi threads setup
-     ***************************************************************************/
+    Multi threads setup
+   ***************************************************************************/
   for (int i = 0; i < 5; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
@@ -630,7 +630,7 @@ int main(int argc, char *argv[]) {
           std::vector<WAYPOINT> wp;
           for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
             wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
-                            shm_wp_list->wp_list[i].stop_check);
+                shm_wp_list->wp_list[i].stop_check);
           }
           // MCL(KLD_sampling)
           while(1) {
@@ -727,7 +727,7 @@ int main(int argc, char *argv[]) {
 
           move(ROW_MCL+5, 0); clrtoeol();
           printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
-                 atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
+              atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
 
           move(ROW_MOTOR+2, 0); clrtoeol();
           mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
@@ -787,8 +787,8 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-        Starting Main Process
-     ***************************************************************************/
+    Starting Main Process
+   ***************************************************************************/
   double v = 0.0;
   double w = 0.0;
   ODOMETORY odo;
@@ -854,7 +854,7 @@ int main(int argc, char *argv[]) {
 #endif
 
       double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
-                                  wp[shm_enc->current_wp_index].y - estimatedPose.y);
+          wp[shm_enc->current_wp_index].y - estimatedPose.y);
       if (wp[shm_enc->current_wp_index].stop_check == 2) {
         if (dist2wp < arrived_check_distance) {
           double dwa_v = v;
