@@ -471,13 +471,6 @@ traversable areas marked in white.
     shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
   shm_enc->current_wp_index = 0;
-#if 0
-  std::ofstream wplog("./wplog");
-  for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
-    wplog << shm_wp_list->wp_list[i].x << " " << shm_wp_list->wp_list[i].y
-      << " " << shm_wp_list->wp_list[i].a << " " << shm_wp_list->wp_list[i].stop_check << "\n";
-  }
-#endif
 
   /**************************************************************************
     initial pose setup
