@@ -449,7 +449,7 @@ int main(int argc, char *argv[]) {
     wfp.Init(cfg);
     std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
     for (auto p: path) {
-      WAYPOINT w(p.x, p.y, 0, 0);
+      WAYPOINT w(p.x, p.y, p.r, 0);
       wp.emplace_back(w);
     }
     wp.emplace_back(w);
@@ -458,6 +458,20 @@ int main(int argc, char *argv[]) {
     prev_target.y = w.y;
   }
   std::cout << "wave front completed. path size=" << wp.size() << std::endl;
+
+  //cv::Mat img = cv::imread(cfg.map_path);
+  //for (auto w: wp) {
+  //    cv::circle(img,
+  //        cv::Point(wfp.map_info_.originX + w.x/wfp.map_info_.csize, wfp.map_info_.originY - w.y/wfp.map_info_.csize),
+  //        w.a/wfp.map_info_.csize, cv::Scalar(225, 105, 65), 2, cv::LINE_8);
+  //}
+
+  //cv::imwrite("tmpmap.png", img);
+  //cv::Mat dst;
+  //cv::resize(img, dst, cv::Size(img.cols/10, img.rows/10));
+  //cv::imshow("img", dst);
+  //cv::waitKey();
+  //exit(0);
   shm_wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
     shm_wp_list->wp_list[i].x = wp[i].x;
@@ -841,6 +855,10 @@ int main(int argc, char *argv[]) {
       }
 #endif
 
+      // WP上の障害物判定を入れる
+      // 必要ならばWFPを再実行（近距離だけ）
+
+      // 通常処理
       double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
           wp[shm_enc->current_wp_index].y - estimatedPose.y);
       if (wp[shm_enc->current_wp_index].stop_check == 2) {

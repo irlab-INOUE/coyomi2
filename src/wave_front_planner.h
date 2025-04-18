@@ -89,9 +89,11 @@ class MapState {
 struct Path {
   double x;
   double y;
+  double r;
   Path(double x_, double y_) {
     x = x_;
     y = y_;
+    r = 0.0;
   }
 };
 
@@ -102,7 +104,7 @@ class WaveFrontPlanner {
   private:
     Config cfg_;
     cv::Mat img_;
-    MapInfo map_info_;
+    cv::Mat occMap_;
 
     double start_x_m_;
     double start_y_m_;
@@ -114,6 +116,7 @@ class WaveFrontPlanner {
     std::vector<std::vector<MapState>> map_state_;
 
   public:
+    MapInfo map_info_;
     WaveFrontPlanner();
     WaveFrontPlanner(Config &cfg);
     void Init(Config &cfg);
@@ -144,6 +147,7 @@ WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
   map_info_.csize   = config["csize"].as<double>();
 
   cv::Mat occMap = cv::imread(cfg.map_path, cv::IMREAD_GRAYSCALE);
+  occMap_ = cv::imread(cfg.map_path, cv::IMREAD_GRAYSCALE);
   // 地図をdivided_size (m)区画に分割し，領域の種別に分ける
   // 障害物がある(その区画内に1ピクセル以上) or
   // 未計測(その区画内がすべて未計測の場合)
@@ -347,7 +351,87 @@ std::vector<Path> WaveFrontPlanner::SearchGoal() {
     result_path.emplace_back(path);
   }
 
-  return result_path;
+  /*****************************************************
+   * pathを間引いていく
+   ****************************************************/
+  std::vector<Path> reduced_path;
+  for (int i = 0; i < result_path.size(); ++i) {
+    // 現在pathの場所からフリースペース範囲を算出する
+    // occMap_ を使う
+    // map_info_.csize   = config["csize"].as<double>();
+    int ix =  int(result_path[i].x / map_info_.csize) + map_info_.originX;
+    int iy = -int(result_path[i].y / map_info_.csize) + map_info_.originY;
+    int max_r = int(5/map_info_.csize);
+    bool loop_out = false;
+    for (int r = 1; r <= max_r; ++r) {
+      for (int sx = -r; sx <= r; ++sx) {
+          int color = occMap_.at<uchar>(iy - r, ix + sx);
+          if (color < 220) {
+            result_path[i].r = r * map_info_.csize;
+            loop_out = true;
+            break;
+          }
+      }
+      if (loop_out) {
+        break;
+      }
+      for (int sy = -r+1; sy <= r; ++sy) {
+          int color = occMap_.at<uchar>(iy + sy,  ix + r);
+          if (color < 220) {
+            result_path[i].r = r * map_info_.csize;
+            loop_out = true;
+            break;
+          }
+      }
+      if (loop_out) {
+        break;
+      }
+      for (int sx = r-1; sx >= -r; --sx) {
+          int color = occMap_.at<uchar>(iy + r, ix + sx);
+          if (color < 220) {
+            result_path[i].r = r * map_info_.csize;
+            loop_out = true;
+            break;
+          }
+      }
+      if (loop_out) {
+        break;
+      }
+      for (int sy = r-1; sy >=-r; --sy) {
+          int color = occMap_.at<uchar>(iy + sy,  ix - r);
+          if (color < 220) {
+            result_path[i].r = r * map_info_.csize;
+            loop_out = true;
+            break;
+          }
+      }
+      if (loop_out) {
+        break;
+      }
+      result_path[i].r = r * map_info_.csize;
+    }
+    // もし最初の場所だったら，そのままreduced_listに登録する
+    if (i == 0) {
+      reduced_path.emplace_back(result_path[i]);
+      continue;
+    }
+    // 一つ前のreduced_listのフリースペース半径と自身のフリースペース範囲からオーバーラップ率を計算
+    double prev_r = reduced_path.back().r;
+    double curr_r = result_path[i].r;
+    // オーバーラップが閾値以上なら，現在pathの場所は無視して次に行く
+    double dist = std::hypot(reduced_path.back().x - result_path[i].x, reduced_path.back().y - result_path[i].y);
+    if (fabs(prev_r + curr_r) < dist) {
+      reduced_path.emplace_back(result_path[i]);
+      continue;
+    }
+    if (fabs(prev_r + curr_r - dist)/dist < 0.5) {
+      reduced_path.emplace_back(result_path[i]);
+      continue;
+    }
+  }
+
+  return reduced_path;
+  //return result_path;
 }
 }  // wavefrontplanner
 
