@@ -381,7 +381,7 @@ int main(int argc, char *argv[]) {
   std::cerr << "Joypad ready completed" << std::endl;
 
   /**************************************************************************
-    Serial port setup
+    Serial port setup for Motor Drivers
    ***************************************************************************/
   struct termios tio;
   memset(&tio, 0, sizeof(tio));
