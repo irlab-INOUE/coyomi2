@@ -25,6 +25,7 @@
 #include "checkDirectory.h"
 #include "Config.h"
 #include "wave_front_planner.h"
+#include "time_utility.h"
 
 using namespace std::chrono;
 
@@ -245,12 +246,6 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
     }
     usleep(5000);
   }
-}
-
-long long get_current_time() {
-  auto time_now = high_resolution_clock::now();
-  long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
-  return ts;
 }
 
 std::vector<pid_t> p_list;
