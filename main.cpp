@@ -26,25 +26,35 @@
 #include "Config.h"
 #include "wave_front_planner.h"
 
+using namespace std::chrono;
+
 #define N 256 	// 日時の型変換に使うバッファ数
 
-int fd_motor;
 SDL_Joystick* joystick;
 
-// 共有したい構造体毎にアドレスを割り当てる
-ENC *shm_enc         = nullptr;
-URG2D *shm_urg2d     = nullptr;
-BAT *shm_bat         = nullptr;
-LOC *shm_loc         = nullptr;
-LOGDIR *shm_logdir   = nullptr;
-WP_LIST *shm_wp_list = nullptr;
-DISPLAY *shm_disp    = nullptr;
-LOG_DATA *shm_log    = nullptr;
+bool LIDAR_STOP = false;
+bool isFREE = false;
+bool gotoEnd = false;
 
+// log file
+std::ofstream enc_log;
+std::ofstream fout_urg2d;
+std::ofstream bat_log;
+std::ofstream mcl_log;
+
+// 共有したい構造体毎にアドレスを割り当てる
+ENC      *shm_enc     = nullptr;
+URG2D    *shm_urg2d   = nullptr;
+BAT      *shm_bat     = nullptr;
+LOC      *shm_loc     = nullptr;
+LOGDIR   *shm_logdir  = nullptr;
+WP_LIST  *shm_wp_list = nullptr;
+DISPLAY  *shm_disp    = nullptr;
+LOG_DATA *shm_log     = nullptr;
+
+int fd_motor;
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
-
-using namespace std::chrono;
 
 void sigcatch( int );
 
@@ -54,21 +64,11 @@ void signal_handler_SIGTERM(int signum) {
   }
 };
 
-bool LIDAR_STOP = false;
 void signal_handler_SIGTERM_inLIDAR(int signum) {
   if (signum == SIGTERM) {
     LIDAR_STOP = true;
   }
 };
-
-bool isFREE = false;
-bool gotoEnd = false;
-
-// log file
-std::ofstream enc_log;
-std::ofstream fout_urg2d;
-std::ofstream bat_log;
-std::ofstream mcl_log;
 
 YAML::Node yamlRead(std::string path) {
   try {
