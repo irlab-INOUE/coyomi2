@@ -51,6 +51,7 @@ std::ofstream fout_urg2d;
 std::ofstream bat_log;
 std::ofstream mcl_log;
 std::ofstream de_log;
+std::ofstream sound_log;
 
 // 共有したい構造体毎にアドレスを割り当てる
 ENC      *shm_enc     = nullptr;
@@ -829,11 +830,9 @@ int main(int argc, char *argv[]) {
       } else if (i == 4) { // sound on
         signal(SIGTERM, signal_handler_SIGTERM);
         int prev_wp_index = 0;
-        std::string path = shm_logdir->path;
-        path += "/sound_log";
-        std::ofstream sound_log;
+        std::string sound_logfile_path = std::string(shm_logdir->path) + "/sound_log";
         while (1) {
-          sound_log.open(path, std::ios_base::app);
+          sound_log.open(sound_logfile_path, std::ios_base::app);
           long long ts = get_current_time();
           sound_log << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
           sound_log.close();
