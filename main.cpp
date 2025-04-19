@@ -26,7 +26,7 @@
 #include "Config.h"
 #include "wave_front_planner.h"
 #include "time_utility.h"
-#include "DE.h"
+#include "DELFM.h"
 
 using namespace std::chrono;
 
@@ -620,10 +620,6 @@ int main(int argc, char *argv[]) {
           }
           Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
           Pose2d previousPose = currentPose;
-          // パーティクル初期配置
-          //MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
-          //mcl.set_lfm(shm_loc->path_to_likelyhood_field);
-          //mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
           MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
           Viewer view(map_path);                        // 現在のoccMapを表示する
@@ -637,41 +633,13 @@ int main(int argc, char *argv[]) {
                 shm_wp_list->wp_list[i].stop_check);
           }
           // DE
-          // 画像をグレースケールで読み込み
-          cv::Mat img_gmap = cv::imread(MAP_NAME, cv::IMREAD_GRAYSCALE);
-          if (img_gmap.empty()) {
-            std::cerr << "画像の読み込みに失敗しました。" << std::endl;
-            exit(0);
-          }
-          int _height = img_gmap.rows;
-          int _width = img_gmap.cols;
-          // gmap を画像サイズで初期化
-          std::vector<std::vector<int>> gmap(_height, std::vector<int>(_width));
-          // 画素値を gmap にコピー
-          for (int y = 0; y < _height; ++y) {
-              for (int x = 0; x < _width; ++x) {
-                  gmap[y][x] = static_cast<int>(img_gmap.at<uchar>(y, x));
-              }
-          }
-          // mapInfoから情報を取る
-          // mapInfo.yamlに接続する
-          YAML::Node mapInfo_yaml;
-          try {
-            std::string path_to_yaml = map_path.path + std::string("/mapInfo.yaml");
-            mapInfo_yaml = YAML::LoadFile(path_to_yaml);
-            //std::cerr << "mapInfo.yaml is open.\n";
-          } catch(YAML::BadFile &e) {
-            //std::cerr << "read error! mapInfo.yaml is not exist."<< std::endl;
-            exit(1);
-          }
-          double csize = mapInfo_yaml["csize"].as<double>();
-          int originX = mapInfo_yaml["originX"].as<int>() + mapInfo_yaml["margin"].as<int>();
-          int originY = mapInfo_yaml["originY"].as<int>() + mapInfo_yaml["margin"].as<int>();
-          double max_r = 30000;
-          double dth = acos(1 - csize*csize/(2*(max_r/1000.0)*(max_r/1000.0)));
-          double Wxy = 0.5;      // 探索範囲[m]
-          double Wa  = M_PI/5;    // 角度[rad]
-          
+          double Window_xy = 0.2;            // 探索範囲[m]
+          double Window_a  = 10*M_PI/180;    // 角度[rad]
+
+          DELFM de(Window_xy, Window_a, 20, 10, 0.5, 0.1);
+          de.set_lfm(shm_loc->path_to_likelyhood_field);
+          de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+
           while(1) {
             if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
             view.plot_wp(wp);
@@ -684,24 +652,21 @@ int main(int argc, char *argv[]) {
             std::vector<LSP> lsp;
             double best_x, best_y, best_a, best_eval;
             if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
-              ;
+              best_x = shm_loc->x;
+              best_y = shm_loc->y;
+              best_a = shm_loc->a;
             } else {
               for (int k = 0; k < shm_urg2d->size; k++) {
                 lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
               }
               // DEで自己位置推定
-              std::tie(best_x, best_y, best_a, best_eval) = optimize_de(gmap, lsp, shm_loc->x, shm_loc->y, shm_loc->a,
-                                                                      originX, originY, csize, dth, _width, _height, 
-                                                                      Wxy, Wa, 50, 30, 0.5, 0.5);
-              //mcl.KLD_sampling(lsp, currentPose, previousPose);
+              std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
             }
             Pose2d estimatedPose = Pose2d(best_x, best_y, best_a); //mcl.get_best_pose();
-            //std::vector<Pose2d> particle = mcl.get_particle_set(); // particleは関係ない
 
             view.reset();
             view.robot(estimatedPose);
             view.urg(estimatedPose, lsp);
-            //view.particle(particle);  // particleは関係ない
 
             shm_loc->x = estimatedPose.x;
             shm_loc->y = estimatedPose.y;
@@ -709,7 +674,6 @@ int main(int argc, char *argv[]) {
 
             std::string path = shm_logdir->path;
             path += "/delog";
-            //mcl_log.open(path, std::ios_base::app);
             de_log.open(path, std::ios_base::app);
             long long ts = get_current_time();
             de_log
@@ -721,9 +685,13 @@ int main(int argc, char *argv[]) {
 
             // 次のループの準備
             previousPose = currentPose;
-            usleep(30000);
+            usleep(10000);
           }
           #if 0
+          // パーティクル初期配置
+          MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
+          mcl.set_lfm(shm_loc->path_to_likelyhood_field);
+          mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
           // MCL(KLD_sampling)
           while(1) {
             if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
@@ -1092,6 +1060,7 @@ CLEANUP:
   fout_urg2d.close();
   bat_log.close();
   mcl_log.close();
+  de_log.close();
 
   for (auto pid: p_list) {
     kill(pid, SIGTERM);
@@ -1166,6 +1135,7 @@ void sigcatch(int sig) {
   fout_urg2d.close();
   bat_log.close();
   mcl_log.close();
+  de_log.close();
 
   sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
