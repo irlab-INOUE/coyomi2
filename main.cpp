@@ -653,6 +653,8 @@ int main(int argc, char *argv[]) {
           de.set_lfm(shm_loc->path_to_likelyhood_field);
           de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
+          std::string de_logfile_path = std::string(shm_logdir->path) + "/delog";
+
           while(1) {
             if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
             view.plot_wp(wp);
@@ -686,14 +688,12 @@ int main(int argc, char *argv[]) {
             shm_loc->y = estimatedPose.y;
             shm_loc->a = estimatedPose.a;
 
-            std::string path = shm_logdir->path;
-            path += "/delog";
-            de_log.open(path, std::ios_base::app);
+            de_log.open(de_logfile_path, std::ios_base::app);
             long long ts = get_current_time();
             de_log
               << ts << " "
               << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-              << "-1" << " "  // dummy data
+              << best_eval << " " 
               << "end" << "\n";
             de_log.close();
 
