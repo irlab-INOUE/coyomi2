@@ -640,11 +640,16 @@ int main(int argc, char *argv[]) {
             wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
                 shm_wp_list->wp_list[i].stop_check);
           }
-          // DE
-          double Window_xy = 0.2;            // 探索範囲[m]
-          double Window_a  = 10*M_PI/180;    // 角度[rad]
 
-          DELFM de(Window_xy, Window_a, 20, 10, 0.5, 0.1);
+          // DE with LFM
+          const double Window_xy = 0.2;            // 探索範囲[m]
+          const double Window_a  = 10*M_PI/180;    // 角度[rad]
+          const double population = 20;
+          const double generates = 10;
+          const double F = 0.5;
+          const double CR = 0.1;
+
+          DELFM de(Window_xy, Window_a, population, generates, F, CR);
           de.set_lfm(shm_loc->path_to_likelyhood_field);
           de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
