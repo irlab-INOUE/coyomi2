@@ -1,3 +1,10 @@
+/**************************************************************************
+ * Robot control program using DE with LFM
+ *
+ * author: Kazumichi INOUE <kazumichiinoue@mail.saitama-u.ac.jp>
+ * date:   2023/6/20
+ * update: 2025/4/19
+ ****************************************************************************/
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -55,11 +62,11 @@ WP_LIST  *shm_wp_list = nullptr;
 DISPLAY  *shm_disp    = nullptr;
 LOG_DATA *shm_log     = nullptr;
 
-int fd_motor;
+int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
 
-void sigcatch( int );
+void sigcatch(int);
 
 void signal_handler_SIGTERM(int signum) {
   if (signum == SIGTERM) {
@@ -301,17 +308,17 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-    共有メモリの確保
+   * 共有メモリの確保
+   * 共有したい構造体毎にアドレスを割り当てる
    ***************************************************************************/
-  // 共有したい構造体毎にアドレスを割り当てる
-  shm_enc        =        (ENC *)shmAt(KEY_ENC, sizeof(ENC));
-  shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
-  shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
-  shm_loc        =        (LOC *)shmAt(KEY_LOC, sizeof(LOC));
-  shm_logdir     =     (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
-  shm_disp       =    (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
-  shm_wp_list    =    (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
-  shm_log        =   (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
+  shm_enc     =      (ENC *)shmAt(KEY_ENC, sizeof(ENC));
+  shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
+  shm_bat     =      (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
+  shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
+  shm_logdir  =   (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
+  shm_disp    =  (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
+  shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
+  shm_log     = (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
    * LOG保管場所を作成する
@@ -350,13 +357,13 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-    セマフォの初期化
+   * セマフォの初期化
    ***************************************************************************/
   sem_init(&shm_log->sem, 1, 1); // 1 = プロセス間共有
   shm_log->current_index = 0;
 
   /**************************************************************************
-    Connect check & open serial port
+   * Connect check & open serial port for MotoDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
@@ -366,7 +373,7 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-    Joystick setup
+   * Joystick setup
    ***************************************************************************/
   if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
     std::cerr << "Failure SDL initialize. " << SDL_GetError() << std::endl;
@@ -383,7 +390,7 @@ int main(int argc, char *argv[]) {
   std::cerr << "Joypad ready completed" << std::endl;
 
   /**************************************************************************
-    Serial port setup for Motor Drivers
+   * Serial port setup for Motor Drivers
    ***************************************************************************/
   struct termios tio;
   memset(&tio, 0, sizeof(tio));
@@ -396,7 +403,7 @@ int main(int argc, char *argv[]) {
   tcsetattr(fd_motor, TCSANOW, &tio);
 
   /**************************************************************************
-    Motor driver setup
+   * Motor driver setup
    ***************************************************************************/
   // BLV-R Driver setup
   // ID Share Config.
@@ -413,7 +420,7 @@ int main(int argc, char *argv[]) {
   turn_on_motors();
 
   /**************************************************************************
-    Ncurses setup
+   * Ncurses setup
    ***************************************************************************/
   int key;    // curses用キーボード入力判定
   WINDOW *win = initscr();
@@ -484,14 +491,14 @@ int main(int argc, char *argv[]) {
   shm_enc->current_wp_index = 0;
 
   /**************************************************************************
-    initial pose setup
+   * initial pose setup
    ***************************************************************************/
   shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
   shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
   shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
   /**************************************************************************
-    initial enc setup
+   * initial enc setup
    ***************************************************************************/
   long long first_ts = get_current_time();
   ODOMETORY first_odo;
@@ -503,7 +510,7 @@ int main(int argc, char *argv[]) {
   shm_enc->a = first_odo.ra;
 
   /**************************************************************************
-    Multi threads setup
+   * Multi threads setup
    ***************************************************************************/
   for (int i = 0; i < 5; i++) {
     pid_t c_pid = fork();
@@ -659,10 +666,10 @@ int main(int argc, char *argv[]) {
               for (int k = 0; k < shm_urg2d->size; k++) {
                 lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
               }
-              // DEで自己位置推定
+              // DEwithLFM で自己位置推定
               std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
             }
-            Pose2d estimatedPose = Pose2d(best_x, best_y, best_a); //mcl.get_best_pose();
+            Pose2d estimatedPose = Pose2d(best_x, best_y, best_a); 
 
             view.reset();
             view.robot(estimatedPose);
@@ -687,7 +694,7 @@ int main(int argc, char *argv[]) {
             previousPose = currentPose;
             usleep(10000);
           }
-          #if 0
+#if 0
           // パーティクル初期配置
           MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
           mcl.set_lfm(shm_loc->path_to_likelyhood_field);
@@ -848,7 +855,7 @@ int main(int argc, char *argv[]) {
   }
 
   /**************************************************************************
-    Starting Main Process
+   * Starting Main Process
    ***************************************************************************/
   double v = 0.0;
   double w = 0.0;
