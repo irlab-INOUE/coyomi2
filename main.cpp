@@ -367,7 +367,7 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
     std::cerr << "Can't open serial port\n";
-    return false;
+    exit(0);
   } else {
     std::cerr << "Get fd_motor: " << fd_motor << "\n";
   }
@@ -377,7 +377,7 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
     std::cerr << "Failure SDL initialize. " << SDL_GetError() << std::endl;
-    return 1;
+    exit(0);
   }
   joystick = SDL_JoystickOpen(0);
   std::cerr << "Joystick detected:" << SDL_JoystickName(joystick) << std::endl;
