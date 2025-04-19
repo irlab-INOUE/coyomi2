@@ -663,6 +663,7 @@ int main(int argc, char *argv[]) {
               best_x = shm_loc->x;
               best_y = shm_loc->y;
               best_a = shm_loc->a;
+              best_eval = -1;
             } else {
               for (int k = 0; k < shm_urg2d->size; k++) {
                 lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
