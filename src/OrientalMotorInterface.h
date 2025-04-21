@@ -109,6 +109,9 @@ void free_motors() {
   //std::cerr << "Done.\n";
 }
 
+inline int32_t circular_diff32(int32_t curr, int32_t prev) {
+    return static_cast<int32_t>(static_cast<uint32_t>(curr) - static_cast<uint32_t>(prev));
+}
 void read_state(ODOMETORY &odo, const long long &ts) {
   uint8_t buf[MAX_BUFFER_SIZE];
   //send_cmd(Query_NET_ID_READ_ODO, sizeof(Query_NET_ID_READ_ODO));
@@ -116,40 +119,59 @@ void read_state(ODOMETORY &odo, const long long &ts) {
   send_cmd(Query_NET_ID_READ, sizeof(Query_NET_ID_READ));
   read_res(buf, 57);
 #if 0
-  std::cerr << "\033[11A";
-  std::cerr << "Read state\n";
+  std::cerr << "\033[11A" << "Read state\n";
   show_state(buf, ts);
 #endif
-  read_odo(buf, odo);
+  //read_odo(buf, odo);
 
-  int OFFSET = 26;
+  const int OFFSET = 26;
   int alarm_code_R     = static_cast<int>(buf[ 3] << 24 | buf[ 4] << 16 | buf[ 5] << 8 | buf[ 6]);
   double temp_driver_R = static_cast<int>(buf[ 7] << 24 | buf[ 8] << 16 | buf[ 9] << 8 | buf[10]) * 0.1;
   double temp_motor_R  = static_cast<int>(buf[11] << 24 | buf[12] << 16 | buf[13] << 8 | buf[14]) * 0.1;
-  int position_R       = static_cast<int>(buf[15] << 24 | buf[16] << 16 | buf[17] << 8 | buf[18]);
+  //int position_R       = static_cast<int>(buf[15] << 24 | buf[16] << 16 | buf[17] << 8 | buf[18]);
+  int32_t position_R       = static_cast<int32_t>((static_cast<uint32_t>(buf[15]) << 24) | 
+                                          (static_cast<uint32_t>(buf[16]) << 16) | 
+                                          (static_cast<uint32_t>(buf[17]) << 8)  | 
+                                          (static_cast<uint32_t>(buf[18])));
   int power_R          = static_cast<int>(buf[19] << 24 | buf[20] << 16 | buf[21] << 8 | buf[22]);
   double voltage_R     = static_cast<int>(buf[23] << 24 | buf[24] << 16 | buf[25] << 8 | buf[26]) * 0.1;
 
   int alarm_code_L     = static_cast<int>(buf[ 3 + OFFSET] << 24 | buf[ 4 + OFFSET] << 16 | buf[ 5 + OFFSET] << 8 | buf[ 6 + OFFSET]);
   double temp_driver_L = static_cast<int>(buf[ 7 + OFFSET] << 24 | buf[ 8 + OFFSET] << 16 | buf[ 9 + OFFSET] << 8 | buf[10 + OFFSET]) * 0.1;
   double temp_motor_L  = static_cast<int>(buf[11 + OFFSET] << 24 | buf[12 + OFFSET] << 16 | buf[13 + OFFSET] << 8 | buf[14 + OFFSET]) * 0.1;
-  int position_L       = static_cast<int>(buf[15 + OFFSET] << 24 | buf[16 + OFFSET] << 16 | buf[17 + OFFSET] << 8 | buf[18 + OFFSET]);
+  //int position_L       = static_cast<uint32_t>(buf[15 + OFFSET] << 24 | buf[16 + OFFSET] << 16 | buf[17 + OFFSET] << 8 | buf[18 + OFFSET]);
+  int32_t position_L       = static_cast<int32_t>((static_cast<uint32_t>(buf[15+OFFSET]) << 24) | 
+                                          (static_cast<uint32_t>(buf[16+OFFSET]) << 16) | 
+                                          (static_cast<uint32_t>(buf[17+OFFSET]) << 8)  | 
+                                          (static_cast<uint32_t>(buf[18+OFFSET])));
   int power_L          = static_cast<int>(buf[19 + OFFSET] << 24 | buf[20 + OFFSET] << 16 | buf[21 + OFFSET] << 8 | buf[22 + OFFSET]);
   double voltage_L     = static_cast<int>(buf[23 + OFFSET] << 24 | buf[24 + OFFSET] << 16 | buf[25 + OFFSET] << 8 | buf[26 + OFFSET]) * 0.1;
 
-  double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
-  double dist_R = position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
-  double travel = (dist_L + dist_R)/2.0;
+  double dist_L   =  position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double dist_R   = -position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
+  double travel   = (dist_L + dist_R)/2.0;
   double rotation = (dist_R - dist_L)/WHEEL_T;
-  double voltage = (voltage_L + voltage_R)/2.0;
+  double voltage  = (voltage_L + voltage_R)/2.0;
 
   shm_enc->total_travel = travel;
   shm_enc->battery = voltage;
   shm_bat->voltage = voltage;
   shm_enc->temp_driver_R = temp_driver_R;
-  shm_enc->temp_motor_R = temp_motor_R;
+  shm_enc->temp_motor_R  = temp_motor_R;
   shm_enc->temp_driver_L = temp_driver_L;
-  shm_enc->temp_motor_L = temp_motor_L;
+  shm_enc->temp_motor_L  = temp_motor_L;
+
+  double dl = travel - odo.travel;
+  double dth = rotation - odo.rotation;
+  odo.rx += dl * cos(odo.ra);
+  odo.ry += dl * sin(odo.ra);
+  odo.ra += dth;
+  if (odo.ra > M_PI) odo.ra -= 2*M_PI;
+  else if (odo.ra < -M_PI) odo.ra += 2*M_PI;
+  odo.dist_R = dist_R;
+  odo.dist_L = dist_L;
+  odo.travel = travel;
+  odo.rotation = rotation;
 }
 
 void calc_vw2hex(uint8_t *Query_NET_ID_WRITE, double v, double w) {
@@ -230,8 +252,8 @@ void read_odo(uint8_t *buf, ODOMETORY &odo) {
   int START = 15;
   int OFFSET = 26;
 #endif
-  int position_R       = static_cast<int>(buf[START] << 24 | buf[START+1] << 16 | buf[START+2] << 8 | buf[START+3]);
-  int position_L       = static_cast<int>(buf[START + OFFSET] << 24 | buf[START+1 + OFFSET] << 16 | buf[START+2 + OFFSET] << 8 | buf[START+3 + OFFSET]);
+  int position_R = static_cast<int>(buf[START] << 24 | buf[START+1] << 16 | buf[START+2] << 8 | buf[START+3]);
+  int position_L = static_cast<int>(buf[START + OFFSET] << 24 | buf[START+1 + OFFSET] << 16 | buf[START+2 + OFFSET] << 8 | buf[START+3 + OFFSET]);
 
   double dist_L = position_L * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
   double dist_R =-position_R * STEP_RESOLUTION * 0.5*WHEEL_D / GEAR_RATIO;
