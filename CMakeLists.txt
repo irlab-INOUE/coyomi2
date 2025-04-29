@@ -42,6 +42,7 @@ add_executable (main main.cpp
   ${SRC_DIR}/Viewer.cpp
   ${SRC_DIR}/DWA.cpp
   ${SRC_DIR}/CreateCostMap.cpp
+  ${SRC_DIR}/DELFM.cpp
   ${URG2D_FILES}
   )
 
