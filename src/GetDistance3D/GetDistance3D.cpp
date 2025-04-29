@@ -25,7 +25,7 @@ void lidar_view(std::vector<pointUrg3d> &data);
 
 int main(int argc, char *argv[])
 {
-	std::string addr = "172.16.20.214";
+	std::string addr = "192.168.11.99";
 	long port = 10904;
 
 	/* Ctrl+c 対応 */
@@ -118,6 +118,7 @@ void lidar_view(std::vector<pointUrg3d> &data) {
   double cs = cos(th);
   double sn = sin(th);
   for (auto d: data) {
+    if (d.z < 0.0) continue;
     double vx = cs * d.x + sn * d.z;
     double vy = d.y;
     double vz = -sn * d.x + cs * d.z;

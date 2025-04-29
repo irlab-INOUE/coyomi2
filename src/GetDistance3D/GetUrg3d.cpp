@@ -224,9 +224,9 @@ static void print_yvt_sensor_ax_data(const double* scaled_ax_data) {
   //ax_fout << "# Accel_X Accel_Y Accel_Z on coyomi local coordinate\n";
   ax_fout << ax << " " << ay << " " << az << " ";
   ax_fout
-    << atan2(ax, sqrt(ay*ay + az*az)) << " "
-    << atan2(ay, sqrt(ax*ax + az*az)) << " "
-    << atan2(sqrt(ax*ax + ay*ay), az) << "\n";
+    << atan2(ax, sqrt(ay*ay + az*az)) * 180/M_PI << " "
+    << atan2(ay, sqrt(ax*ax + az*az)) * 180/M_PI << " "
+    << atan2(sqrt(ax*ax + ay*ay), az) * 180/M_PI << "\n";
   ax_fout.close();
   return;
 }

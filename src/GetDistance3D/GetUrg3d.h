@@ -46,7 +46,7 @@ class GetUrg3d{
     int buffer_length = 0;
     char buffer[2048*2048]; //4MB
 
-    std::string device = "192.16.0.10"; /* device ip address */
+    std::string device = "192.16.11.98"; /* device ip address */
     long port = 10940; /* device port number. It is a fixed value */
 
     std::vector<pointUrg3d> data1Frame;
