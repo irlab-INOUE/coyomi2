@@ -8,6 +8,7 @@ include_directories(
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/src
   ${PROJECT_SOURCE_DIR}/src/GetDistance2D/inc
+  ${PROJECT_SOURCE_DIR}/src/GetDistance3D
   ${PROJECT_BINARY_DIR}
   /usr/local/include/urg_cpp)
 
@@ -26,6 +27,7 @@ configure_file (
 find_package (OpenCV REQUIRED)
 
 FILE(GLOB URG2D_FILES ${PROJECT_SOURCE_DIR}/src/GetDistance2D/src/*.cpp)
+FILE(GLOB URG3D_FILES ${PROJECT_SOURCE_DIR}/src/GetDistance3D/*.cpp)
 
 # SDL2のパッケージを探す
 find_package(PkgConfig REQUIRED)
@@ -44,6 +46,7 @@ add_executable (main main.cpp
   ${SRC_DIR}/CreateCostMap.cpp
   ${SRC_DIR}/DELFM.cpp
   ${URG2D_FILES}
+  ${URG3D_FILES}
   )
 
-target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp ncurses ${SDL2_LIBRARIES})
+target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d ncurses ${SDL2_LIBRARIES})

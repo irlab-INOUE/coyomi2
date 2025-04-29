@@ -22,6 +22,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <ncurses.h>
+#include <atomic>
 
 #include "Urg2d.h"
 #include "MCL.h"
@@ -34,6 +35,7 @@
 #include "wave_front_planner.h"
 #include "time_utility.h"
 #include "DELFM.h"
+#include "GetUrg3d.h"
 
 using namespace std::chrono;
 
@@ -44,6 +46,7 @@ SDL_Joystick* joystick;
 bool LIDAR_STOP = false;
 bool isFREE = false;
 bool gotoEnd = false;
+bool get3DLidarData = false;
 
 // log file
 std::ofstream enc_log;
@@ -62,6 +65,7 @@ LOGDIR   *shm_logdir  = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 DISPLAY  *shm_disp    = nullptr;
 LOG_DATA *shm_log     = nullptr;
+URG3D    *shm_urg3d   = nullptr;
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
@@ -155,6 +159,16 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
             break;
           case 3:
             v = 0.0; w = -1.0;
+            break;
+          case 4:
+          case 5:
+            //v = 0.0; w = 0.0;
+            //calc_vw2hex(Query_NET_ID_WRITE, v, w);
+            //simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            //isFREE = true;
+            //free_motors();
+            get3DLidarData = true;
+            //std::cout << " Get3DLidar: " << get3DLidarData << std::endl;
             break;
           case 10:
             //std::cerr << "End\n";
@@ -320,6 +334,7 @@ int main(int argc, char *argv[]) {
   shm_disp    =  (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   shm_log     = (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
+  shm_urg3d   =    (URG3D *)shmAt(KEY_URG3D, sizeof(URG3D));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
    * LOG保管場所を作成する
@@ -513,7 +528,7 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * Multi threads setup
    ***************************************************************************/
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 6; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -535,6 +550,8 @@ int main(int argc, char *argv[]) {
         case 4:
           std::cerr << "Start sound on: " << c_pid << "\n";
           break;
+        case 5:
+          std::cerr << "Start 3d-LiDAR log: " << c_pid << "\n";
         default:
           std::cerr << "Error\n";
           break;
@@ -856,6 +873,41 @@ int main(int argc, char *argv[]) {
           sleep(1);
         }
         exit(EXIT_SUCCESS);
+      } else if (i == 5) { // 3d-Lidar
+        signal(SIGTERM, signal_handler_SIGTERM);
+        std::string path = shm_logdir->path;
+        path += "/urg3dlog";
+        std::string addr = "192.168.11.99";
+        long port = 10904;
+        GetUrg3d urg3d(addr, port);
+        if(urg3d.initUrg3d() == -1) {
+          std::cerr << "3D-Urg Open Errorです" << std::endl;
+          return -1;
+        }
+        std::string log_text = "3D LiDAR measured";
+        while (1) {
+          if (shm_urg3d->measure) {
+            add_log(shm_log, log_text);
+            std::vector<pointUrg3d> data;
+            data = urg3d.get1Frame();
+            if (data.size() > 0) {
+              std::ofstream ofs("test3d.txt");
+              //ofs << "#x_m, #y_m, #z_m, #r_m, #theta, #phi, #intensity" << std::endl;
+              for(int i=0; i<data.size(); i++){
+                //std::cout << data[i].x << " " << data[i].y << " " << data[i].z << " ";
+                //std::cout << data[i].r << " " << data[i].theta << " " << data[i].phi << " " << data[i].i;
+                //std::cout << std::endl;
+                ofs << data[i].spot << " ";
+                ofs << data[i].x << " " << -data[i].y << " " << -data[i].z << " ";
+                ofs << data[i].r << " " << -data[i].phi << " " << -data[i].theta << " " << data[i].i;
+                ofs << std::endl;
+              }
+            }
+            shm_urg3d->measure = false;
+          }
+          usleep(1000000);
+        }
+        exit(EXIT_SUCCESS);
       }
     }
   }
@@ -896,10 +948,15 @@ int main(int argc, char *argv[]) {
   }
   start_bell_ret = std::system(start_bell_cmd.c_str());
 
+  shm_urg3d->measure = false;
   while(1) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
     if (gotoEnd) goto CLEANUP;
+    if (get3DLidarData) {
+      shm_urg3d->measure = true;
+      get3DLidarData = false;
+    }
 
     std::vector<LSP> lsp;
     for (int k = 0; k < shm_urg2d->size; k++) {

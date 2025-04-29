@@ -340,7 +340,7 @@ std::vector<pointUrg3d> GetUrg3d::get1Frame(){
       }else if(urg3d_low_get_binary(&urg, &header, data, &length_data) > 0) {
         //check error data
         if(strncmp(header.type, "ERR", 3) == 0 || strncmp(header.type, "_er", 3) == 0) {
-          printf("error %c%c%c %s", header.status[0], header.status[1], header.status[2], data);
+          //printf("error %c%c%c %s", header.status[0], header.status[1], header.status[2], data);
           if(header.status[0] != '0'){
             break;
           }

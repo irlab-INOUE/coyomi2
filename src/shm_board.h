@@ -94,6 +94,7 @@ struct URG3D {
   long long ts;
   int size;
   POINT3D pt[30000];
+  bool measure;
 };
 
 // for LOG-DIR
