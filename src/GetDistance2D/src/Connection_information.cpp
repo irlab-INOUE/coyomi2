@@ -31,7 +31,7 @@ struct Connection_information::pImpl
 #if defined(QRK_WINDOWS_OS)
         //device_or_ip_name_ = "COM3";
 #elif defined(QRK_LINUX_OS)
-        device_or_ip_name_ = "/dev/ttyACM1";
+        device_or_ip_name_ = "/dev/serial/by-id/usb-Hokuyo_Data_Flex_for_USB_URG-Series_USB_Driver-if00";
 #else
         //device_or_ip_name_ = "/dev/tty.usbmodemfa131";
 #endif
