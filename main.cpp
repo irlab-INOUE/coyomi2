@@ -592,6 +592,7 @@ int main(int argc, char *argv[]) {
             urg2d.close();
             exit(0);
           }
+          usleep(10000);
         }
         exit(EXIT_SUCCESS);
       } else if (i == 1) { // battery
@@ -602,7 +603,7 @@ int main(int argc, char *argv[]) {
           bat_log.open(path, std::ios_base::app);
           long long ts = get_current_time();
           bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-          sleep(1);
+          usleep(100000);
           bat_log.close();
           shm_disp->battery = shm_bat->voltage;
         }
@@ -678,7 +679,7 @@ int main(int argc, char *argv[]) {
               // DEwithLFM で自己位置推定
               std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
             }
-            Pose2d estimatedPose = Pose2d(best_x, best_y, best_a); 
+            Pose2d estimatedPose = Pose2d(best_x, best_y, best_a);
 
             view.reset();
             view.robot(estimatedPose);
@@ -693,7 +694,7 @@ int main(int argc, char *argv[]) {
             de_log
               << ts << " "
               << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-              << best_eval << " " 
+              << best_eval << " "
               << "end" << "\n";
             de_log.close();
 
