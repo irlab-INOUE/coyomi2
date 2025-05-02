@@ -51,7 +51,7 @@ std::atomic<bool> running(true);
 std::atomic<bool> get3DLidarData(false);
 
 std::thread th_battery_logger;
-//std::thread th_3D_Lidar;
+std::thread th_3D_Lidar;
 
 SDL_Joystick* joystick;
 
@@ -293,6 +293,47 @@ void thread_battery_logger() {
   std::cout << "Battery logger2 exit." << std::endl;
 }
 
+void thread_3D_Lidar() {
+  std::string path = shm_logdir->path;
+  path += "/urg3dlog";
+
+  bool is3DLidar_OK = true;
+  std::string addr = "192.168.11.99";
+  long port = 10904;
+  GetUrg3d urg3d(addr, port);
+  if(urg3d.initUrg3d() == -1) {
+    std::cerr << "3D-Urg Open Errorです" << std::endl;
+    is3DLidar_OK = false;
+  }
+  std::string log_text = "3D LiDAR measured";
+  while (running.load()) {
+    if (!is3DLidar_OK) {
+      std::cerr << "3D-Urg Open Errorです" << std::endl;
+      sleep_for(seconds(1));
+      continue;
+    }
+    if (get3DLidarData.load()) {
+      add_log(shm_log, log_text);
+      std::vector<pointUrg3d> data;
+      data = urg3d.get1Frame();
+      if (data.size() > 0) {
+        std::ofstream ofs;
+        ofs.open(path);
+        //ofs << "#x_m, #y_m, #z_m, #r_m, #theta, #phi, #intensity" << std::endl;
+        for(int i=0; i<data.size(); i++){
+          ofs << data[i].spot << " ";
+          ofs << data[i].x << " " << -data[i].y << " " << -data[i].z << " ";
+          ofs << data[i].r << " " << -data[i].phi << " " << -data[i].theta << " " << data[i].i;
+          ofs << std::endl;
+        }
+      }
+      get3DLidarData.store(false);
+    }
+    sleep_for(milliseconds(100));
+  }
+  std::cout << "3D_Lidar exit." << std::endl;
+}
+
 /***************************************
  * MAIN
  ***************************************/
@@ -397,6 +438,7 @@ int main(int argc, char *argv[]) {
   }
 
   th_battery_logger = std::thread(thread_battery_logger);
+  th_3D_Lidar = std::thread(thread_3D_Lidar);
 
   /**************************************************************************
    * セマフォの初期化
@@ -554,7 +596,7 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * Multi threads setup
    ***************************************************************************/
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -573,8 +615,6 @@ int main(int argc, char *argv[]) {
         case 3:
           std::cerr << "Start sound on: " << c_pid << "\n";
           break;
-        case 4:
-          std::cerr << "Start 3d-LiDAR log: " << c_pid << "\n";
         default:
           std::cerr << "Error\n";
           break;
@@ -883,41 +923,6 @@ int main(int argc, char *argv[]) {
           sleep(1);
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 4) { // 3d-Lidar
-        signal(SIGTERM, signal_handler_SIGTERM);
-        std::string path = shm_logdir->path;
-        path += "/urg3dlog";
-        std::string addr = "192.168.11.99";
-        long port = 10904;
-        GetUrg3d urg3d(addr, port);
-        if(urg3d.initUrg3d() == -1) {
-          std::cerr << "3D-Urg Open Errorです" << std::endl;
-          return -1;
-        }
-        std::string log_text = "3D LiDAR measured";
-        while (1) {
-          if (shm_urg3d->measure) {
-            add_log(shm_log, log_text);
-            std::vector<pointUrg3d> data;
-            data = urg3d.get1Frame();
-            if (data.size() > 0) {
-              std::ofstream ofs("test3d.txt");
-              //ofs << "#x_m, #y_m, #z_m, #r_m, #theta, #phi, #intensity" << std::endl;
-              for(int i=0; i<data.size(); i++){
-                //std::cout << data[i].x << " " << data[i].y << " " << data[i].z << " ";
-                //std::cout << data[i].r << " " << data[i].theta << " " << data[i].phi << " " << data[i].i;
-                //std::cout << std::endl;
-                ofs << data[i].spot << " ";
-                ofs << data[i].x << " " << -data[i].y << " " << -data[i].z << " ";
-                ofs << data[i].r << " " << -data[i].phi << " " << -data[i].theta << " " << data[i].i;
-                ofs << std::endl;
-              }
-            }
-            shm_urg3d->measure = false;
-          }
-          usleep(1000000);
-        }
-        exit(EXIT_SUCCESS);
       }
     }
   }
@@ -963,10 +968,6 @@ int main(int argc, char *argv[]) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
     if (gotoEnd) goto CLEANUP;
-    if (get3DLidarData.load()) {
-      shm_urg3d->measure = true;
-      get3DLidarData.store(false);
-    }
 
     std::vector<LSP> lsp;
     for (int k = 0; k < shm_urg2d->size; k++) {
@@ -1175,6 +1176,7 @@ CLEANUP:
 
   running.store(false);
   th_battery_logger.join();
+  th_3D_Lidar.join();
 
   return 0;
 }
@@ -1245,6 +1247,7 @@ void sigcatch(int sig) {
 
   running.store(false);
   th_battery_logger.join();
+  th_3D_Lidar.join();
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
 
