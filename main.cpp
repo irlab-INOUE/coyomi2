@@ -48,15 +48,16 @@ using std::this_thread::sleep_for;
  * Global variable
  ****************************************/
 std::atomic<bool> running(true);
+std::atomic<bool> get3DLidarData(false);
 
 std::thread th_battery_logger;
+//std::thread th_3D_Lidar;
 
 SDL_Joystick* joystick;
 
 bool LIDAR_STOP = false;
 bool isFREE = false;
 bool gotoEnd = false;
-bool get3DLidarData = false;
 
 // log file
 std::ofstream enc_log;
@@ -171,13 +172,7 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
             break;
           case 4:
           case 5:
-            //v = 0.0; w = 0.0;
-            //calc_vw2hex(Query_NET_ID_WRITE, v, w);
-            //simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-            //isFREE = true;
-            //free_motors();
-            get3DLidarData = true;
-            //std::cout << " Get3DLidar: " << get3DLidarData << std::endl;
+            get3DLidarData.store(true);
             break;
           case 10:
             //std::cerr << "End\n";
@@ -968,9 +963,9 @@ int main(int argc, char *argv[]) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
     if (gotoEnd) goto CLEANUP;
-    if (get3DLidarData) {
+    if (get3DLidarData.load()) {
       shm_urg3d->measure = true;
-      get3DLidarData = false;
+      get3DLidarData.store(false);
     }
 
     std::vector<LSP> lsp;
