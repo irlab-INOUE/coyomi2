@@ -23,6 +23,8 @@
 #include <unistd.h>
 #include <ncurses.h>
 #include <atomic>
+#include <mutex>
+#include <thread>
 
 #include "Urg2d.h"
 #include "MCL.h"
@@ -37,9 +39,17 @@
 #include "DELFM.h"
 #include "GetUrg3d.h"
 
-using namespace std::chrono;
+using namespace std::chrono;  // seconds, milliseconds
+using std::this_thread::sleep_for;
 
 #define N 256 	// 日時の型変換に使うバッファ数
+
+/***************************************
+ * Global variable
+ ****************************************/
+std::atomic<bool> running(true);
+
+std::thread th_battery_logger;
 
 SDL_Joystick* joystick;
 
@@ -51,7 +61,6 @@ bool get3DLidarData = false;
 // log file
 std::ofstream enc_log;
 std::ofstream fout_urg2d;
-std::ofstream bat_log;
 std::ofstream mcl_log;
 std::ofstream de_log;
 std::ofstream sound_log;
@@ -272,6 +281,26 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
   }
 }
 
+/***************************************
+ * Define thread
+ ***************************************/
+void thread_battery_logger() {
+  std::string path = shm_logdir->path;
+  path += "/batlog";
+  std::ofstream bat_log;
+  bat_log.open(path);
+  while (running.load()) {
+    shm_bat->ts = get_current_time();
+    bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
+    shm_disp->battery = shm_bat->voltage;
+    sleep_for(seconds(1));
+  }
+  std::cout << "Battery logger2 exit." << std::endl;
+}
+
+/***************************************
+ * MAIN
+ ***************************************/
 std::vector<pid_t> p_list;
 int main(int argc, char *argv[]) {
   /* Ctrl+c 対応 */
@@ -371,6 +400,8 @@ int main(int argc, char *argv[]) {
   } else {
     std::cerr << "ログは保管しません\n";
   }
+
+  th_battery_logger = std::thread(thread_battery_logger);
 
   /**************************************************************************
    * セマフォの初期化
@@ -528,7 +559,7 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * Multi threads setup
    ***************************************************************************/
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 5; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -539,18 +570,15 @@ int main(int argc, char *argv[]) {
           std::cerr << "Start 2d-LiDAR log: " << c_pid << "\n";
           break;
         case 1:
-          std::cerr << "Start battery log: " << c_pid << "\n";
-          break;
-        case 2:
           std::cerr << "Start Localization: " << c_pid << "\n";
           break;
-        case 3:
+        case 2:
           std::cerr << "Start state display: " << c_pid << "\n";
           break;
-        case 4:
+        case 3:
           std::cerr << "Start sound on: " << c_pid << "\n";
           break;
-        case 5:
+        case 4:
           std::cerr << "Start 3d-LiDAR log: " << c_pid << "\n";
         default:
           std::cerr << "Error\n";
@@ -612,20 +640,7 @@ int main(int argc, char *argv[]) {
           usleep(10000);
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 1) { // battery
-        signal(SIGTERM, signal_handler_SIGTERM);
-        std::string path = shm_logdir->path;
-        path += "/batlog";
-        while (1) {
-          bat_log.open(path, std::ios_base::app);
-          long long ts = get_current_time();
-          bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-          usleep(100000);
-          bat_log.close();
-          shm_disp->battery = shm_bat->voltage;
-        }
-        exit(EXIT_SUCCESS);
-      } else if (i == 2) { // localization
+      } else if (i == 1) { // localization
         signal(SIGTERM, signal_handler_SIGTERM);
         while (1) {
           MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
@@ -773,7 +788,7 @@ int main(int argc, char *argv[]) {
           #endif
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 3) { // State display
+      } else if (i == 2) { // State display
         signal(SIGTERM, signal_handler_SIGTERM);
         std::cerr << "Please waite 5 sec...";
         sleep(5);
@@ -851,7 +866,7 @@ int main(int argc, char *argv[]) {
           refresh();
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 4) { // sound on
+      } else if (i == 3) { // sound on
         signal(SIGTERM, signal_handler_SIGTERM);
         int prev_wp_index = 0;
         std::string sound_logfile_path = std::string(shm_logdir->path) + "/sound_log";
@@ -873,7 +888,7 @@ int main(int argc, char *argv[]) {
           sleep(1);
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 5) { // 3d-Lidar
+      } else if (i == 4) { // 3d-Lidar
         signal(SIGTERM, signal_handler_SIGTERM);
         std::string path = shm_logdir->path;
         path += "/urg3dlog";
@@ -1128,7 +1143,6 @@ CLEANUP:
 
   enc_log.close();
   fout_urg2d.close();
-  bat_log.close();
   mcl_log.close();
   de_log.close();
 
@@ -1163,6 +1177,9 @@ CLEANUP:
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
+
+  running.store(false);
+  th_battery_logger.join();
 
   return 0;
 }
@@ -1203,7 +1220,6 @@ void sigcatch(int sig) {
 
   enc_log.close();
   fout_urg2d.close();
-  bat_log.close();
   mcl_log.close();
   de_log.close();
 
@@ -1231,6 +1247,9 @@ void sigcatch(int sig) {
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
+
+  running.store(false);
+  th_battery_logger.join();
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
 
