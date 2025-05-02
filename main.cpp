@@ -51,6 +51,7 @@ std::atomic<bool> running(true);
 std::atomic<bool> get3DLidarData(false);
 
 std::thread th_battery_logger;
+std::thread th_sound_logger;
 std::thread th_3D_Lidar;
 
 SDL_Joystick* joystick;
@@ -293,6 +294,29 @@ void thread_battery_logger() {
   std::cout << "Battery logger2 exit." << std::endl;
 }
 
+void thread_sound() {
+  int prev_wp_index = 0;
+  std::string sound_logfile_path = std::string(shm_logdir->path) + "/sound_log";
+  std::ofstream ofs;
+  ofs.open(sound_logfile_path);
+  while (running.load()) {
+    long long ts = get_current_time();
+    ofs << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
+    if (prev_wp_index != shm_enc->current_wp_index) {
+      std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
+      int ret = std::system(cmd.c_str());
+      prev_wp_index = shm_disp->current_wp_index;
+      // WP更新をログメッセージ出す
+      std::string log_text = "WP updated. Next target->" + std::to_string(shm_disp->current_wp_index);
+      add_log(shm_log, log_text);
+    }
+    std::string log_text = "Running process. TimeStamp-> " + std::to_string(ts);
+    add_log(shm_log, log_text);
+    sleep_for(seconds(1));
+  }
+  std::cout << "Sound log exit." << std::endl;
+}
+
 void thread_3D_Lidar() {
   std::string path = shm_logdir->path;
   path += "/urg3dlog";
@@ -302,17 +326,19 @@ void thread_3D_Lidar() {
   long port = 10904;
   GetUrg3d urg3d(addr, port);
   if(urg3d.initUrg3d() == -1) {
-    std::cerr << "3D-Urg Open Errorです" << std::endl;
+    std::string log_text = "3D-Urg Open Error";
+    add_log(shm_log, log_text);
     is3DLidar_OK = false;
   }
-  std::string log_text = "3D LiDAR measured";
   while (running.load()) {
     if (!is3DLidar_OK) {
-      std::cerr << "3D-Urg Open Errorです" << std::endl;
-      sleep_for(seconds(1));
+      std::string log_text = "3D-Urg Open Error";
+      add_log(shm_log, log_text);
+      sleep_for(seconds(5));
       continue;
     }
     if (get3DLidarData.load()) {
+      std::string log_text = "3D LiDAR measured";
       add_log(shm_log, log_text);
       std::vector<pointUrg3d> data;
       data = urg3d.get1Frame();
@@ -438,6 +464,7 @@ int main(int argc, char *argv[]) {
   }
 
   th_battery_logger = std::thread(thread_battery_logger);
+  th_sound_logger = std::thread(thread_sound);
   th_3D_Lidar = std::thread(thread_3D_Lidar);
 
   /**************************************************************************
@@ -596,7 +623,7 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * Multi threads setup
    ***************************************************************************/
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 3; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -611,9 +638,6 @@ int main(int argc, char *argv[]) {
           break;
         case 2:
           std::cerr << "Start state display: " << c_pid << "\n";
-          break;
-        case 3:
-          std::cerr << "Start sound on: " << c_pid << "\n";
           break;
         default:
           std::cerr << "Error\n";
@@ -901,28 +925,6 @@ int main(int argc, char *argv[]) {
           refresh();
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 3) { // sound on
-        signal(SIGTERM, signal_handler_SIGTERM);
-        int prev_wp_index = 0;
-        std::string sound_logfile_path = std::string(shm_logdir->path) + "/sound_log";
-        while (1) {
-          sound_log.open(sound_logfile_path, std::ios_base::app);
-          long long ts = get_current_time();
-          sound_log << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
-          sound_log.close();
-          if (prev_wp_index != shm_enc->current_wp_index) {
-            std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
-            int ret = std::system(cmd.c_str());
-            prev_wp_index = shm_disp->current_wp_index;
-            // WP更新をログメッセージ出す
-            std::string log_text = "WP updated. Next target->" + std::to_string(shm_disp->current_wp_index);
-            add_log(shm_log, log_text);
-          }
-          std::string log_text = "Running process. TimeStamp-> " + std::to_string(ts);
-          add_log(shm_log, log_text);
-          sleep(1);
-        }
-        exit(EXIT_SUCCESS);
       }
     }
   }
@@ -1176,6 +1178,7 @@ CLEANUP:
 
   running.store(false);
   th_battery_logger.join();
+  th_sound_logger.join();
   th_3D_Lidar.join();
 
   return 0;
@@ -1247,6 +1250,7 @@ void sigcatch(int sig) {
 
   running.store(false);
   th_battery_logger.join();
+  th_sound_logger.join();
   th_3D_Lidar.join();
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
