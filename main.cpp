@@ -178,14 +178,14 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
             set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-            usleep(1500000);
+            sleep_for(milliseconds(150));
             break;
           case 12:
             //std::cerr << "FREE\n";
             set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-            usleep(1000000);
+            sleep_for(milliseconds(100));
             isFREE.store(!(isFREE.load()));
             if (isFREE.load())
               free_motors();
@@ -270,7 +270,7 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
     } else if (wp_index < 0) {
       wp_index = static_cast<int>(wp.size()) - 1;
     }
-    usleep(5000);
+    sleep_for(milliseconds(5));
   }
 }
 
