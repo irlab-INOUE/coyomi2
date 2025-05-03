@@ -211,10 +211,6 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
       }
     }
   }
-  // method 1
-  //v = -axis1 * 0.8;
-  //w = -axis0 * 10*M_PI/180.0;
-  // method 2
 }
 
 std::vector<WAYPOINT> wpRead(std::string wpname) {
