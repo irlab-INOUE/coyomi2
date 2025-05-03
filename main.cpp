@@ -51,7 +51,7 @@ using std::this_thread::sleep_for;
 std::atomic<bool> running(true);
 std::atomic<bool> get3DLidarData(false);
 std::atomic<bool> gotoEnd(false);
-std::atomic<bool> isFREE(false);
+std::atomic<bool> isFREE(true);
 
 std::thread th_battery_logger;
 std::thread th_sound_logger;
@@ -941,7 +941,7 @@ int main(int argc, char *argv[]) {
   std::string start_bell_cmd = "paplay /usr/share/sounds/freedesktop/stereo/bell.oga";
   int start_bell_ret = std::system(start_bell_cmd.c_str());
 
-  while (isFREE.load() || !gotoEnd.load()) {
+  while (isFREE.load() || gotoEnd.load()) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
 
