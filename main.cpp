@@ -88,7 +88,7 @@ void sigcatch(int);
 
 void signal_handler_SIGTERM(int signum) {
   if (signum == SIGTERM) {
-    exit(0);
+    exit(EXIT_SUCCESS);
   }
 };
 
@@ -103,7 +103,7 @@ YAML::Node yamlRead(std::string path) {
     return YAML::LoadFile(path);
   } catch(YAML::BadFile &e) {
     std::cerr << "read error! yaml is not exist."<< std::endl;
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 }
 
@@ -219,7 +219,7 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
 std::vector<WAYPOINT> wpRead(std::string wpname) {
   if (wpname == "") {
     std::cerr << "WPファイルのパスを指定してください\n";
-    exit(0);
+    exit(EXIT_FAILURE);
   }
   //std::cerr << wpname << " を読み込みます...";
   std::vector<WAYPOINT> wp;
@@ -453,7 +453,7 @@ int main(int argc, char *argv[]) {
   /* Ctrl+c 対応 */
   if (SIG_ERR == signal( SIGINT, sigcatch )) {
     std::printf("failed to set signal handler\n");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 
   /* Configその他の読み込みセクション */
