@@ -29,29 +29,22 @@ void DELFM::set_lfm(std::string path) {
   inFile >> rows >> cols;
   LFM = cv::Mat(rows, cols, CV_64FC1);
   cv::Mat imgLFM(rows, cols, CV_8UC1);
+  double min = 1e9;
+  double max = -1e9;
   for (int iy = 0; iy < rows; iy++) {
     for (int ix = 0; ix < cols; ix++) {
       inFile >> val;
       LFM.at<double>(iy, ix) = val;
+      // LFMの範囲を調べる
+      if (val < 0) { continue; }
+      if (min > val) {
+        min = val;
+      } else if (max < val) {
+        max = val;
+      }
     }
   }
 
-  // LFMの範囲を調べる
-  double min = 1e9;
-  double max = -1e9;
-  for (int iy = 0; iy < LFM.rows; iy++) {
-    for (int ix = 0; ix < LFM.cols; ix++) {
-      if (LFM.at<double>(iy, ix) < 0) {
-        continue;
-      }
-      if (min > LFM.at<double>(iy, ix)) {
-        min = LFM.at<double>(iy, ix);
-      }
-      if (max < LFM.at<double>(iy, ix)) {
-        max = LFM.at<double>(iy, ix);
-      }
-    }
-  }
   for (int iy = 0; iy < imgLFM.rows; iy++) {
     for (int ix = 0; ix < imgLFM.cols; ix++) {
       if (LFM.at<double>(iy, ix) < 0) {
