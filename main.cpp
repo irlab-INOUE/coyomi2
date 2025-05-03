@@ -563,28 +563,32 @@ int main(int argc, char *argv[]) {
    * Connect check & open serial port for MotoDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
-    std::cerr << "Can't open serial port\n";
-    exit(0);
+    std::string log_text = "Can't open serial port";
+    add_log(shm_log, log_text);
+    gotoEnd.store(true);
   } else {
-    std::cerr << "Get fd_motor: " << fd_motor << "\n";
+    std::string log_text = "Get fd_motor: " + std::to_string(fd_motor);
+    add_log(shm_log, log_text);
   }
 
   /**************************************************************************
    * Joystick setup
    ***************************************************************************/
   if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
-    std::cerr << "Failure SDL initialize. " << SDL_GetError() << std::endl;
-    exit(0);
+    std::string log_text = "Failure SDL initialize. " + std::string(SDL_GetError());
+    add_log(shm_log, log_text);
+    gotoEnd.store(true);
   }
   joystick = SDL_JoystickOpen(0);
-  std::cerr << "Joystick detected:" << SDL_JoystickName(joystick) << std::endl;
-  std::cerr << SDL_JoystickNumAxes(joystick) << " axis" << std::endl;
-  std::cerr << SDL_JoystickNumButtons(joystick) << " buttons" << std::endl << std::endl;
+  //std::cerr << "Joystick detected:" << SDL_JoystickName(joystick) << std::endl;
+  //std::cerr << SDL_JoystickNumAxes(joystick) << " axis" << std::endl;
+  //std::cerr << SDL_JoystickNumButtons(joystick) << " buttons" << std::endl << std::endl;
 
   // calibrate axis until JS_EVENT_BUTTON pressed
   std::vector<joy_calib> j_calib(6);
   SDL_Event e;
-  std::cerr << "Joypad ready completed" << std::endl;
+  std::string log_text = "Joypad ready completed.";
+  add_log(shm_log, log_text);
 
   /**************************************************************************
    * Serial port setup for Motor Drivers
@@ -604,14 +608,16 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   // BLV-R Driver setup
   // ID Share Config.
-  std::cerr << "ID Share configration...";
+  log_text = "ID Share configration...";
+  add_log(shm_log, log_text);
   simple_send_cmd(Query_IDshare_R, sizeof(Query_IDshare_R));
   simple_send_cmd(Query_IDshare_L, sizeof(Query_IDshare_L));
   simple_send_cmd(Query_READ_R,    sizeof(Query_READ_R));
   simple_send_cmd(Query_READ_L,    sizeof(Query_READ_L));
   simple_send_cmd(Query_WRITE_R,   sizeof(Query_WRITE_R));
   simple_send_cmd(Query_WRITE_L,   sizeof(Query_WRITE_L));
-  std::cerr << "Done.\n";
+  log_text = "Done";
+  add_log(shm_log, log_text);
 
   //trun on exitation on RL motor
   turn_on_motors();
@@ -651,7 +657,7 @@ int main(int argc, char *argv[]) {
     prev_target.x = w.x;
     prev_target.y = w.y;
   }
-  std::cout << "wave front completed. path size=" << wp.size() << std::endl;
+  //std::cout << "wave front completed. path size=" << wp.size() << std::endl;
 
   //cv::Mat img = cv::imread(cfg.map_path);
   //for (auto w: wp) {
@@ -705,13 +711,13 @@ int main(int argc, char *argv[]) {
     } else if (c_pid > 0) {
       switch (i) {
         case 0:
-          std::cerr << "Start 2d-LiDAR log: " << c_pid << "\n";
+          //std::cerr << "Start 2d-LiDAR log: " << c_pid << "\n";
           break;
         case 1:
-          std::cerr << "Start Localization: " << c_pid << "\n";
+          //std::cerr << "Start Localization: " << c_pid << "\n";
           break;
         default:
-          std::cerr << "Error\n";
+          //std::cerr << "Error\n";
           break;
       }
       p_list.emplace_back(c_pid);
@@ -918,7 +924,7 @@ int main(int argc, char *argv[]) {
           #endif
         }
         exit(EXIT_SUCCESS);
-      } 
+      }
     }
   }
 

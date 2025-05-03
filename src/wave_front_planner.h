@@ -131,7 +131,7 @@ WaveFrontPlanner::WaveFrontPlanner() {
 }
 
 WaveFrontPlanner::WaveFrontPlanner(Config &cfg) {
-  std::cerr << "Hello, wave front planner\n";
+  //std::cerr << "Hello, wave front planner\n";
   img_ = cv::imread(cfg.map_path);
 
 	YAML::Node config;

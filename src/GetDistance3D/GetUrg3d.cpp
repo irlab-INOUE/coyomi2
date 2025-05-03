@@ -113,11 +113,12 @@ int GetUrg3d::initUrg3d(){
   //open the connection to the 3d urg
   if((ret=urg3d_open(&urg, device.c_str(), port)) <0){
 
-    std::cout << "Error urg3d_open" << ret << std::endl;
+    //std::cout << "Error urg3d_open" << ret << std::endl;
     return -1;
   }
   else{
-    std::cout << "Open OK" << std::endl;
+    ;
+    //std::cout << "Open OK" << std::endl;
   }
 
   //set blocking function timeout (3000ms)
@@ -126,7 +127,7 @@ int GetUrg3d::initUrg3d(){
 
   //initialize the urg3d session (get transform tables)
   if((ret = urg3d_high_blocking_init(&urg)) < 0) {
-    printf("error urg3d_high_blocking_init %d\n", ret);
+    //printf("error urg3d_high_blocking_init %d\n", ret);
     ret = urg3d_close(&urg);
 
     return -1;
@@ -135,7 +136,7 @@ int GetUrg3d::initUrg3d(){
 
   //send interlace count for device (2 h-field / v-field )
   if((ret = urg3d_high_blocking_set_horizontal_interlace_count(&urg, numOfInterlaceH)) < 0) {
-    printf("error urg3d_high_blocking_set_horizontal_interlace_count %d\n", ret);
+    //printf("error urg3d_high_blocking_set_horizontal_interlace_count %d\n", ret);
     ret = urg3d_close(&urg);
 
     return -1;
@@ -144,7 +145,7 @@ int GetUrg3d::initUrg3d(){
 
   //send interlace count for device (4 v-field / frame )
   if((ret = urg3d_high_blocking_set_vertical_interlace_count(&urg, numOfInterlaceV)) < 0) {
-    printf("error urg3d_high_blocking_set_vertical_interlace_count %d\n", ret);
+    //printf("error urg3d_high_blocking_set_vertical_interlace_count %d\n", ret);
     ret = urg3d_close(&urg);
 
     return -1;
@@ -153,7 +154,7 @@ int GetUrg3d::initUrg3d(){
 
   //start the acquisition mode. possible value are:
   if((ret = urg3d_high_start_data(&urg, URG3D_DISTANCE_INTENSITY)) < 0) {
-    printf("error send start %d\n", ret);
+    //printf("error send start %d\n", ret);
     ret = urg3d_close(&urg);
 
     return -1;
@@ -249,7 +250,7 @@ static void print_valid_yvt_sensor_ax_data(void) {
 }
 
 void GetUrg3d::getAXData() {
-  std::cout << "Get AX Data\n";
+  //std::cout << "Get AX Data\n";
   int ret = 0;
   urg3d_auxiliary_data_t auxiliary_data;
   int record_index = 0;
@@ -260,7 +261,7 @@ void GetUrg3d::getAXData() {
   clear_yvt_sensor_ax_data_buffer();
   // start the acquisition mode URG3D_AUXILIARY
   if((ret = urg3d_high_start_data(&urg, URG3D_AUXILIARY)) < 0) {
-    printf("error urg3d_high_start_data %d\n", ret);
+    //printf("error urg3d_high_start_data %d\n", ret);
     ret = urg3d_close(&urg);
 #if defined(URG3D_MSC)
     getchar();
@@ -355,7 +356,7 @@ std::vector<pointUrg3d> GetUrg3d::get1Frame(){
 
 std::vector<pointUrg3d> GetUrg3d::get1Frame_file(std::string path){
   std::ifstream ifs(path);
-  std::cout << "sensor data file : " << path << "\n" << std::endl;
+  //std::cout << "sensor data file : " << path << "\n" << std::endl;
   std::vector<pointUrg3d> data1frame;
 
   if(ifs){
@@ -382,7 +383,8 @@ std::vector<pointUrg3d> GetUrg3d::get1Frame_file(std::string path){
     }
   }
   else{
-    std::cout << "File Open Error" << std::endl;
+    //std::cout << "File Open Error" << std::endl;
+    ;
   }
   return data1frame;
 }
@@ -398,7 +400,7 @@ void GetUrg3d::savePointUrg3d(std::string path)
 
   path += file_name;
 
-  std::cerr << path << std::endl;
+  //std::cerr << path << std::endl;
   std::ofstream ofs(path, std::ios_base::app);
   if(ofs){
     ofs << "#x_m, #y_m, #z_m, #r_m, #phi, #theta, #intensity" << std::endl;
@@ -409,7 +411,8 @@ void GetUrg3d::savePointUrg3d(std::string path)
     }
   }
   else{
-    std::cout << "output file open error" << std::endl;
+    ;
+    //std::cout << "output file open error" << std::endl;
   }
 }
 
@@ -442,7 +445,8 @@ void GetUrg3d::savePointUrg3d_continuity(std::string path) {
     }
   }
   else{
-    std::cerr << "output file open error" << std::endl;
+    ;
+    //std::cerr << "output file open error" << std::endl;
   }
 }
 
