@@ -172,12 +172,12 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
             get3DLidarData.store(true);
             break;
           case 10:
+            gotoEnd.store(true);
             //std::cerr << "End\n";
             set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
             usleep(1500000);
-            gotoEnd.store(true);
             break;
           case 12:
             //std::cerr << "FREE\n";
@@ -779,6 +779,8 @@ int main(int argc, char *argv[]) {
       } else if (i == 1) { // localization
         signal(SIGTERM, signal_handler_SIGTERM);
         while (1) {
+          std::string log_text = "START LOCALIZATION SETUP";
+          add_log(shm_log, log_text);
           MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
           // Map file path
           std::string MAP_NAME
@@ -788,6 +790,8 @@ int main(int argc, char *argv[]) {
           std::string LIKELYHOOD_FIELD
             = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
           LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
+          log_text = "DONE LOCALIZATION SETUP";
+          add_log(shm_log, log_text);
           // Initial pose
           if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
             double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
@@ -818,12 +822,20 @@ int main(int argc, char *argv[]) {
           const double F = 0.5;
           const double CR = 0.1;
 
+          log_text = "START DE setup";
+          add_log(shm_log, log_text);
           DELFM de(Window_xy, Window_a, population, generates, F, CR);
+          log_text = "START DE lfm";
+          add_log(shm_log, log_text);
           de.set_lfm(shm_loc->path_to_likelyhood_field);
+          log_text = "START DE mapinfo";
+          add_log(shm_log, log_text);
           de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
           std::string de_logfile_path = std::string(shm_logdir->path) + "/delog";
 
+          log_text = "START LOCALIZATION LOOP";
+          add_log(shm_log, log_text);
           while(1) {
             if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
             view.plot_wp(wp);
@@ -945,7 +957,8 @@ int main(int argc, char *argv[]) {
   std::string start_bell_cmd = "paplay /usr/share/sounds/freedesktop/stereo/bell.oga";
   int start_bell_ret = std::system(start_bell_cmd.c_str());
 
-  while (isFREE.load() || gotoEnd.load()) {
+  while (isFREE.load()) {
+    if (gotoEnd.load()) break;
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
 
@@ -1013,9 +1026,9 @@ int main(int argc, char *argv[]) {
       } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
           shm_enc->current_wp_index += 1;
-          isFREE.store(!(isFREE.load()));
+          isFREE.store(true);
           free_motors();
-          while (isFREE.load()) {
+          while (isFREE.load() || !gotoEnd.load()) {
             read_joystick(v, w, j_calib);
             long long ts = get_current_time();
             read_state(odo, ts);
@@ -1127,10 +1140,6 @@ int main(int argc, char *argv[]) {
   //=====<<MAIN LOOP : END>>=====
 
   //CLEANUP:
-  running.store(false);
-  th_display.join();
-  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
   // safe stop
   v = 0.0;
   w = 0.0;
@@ -1158,6 +1167,11 @@ int main(int argc, char *argv[]) {
   pid_t pid = getpid();
   std::cout << "If main can't stop, execute next command " << TEXT_GREEN << "**kill " << pid << "** "
     << TEXT_COLOR_RESET << "in terminal.\n";
+
+  running.store(false);
+  th_display.join();
+  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
+  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
 
   sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
