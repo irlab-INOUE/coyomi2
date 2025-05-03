@@ -2,6 +2,7 @@
  * Robot control program using DE with LFM
  *
  * author: Kazumichi INOUE <kazumichiinoue@mail.saitama-u.ac.jp>
+ * Github: https://github.com/irlab-INOUE/coyomi2
  * date:   2023/6/20
  * update: 2025/4/19
  ****************************************************************************/
@@ -49,6 +50,8 @@ using std::this_thread::sleep_for;
  ****************************************/
 std::atomic<bool> running(true);
 std::atomic<bool> get3DLidarData(false);
+std::atomic<bool> gotoEnd(false);
+std::atomic<bool> isFREE(false);
 
 std::thread th_battery_logger;
 std::thread th_sound_logger;
@@ -57,8 +60,6 @@ std::thread th_3D_Lidar;
 SDL_Joystick* joystick;
 
 bool LIDAR_STOP = false;
-bool isFREE = false;
-bool gotoEnd = false;
 
 // log file
 std::ofstream enc_log;
@@ -137,39 +138,33 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
   double axis0 = 0;
   double axis1 = 0;
 
+  auto set_vw = [&v, &w](double _v, double _w) {v = _v; w = _w;};
+
   /* read the joystick state */
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     switch (e.type) {
       case SDL_JOYBUTTONUP:
       case 1:
-        v = 0.0; w = 0.0;
-        break;
       case 2:
-        v = 0.0; w = 0.0;
-        break;
       case 0:
-        v = 0.0; w = 0.0;
-        break;
       case 3:
-        v = 0.0; w = 0.0;
-        break;
       default:
-        v = 0.0; w = 0.0;
+        set_vw(0.0, 0.0);
         break;
       case SDL_JOYBUTTONDOWN:
         switch (static_cast<int>(e.jbutton.button)) {
           case 1:
-            v = 0.5; w = 0.0;
+            set_vw(0.5, 0.0);
             break;
           case 2:
-            v = -0.5; w = 0.0;
+            set_vw(-0.5, 0.0);
             break;
           case 0:
-            v = 0.0; w = 1.0;
+            set_vw(0.0, 1.0);
             break;
           case 3:
-            v = 0.0; w = -1.0;
+            set_vw(0.0, -1.0);
             break;
           case 4:
           case 5:
@@ -177,26 +172,26 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
             break;
           case 10:
             //std::cerr << "End\n";
-            v = 0.0; w = 0.0;
+            set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
             usleep(1500000);
-            gotoEnd = true;
+            gotoEnd.store(true);
             break;
           case 12:
             //std::cerr << "FREE\n";
-            v = 0.0; w = 0.0;
+            set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
             usleep(1000000);
-            isFREE = !isFREE;
-            if (isFREE)
+            isFREE.store(!(isFREE.load()));
+            if (isFREE.load())
               free_motors();
             else
               turn_on_motors();
             break;
           default:
-            v = 0.0; w = 0.0;
+            set_vw(0.0, 0.0);
             break;
         }
     }
@@ -946,11 +941,9 @@ int main(int argc, char *argv[]) {
   std::string start_bell_cmd = "paplay /usr/share/sounds/freedesktop/stereo/bell.oga";
   int start_bell_ret = std::system(start_bell_cmd.c_str());
 
-  while (isFREE) {
+  while (isFREE.load() || !gotoEnd.load()) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
-    if (gotoEnd) goto CLEANUP;
-    usleep(100000);
 
     long long ts = get_current_time();
     read_state(odo, ts);
@@ -962,14 +955,15 @@ int main(int argc, char *argv[]) {
     shm_disp->enc_x = odo.rx;
     shm_disp->enc_y = odo.ry;
     shm_disp->enc_a = odo.ra;
+
+    sleep_for(milliseconds(100));
   }
   start_bell_ret = std::system(start_bell_cmd.c_str());
 
   shm_urg3d->measure = false;
-  while(1) {
+  while(!gotoEnd.load()) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
-    if (gotoEnd) goto CLEANUP;
 
     std::vector<LSP> lsp;
     for (int k = 0; k < shm_urg2d->size; k++) {
@@ -1015,9 +1009,9 @@ int main(int argc, char *argv[]) {
       } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
           shm_enc->current_wp_index += 1;
-          isFREE = !isFREE;
+          isFREE.store(!(isFREE.load()));
           free_motors();
-          while (isFREE) {
+          while (isFREE.load()) {
             read_joystick(v, w, j_calib);
             long long ts = get_current_time();
             read_state(odo, ts);
@@ -1090,7 +1084,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    if (isFREE) {
+    if (isFREE.load()) {
       v = 0.0;
       w = 0.0;
     }
@@ -1128,14 +1122,20 @@ int main(int argc, char *argv[]) {
   }
   //=====<<MAIN LOOP : END>>=====
 
-CLEANUP:
+  //CLEANUP:
   endwin();   // ncurses end
   std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
   std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
-  // turn off exitation on RL motor
+  // safe stop
+  v = 0.0;
+  w = 0.0;
+  calc_vw2hex(Query_NET_ID_WRITE, v, w);
+  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+  sleep_for(seconds(1));
   turn_off_motors();
-
+  std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
   close(fd_motor);
+
   SDL_JoystickClose(joystick);
   SDL_Quit();
 
@@ -1150,78 +1150,9 @@ CLEANUP:
   pid_t wait_pid;
   while ((wait_pid = wait(nullptr)) > 0)
     std::cout << "wait:" << wait_pid << "\n";
-
-  sem_destroy(&shm_log->sem);
-  // 共有メモリのクリア
-  std::ofstream shmid(std::string(shm_logdir->path) + "/shmID.txt");
-  shmdt(shm_urg2d);
-  shmdt(shm_bat);
-  shmdt(shm_loc);
-  shmdt(shm_logdir);
-  shmdt(shm_disp);
-  shmdt(shm_wp_list);
-  shmdt(shm_log);
-  int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT); shmid << "LOGDIR " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-
-  running.store(false);
-  th_battery_logger.join();
-  th_sound_logger.join();
-  th_3D_Lidar.join();
-
-  return 0;
-}
-
-void sigcatch(int sig) {
-  endwin();   // ncurses end
-
-  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
-
-  std::cerr << TEXT_RED;
-  std::printf("Catch signal %d\n", sig);
-  std::cerr << TEXT_COLOR_RESET;
-
-  for (auto pid: p_list) {
-    kill(pid, SIGTERM);
-  }
-  pid_t wait_pid;
-  while ((wait_pid = wait(nullptr)) > 0) {
-    // std::cout << "wait:" << wait_pid << "\n";
-  }
-
   pid_t pid = getpid();
   std::cout << "If main can't stop, execute next command " << TEXT_GREEN << "**kill " << pid << "** "
     << TEXT_COLOR_RESET << "in terminal.\n";
-  // safe stop
-  double v = 0.0;
-  double w = 0.0;
-  calc_vw2hex(Query_NET_ID_WRITE, v, w);
-  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-  usleep(1500000);
-  turn_off_motors();
-  std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
-
-  SDL_JoystickClose(joystick);
-  SDL_Quit();
-  close(fd_motor);
-
-  enc_log.close();
-  fout_urg2d.close();
-  mcl_log.close();
-  de_log.close();
 
   sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
@@ -1254,6 +1185,14 @@ void sigcatch(int sig) {
   th_3D_Lidar.join();
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
+  return 0;
+}
 
-  exit(1);
+void sigcatch(int sig) {
+  gotoEnd.store(true);
+  endwin();   // ncurses end
+
+  std::cerr << TEXT_RED;
+  std::printf("Catch signal %d\n", sig);
+  std::cerr << TEXT_COLOR_RESET;
 }
