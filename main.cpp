@@ -363,7 +363,7 @@ void thread_display() {
   curs_set(0);
   start_color();
   timeout(0);
-  init_pair(1,COLOR_BLUE, COLOR_BLACK);
+  init_pair(1, COLOR_BLUE, COLOR_BLACK);
   clear();
 
   // 下部10行分のサブウィンドウを作成
