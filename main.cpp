@@ -736,7 +736,7 @@ int main(int argc, char *argv[]) {
 
         std::string path = shm_logdir->path;
         path += "/urglog";
-        while(1) {
+        while(!LIDAR_STOP) {
           fout_urg2d.open(path, std::ios_base::app);
           long long ts = get_current_time();
           std::vector<LSP> result = urg2d.getData();
@@ -761,12 +761,9 @@ int main(int argc, char *argv[]) {
           for (int k = 0; k < result.size(); k++) {
             shm_urg2d->r[k] = result[k].data;
           }
-          if (LIDAR_STOP) {
-            urg2d.close();
-            exit(0);
-          }
           usleep(10000);
         }
+        urg2d.close();
         exit(EXIT_SUCCESS);
       } else if (i == 1) { // localization
         signal(SIGTERM, signal_handler_SIGTERM);
