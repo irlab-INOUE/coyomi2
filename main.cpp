@@ -56,6 +56,7 @@ std::atomic<bool> isFREE(true);
 std::thread th_battery_logger;
 std::thread th_sound_logger;
 std::thread th_3D_Lidar;
+std::thread th_display;
 
 SDL_Joystick* joystick;
 
@@ -355,6 +356,95 @@ void thread_3D_Lidar() {
   std::cout << "3D_Lidar exit." << std::endl;
 }
 
+void thread_display() {
+  // Ncurses setup
+  WINDOW *win = initscr();
+  noecho();
+  cbreak();
+  keypad(stdscr, TRUE);
+  curs_set(0);
+  start_color();
+  timeout(0);
+  init_pair(1,COLOR_BLUE, COLOR_BLACK);
+  clear();
+
+  // 下部10行分のサブウィンドウを作成
+  int screen_height, screen_width;
+  getmaxyx(stdscr, screen_height, screen_width); // 端末サイズ取得
+  int log_height = 10;
+  int log_width = screen_width;
+  int log_starty = screen_height - log_height;
+  int log_startx = 0;
+  WINDOW* log_win = newwin(log_height, log_width, log_starty, log_startx);
+
+  std::string log_text = "TEST LOG START";
+  add_log(shm_log, log_text);
+
+  int ROW_MCL = 0;
+  int ROW_MOTOR = 7;
+  int ROW_TOTAL_TRAVEL = 14;
+  int ROW_PATH = 15;
+  int ROW_CURRENT_MAP_PATH_INDEX = 16;
+  mvprintw(ROW_MCL,     0, "MCL Information");
+  mvprintw(ROW_MCL+1,   0, "X[m]     Y[m]      A[deg]");
+  mvprintw(ROW_MOTOR,   0, "Motor Information");
+  mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
+  while (running.load()) {
+    // update status window
+    shm_disp->temp_driver_L = shm_enc->temp_driver_L;
+    shm_disp->temp_driver_R = shm_enc->temp_driver_R;
+    shm_disp->temp_motor_L = shm_enc->temp_motor_L;
+    shm_disp->temp_motor_R = shm_enc->temp_motor_R;
+
+    move(ROW_MCL+2, 0); clrtoeol();
+    mvprintw(ROW_MCL+2, 0, "%.3f", shm_disp->loc_x);
+    mvprintw(ROW_MCL+2, 9, "%.3f", shm_disp->loc_y);
+    mvprintw(ROW_MCL+2,19, "%.1f", shm_disp->loc_a*180/M_PI);
+
+    move(ROW_MCL+3, 0); clrtoeol();
+    printw("Current WP Index: %d", shm_disp->current_wp_index);
+
+    move(ROW_MCL+4, 0); clrtoeol();
+    printw("v: %.2f  w: %.2f", shm_disp->v, shm_disp->w);
+
+    move(ROW_MCL+5, 0); clrtoeol();
+    printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
+           atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
+
+    move(ROW_MOTOR+2, 0); clrtoeol();
+    mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
+    mvprintw(ROW_MOTOR+2, 9, "%.3f", shm_disp->enc_y);
+    mvprintw(ROW_MOTOR+2,19, "%.1f", shm_disp->enc_a*180/M_PI);
+
+    move(ROW_MOTOR+3, 0); clrtoeol();
+    printw("Voltage: %.1f", shm_disp->battery);
+
+    move(ROW_MOTOR+4, 0); clrtoeol();
+    printw("TmpL_D %.1f  TmpR_D %.1f", shm_disp->temp_driver_L, shm_disp->temp_driver_R);
+
+    move(ROW_MOTOR+5, 0); clrtoeol();
+    printw("TmpL_M %.1f  TmpR_M %.1f", shm_disp->temp_motor_L, shm_disp->temp_motor_R);
+
+    move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
+    printw("Total %.1f", shm_disp->total_travel);
+
+    move(ROW_PATH, 0); clrtoeol();
+    printw("%s", shm_loc->path_to_map_dir);
+
+    move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
+    printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
+
+    // update Log window
+    draw_log_window(log_win, shm_log, log_width, log_height);
+
+    refresh();
+    sleep_for(milliseconds(100));
+  }
+  endwin();   // ncurses end
+  std::cout << "Display exit." << std::endl;
+  exit(EXIT_SUCCESS);
+}
+
 /***************************************
  * MAIN
  ***************************************/
@@ -461,6 +551,7 @@ int main(int argc, char *argv[]) {
   th_battery_logger = std::thread(thread_battery_logger);
   th_sound_logger = std::thread(thread_sound);
   th_3D_Lidar = std::thread(thread_3D_Lidar);
+  th_display = std::thread(thread_display);
 
   /**************************************************************************
    * セマフォの初期化
@@ -525,18 +616,6 @@ int main(int argc, char *argv[]) {
   //trun on exitation on RL motor
   turn_on_motors();
 
-  /**************************************************************************
-   * Ncurses setup
-   ***************************************************************************/
-  int key;    // curses用キーボード入力判定
-  WINDOW *win = initscr();
-  noecho();
-  cbreak();
-  keypad(stdscr, TRUE);
-  curs_set(0);
-  start_color();
-  timeout(0);
-  init_pair(1,COLOR_BLUE, COLOR_BLACK);
 
   /**************************************************************************
    * Waypoint setup
@@ -618,7 +697,7 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * Multi threads setup
    ***************************************************************************/
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 2; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -630,9 +709,6 @@ int main(int argc, char *argv[]) {
           break;
         case 1:
           std::cerr << "Start Localization: " << c_pid << "\n";
-          break;
-        case 2:
-          std::cerr << "Start state display: " << c_pid << "\n";
           break;
         default:
           std::cerr << "Error\n";
@@ -842,85 +918,7 @@ int main(int argc, char *argv[]) {
           #endif
         }
         exit(EXIT_SUCCESS);
-      } else if (i == 2) { // State display
-        signal(SIGTERM, signal_handler_SIGTERM);
-        std::cerr << "Please waite 5 sec...";
-        sleep(5);
-        clear();
-
-        // 下部10行分のサブウィンドウを作成
-        int screen_height, screen_width;
-        getmaxyx(stdscr, screen_height, screen_width); // 端末サイズ取得
-        int log_height = 10;
-        int log_width = screen_width;
-        int log_starty = screen_height - log_height;
-        int log_startx = 0;
-        WINDOW* log_win = newwin(log_height, log_width, log_starty, log_startx);
-
-        std::string log_text = "TEST LOG START";
-        add_log(shm_log, log_text);
-
-        int ROW_MCL = 0;
-        int ROW_MOTOR = 7;
-        int ROW_TOTAL_TRAVEL = 14;
-        int ROW_PATH = 15;
-        int ROW_CURRENT_MAP_PATH_INDEX = 16;
-        mvprintw(ROW_MCL,     0, "MCL Information");
-        mvprintw(ROW_MCL+1,   0, "X[m]     Y[m]      A[deg]");
-        mvprintw(ROW_MOTOR,   0, "Motor Information");
-        mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
-        while (1) {
-          // update status window
-          shm_disp->temp_driver_L = shm_enc->temp_driver_L;
-          shm_disp->temp_driver_R = shm_enc->temp_driver_R;
-          shm_disp->temp_motor_L = shm_enc->temp_motor_L;
-          shm_disp->temp_motor_R = shm_enc->temp_motor_R;
-
-          move(ROW_MCL+2, 0); clrtoeol();
-          mvprintw(ROW_MCL+2, 0, "%.3f", shm_disp->loc_x);
-          mvprintw(ROW_MCL+2, 9, "%.3f", shm_disp->loc_y);
-          mvprintw(ROW_MCL+2,19, "%.1f", shm_disp->loc_a*180/M_PI);
-
-          move(ROW_MCL+3, 0); clrtoeol();
-          printw("Current WP Index: %d", shm_disp->current_wp_index);
-
-          move(ROW_MCL+4, 0); clrtoeol();
-          printw("v: %.2f  w: %.2f", shm_disp->v, shm_disp->w);
-
-          move(ROW_MCL+5, 0); clrtoeol();
-          printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
-              atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
-
-          move(ROW_MOTOR+2, 0); clrtoeol();
-          mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
-          mvprintw(ROW_MOTOR+2, 9, "%.3f", shm_disp->enc_y);
-          mvprintw(ROW_MOTOR+2,19, "%.1f", shm_disp->enc_a*180/M_PI);
-
-          move(ROW_MOTOR+3, 0); clrtoeol();
-          printw("Voltage: %.1f", shm_disp->battery);
-
-          move(ROW_MOTOR+4, 0); clrtoeol();
-          printw("TmpL_D %.1f  TmpR_D %.1f", shm_disp->temp_driver_L, shm_disp->temp_driver_R);
-
-          move(ROW_MOTOR+5, 0); clrtoeol();
-          printw("TmpL_M %.1f  TmpR_M %.1f", shm_disp->temp_motor_L, shm_disp->temp_motor_R);
-
-          move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
-          printw("Total %.1f", shm_disp->total_travel);
-
-          move(ROW_PATH, 0); clrtoeol();
-          printw("%s", shm_loc->path_to_map_dir);
-
-          move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
-          printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
-
-          // update Log window
-          draw_log_window(log_win, shm_log, log_width, log_height);
-
-          refresh();
-        }
-        exit(EXIT_SUCCESS);
-      }
+      } 
     }
   }
 
@@ -1123,7 +1121,8 @@ int main(int argc, char *argv[]) {
   //=====<<MAIN LOOP : END>>=====
 
   //CLEANUP:
-  endwin();   // ncurses end
+  running.store(false);
+  th_display.join();
   std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
   std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
   // safe stop
@@ -1179,7 +1178,6 @@ int main(int argc, char *argv[]) {
   keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
 
-  running.store(false);
   th_battery_logger.join();
   th_sound_logger.join();
   th_3D_Lidar.join();
@@ -1190,7 +1188,6 @@ int main(int argc, char *argv[]) {
 
 void sigcatch(int sig) {
   gotoEnd.store(true);
-  endwin();   // ncurses end
 
   std::cerr << TEXT_RED;
   std::printf("Catch signal %d\n", sig);
