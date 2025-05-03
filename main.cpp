@@ -323,20 +323,17 @@ void thread_3D_Lidar() {
   long port = 10904;
   GetUrg3d urg3d(addr, port);
   if(urg3d.initUrg3d() == -1) {
-    std::string log_text = "3D-Urg Open Error";
-    add_log(shm_log, log_text);
+    add_log(shm_log, "3D-Urg Open Error");
     is3DLidar_OK = false;
   }
   while (running.load()) {
     if (!is3DLidar_OK) {
-      std::string log_text = "3D-Urg Open Error";
-      add_log(shm_log, log_text);
+      add_log(shm_log, "3D-Urg Open Error");
       sleep_for(seconds(5));
       continue;
     }
     if (get3DLidarData.load()) {
-      std::string log_text = "3D LiDAR measured";
-      add_log(shm_log, log_text);
+      add_log(shm_log, "3D LiDAR measured");
       std::vector<pointUrg3d> data;
       data = urg3d.get1Frame();
       if (data.size() > 0) {
@@ -378,8 +375,7 @@ void thread_display() {
   int log_startx = 0;
   WINDOW* log_win = newwin(log_height, log_width, log_starty, log_startx);
 
-  std::string log_text = "TEST LOG START";
-  add_log(shm_log, log_text);
+  add_log(shm_log, "LOG START");
 
   int ROW_MCL = 0;
   int ROW_MOTOR = 7;
@@ -563,8 +559,7 @@ int main(int argc, char *argv[]) {
    * Connect check & open serial port for MotoDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
-    std::string log_text = "Can't open serial port";
-    add_log(shm_log, log_text);
+    add_log(shm_log, "Can't open serial port");
     gotoEnd.store(true);
   } else {
     std::string log_text = "Get fd_motor: " + std::to_string(fd_motor);
@@ -587,8 +582,7 @@ int main(int argc, char *argv[]) {
   // calibrate axis until JS_EVENT_BUTTON pressed
   std::vector<joy_calib> j_calib(6);
   SDL_Event e;
-  std::string log_text = "Joypad ready completed.";
-  add_log(shm_log, log_text);
+  add_log(shm_log, "Joypad ready completed.");
 
   /**************************************************************************
    * Serial port setup for Motor Drivers
@@ -608,16 +602,14 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   // BLV-R Driver setup
   // ID Share Config.
-  log_text = "ID Share configration...";
-  add_log(shm_log, log_text);
+  add_log(shm_log, "ID Share configration...");
   simple_send_cmd(Query_IDshare_R, sizeof(Query_IDshare_R));
   simple_send_cmd(Query_IDshare_L, sizeof(Query_IDshare_L));
   simple_send_cmd(Query_READ_R,    sizeof(Query_READ_R));
   simple_send_cmd(Query_READ_L,    sizeof(Query_READ_L));
   simple_send_cmd(Query_WRITE_R,   sizeof(Query_WRITE_R));
   simple_send_cmd(Query_WRITE_L,   sizeof(Query_WRITE_L));
-  log_text = "Done";
-  add_log(shm_log, log_text);
+  add_log(shm_log, "Done");
 
   //trun on exitation on RL motor
   turn_on_motors();
@@ -779,8 +771,7 @@ int main(int argc, char *argv[]) {
       } else if (i == 1) { // localization
         signal(SIGTERM, signal_handler_SIGTERM);
         while (1) {
-          std::string log_text = "START LOCALIZATION SETUP";
-          add_log(shm_log, log_text);
+          add_log(shm_log, "START LOCALIZATION SETUP");
           MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
           // Map file path
           std::string MAP_NAME
@@ -790,8 +781,7 @@ int main(int argc, char *argv[]) {
           std::string LIKELYHOOD_FIELD
             = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
           LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
-          log_text = "DONE LOCALIZATION SETUP";
-          add_log(shm_log, log_text);
+          add_log(shm_log, "DONE LOCALIZATION SETUP");
           // Initial pose
           if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
             double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
@@ -822,20 +812,16 @@ int main(int argc, char *argv[]) {
           const double F = 0.5;
           const double CR = 0.1;
 
-          log_text = "START DE setup";
-          add_log(shm_log, log_text);
+          add_log(shm_log, "START DE setup");
           DELFM de(Window_xy, Window_a, population, generates, F, CR);
-          log_text = "START DE lfm";
-          add_log(shm_log, log_text);
+          add_log(shm_log, "START DE lfm");
           de.set_lfm(shm_loc->path_to_likelyhood_field);
-          log_text = "START DE mapinfo";
-          add_log(shm_log, log_text);
+          add_log(shm_log, "START DE mapinfo");
           de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
           std::string de_logfile_path = std::string(shm_logdir->path) + "/delog";
 
-          log_text = "START LOCALIZATION LOOP";
-          add_log(shm_log, log_text);
+          add_log(shm_log, "START LOCALIZATION LOOP");
           while(1) {
             if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
             view.plot_wp(wp);
