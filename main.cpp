@@ -52,6 +52,7 @@ std::atomic<bool> running(true);
 std::atomic<bool> get3DLidarData(false);
 std::atomic<bool> gotoEnd(false);
 std::atomic<bool> isFREE(true);
+std::atomic<bool> STORE(true);
 
 std::thread th_battery_logger;
 std::thread th_sound_logger;
@@ -522,7 +523,6 @@ int main(int argc, char *argv[]) {
   time_t now = time(NULL);
   struct tm *pnow = localtime(&now);
   char s[N] = {'\0'};
-  bool STORE = true;
   if (STORE) {
     checkDir(storeDir);
     strftime(s, N, "%Y", pnow); strcpy(shm_logdir->year, s); shm_logdir->year[4] = '\0';
