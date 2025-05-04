@@ -6,6 +6,7 @@
 #include <vector>
 #include <sys/shm.h>
 #include <stdlib.h>
+#include <string_view>
 #include <semaphore.h>
 #include "Urg2d.h"
 
@@ -210,11 +211,11 @@ struct LOG_DATA {
     int operation_flag;   // 操作フラグ（イベント駆動）
 };
 // ログの追加
-void add_log(LOG_DATA *shared, const std::string& log) {
+void add_log(LOG_DATA *shared, std::string_view log) {
     sem_wait(&shared->sem); // セマフォで排他制御
 
     if (shared->current_index < NUM_LOGS) {
-        strncpy(shared->logs[shared->current_index], log.c_str(), LOG_SIZE - 1);
+        strncpy(shared->logs[shared->current_index], log.data(), LOG_SIZE - 1);
         shared->logs[shared->current_index][LOG_SIZE - 1] = '\0';
         shared->current_index++;
     } else {
