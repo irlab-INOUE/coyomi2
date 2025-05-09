@@ -70,12 +70,21 @@ std::ofstream mcl_log;
 std::ofstream de_log;
 std::ofstream sound_log;
 
+struct LOGDIR_PATH {
+  std::string year;
+  std::string mon;
+  std::string mday;
+  std::string hour;
+  std::string min;
+  std::string sec;
+  std::string path;
+};
+
 // 共有したい構造体毎にアドレスを割り当てる
 ENC      *shm_enc     = nullptr;
 URG2D    *shm_urg2d   = nullptr;
 BAT      *shm_bat     = nullptr;
 LOC      *shm_loc     = nullptr;
-LOGDIR   *shm_logdir  = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 DISPLAY  *shm_disp    = nullptr;
 LOG_DATA *shm_log     = nullptr;
@@ -261,9 +270,8 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
 /***************************************
  * Define thread
  ***************************************/
-void thread_battery_logger() {
-  std::string path = shm_logdir->path;
-  path += "/batlog";
+void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path) {
+  std::string path = log_path->path + "/batlog";
   std::ofstream bat_log;
   bat_log.open(path);
   while (running.load()) {
@@ -275,9 +283,9 @@ void thread_battery_logger() {
   std::cout << "Battery logger2 exit." << std::endl;
 }
 
-void thread_sound() {
+void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path) {
   int prev_wp_index = 0;
-  std::string sound_logfile_path = std::string(shm_logdir->path) + "/sound_log";
+  std::string sound_logfile_path = log_path->path + "/sound_log";
   std::ofstream ofs;
   ofs.open(sound_logfile_path);
   while (running.load()) {
@@ -298,9 +306,8 @@ void thread_sound() {
   std::cout << "Sound log exit." << std::endl;
 }
 
-void thread_3D_Lidar() {
-  std::string path = shm_logdir->path;
-  path += "/urg3dlog";
+void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path) {
+  std::string path = log_path->path + "/urg3dlog";
 
   bool is3DLidar_OK = true;
   std::string addr = "192.168.11.99";
@@ -338,7 +345,7 @@ void thread_3D_Lidar() {
   std::cout << "3D_Lidar exit." << std::endl;
 }
 
-void thread_display() {
+void thread_display(std::shared_ptr<LOGDIR_PATH> log_path) {
   // Ncurses setup
   WINDOW *win = initscr();
   noecho();
@@ -426,7 +433,7 @@ void thread_display() {
   exit(EXIT_SUCCESS);
 }
 
-void thread_2D_Lidar_b() {
+void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -448,8 +455,7 @@ void thread_2D_Lidar_b() {
     shm_urg2d->cs[i] = cos(ang);
     shm_urg2d->sn[i] = sin(ang);
   }
-  std::string path = shm_logdir->path;
-  path += "/urglog";
+  std::string path = log_path->path + "/urglog";
 
   Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
   // urgのopen可否を受け取る
@@ -490,7 +496,7 @@ void thread_2D_Lidar_b() {
   std::cout << "2D_Lidar_b exit." << std::endl;
 }
 
-void thread_localization() {
+void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -544,7 +550,7 @@ void thread_localization() {
   add_log(shm_log, "START DE mapinfo");
   de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
-  std::string de_logfile_path = std::string(shm_logdir->path) + "/delog";
+  std::string de_logfile_path = log_path->path + "/delog";
 
   add_log(shm_log, "START LOCALIZATION LOOP");
   while (running.load()) {
@@ -629,8 +635,7 @@ void thread_localization() {
     shm_loc->y = estimatedPose.y;
     shm_loc->a = estimatedPose.a;
 
-    std::string path = shm_logdir->path;
-    path += "/mcllog";
+    std::string path = log_path + "/mcllog";
     mcl_log.open(path, std::ios_base::app);
     long long ts = get_current_time();
     mcl_log
@@ -708,7 +713,6 @@ int main(int argc, char *argv[]) {
   shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
   shm_bat     =      (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
   shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
-  shm_logdir  =   (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
   shm_disp    =  (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   shm_log     = (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
@@ -719,42 +723,39 @@ int main(int argc, char *argv[]) {
    * DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
    * なければ作成する
    ***************************************************************************/
-  std::string storeDir = DEFAULT_LOG_DIR;
+  auto log_path = std::make_shared<LOGDIR_PATH>();
   // 現在日付時刻のディレクトリを作成する
   time_t now = time(NULL);
   struct tm *pnow = localtime(&now);
   char s[N] = {'\0'};
   if (STORE) {
-    checkDir(storeDir);
-    strftime(s, N, "%Y", pnow); strcpy(shm_logdir->year, s); shm_logdir->year[4] = '\0';
-    strftime(s, N, "%m", pnow); strcpy(shm_logdir->mon,  s); shm_logdir->mon[2]  = '\0';
-    strftime(s, N, "%d", pnow); strcpy(shm_logdir->mday, s); shm_logdir->mday[2] = '\0';
-    strftime(s, N, "%H", pnow); strcpy(shm_logdir->hour, s); shm_logdir->hour[2] = '\0';
-    strftime(s, N, "%M", pnow); strcpy(shm_logdir->min , s); shm_logdir->min[2]  = '\0';
-    strftime(s, N, "%S", pnow); strcpy(shm_logdir->sec , s); shm_logdir->sec[2]  = '\0';
-    storeDir += "/" + std::string(shm_logdir->year, 4)
-      + "/" + std::string(shm_logdir->mon,  2)
-      + "/" + std::string(shm_logdir->mday, 2)
-      + "/" + std::string(shm_logdir->hour, 2)
-      + std::string(shm_logdir->min, 2)
-      + std::string(shm_logdir->sec, 2);
-    std::cerr << storeDir << std::endl;
-    storeDir.copy(shm_logdir->path, storeDir.size());
-    checkDir(storeDir);
+    checkDir(std::string(DEFAULT_LOG_DIR));
+    strftime(s, N, "%Y", pnow); log_path->year = s;
+    strftime(s, N, "%m", pnow); log_path->mon  = s;
+    strftime(s, N, "%d", pnow); log_path->mday = s;
+    strftime(s, N, "%H", pnow); log_path->hour = s;
+    strftime(s, N, "%M", pnow); log_path->min  = s;
+    strftime(s, N, "%S", pnow); log_path->sec  = s;
+    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/" + log_path->mday + "/" + log_path->hour + "/" + log_path->min + "/" + log_path->sec;
+    checkDir(log_path->path);
 
-    std::cerr << "path: " << shm_logdir->path << "にログを保存します" << std::endl;
+    std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
     std::cerr << "Press ENTER key";
     getchar();
   } else {
     std::cerr << "ログは保管しません\n";
   }
 
-  th_battery_logger = std::thread(thread_battery_logger);
-  th_sound_logger   = std::thread(thread_sound);
-  th_3D_Lidar       = std::thread(thread_3D_Lidar);
-  th_display        = std::thread(thread_display);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b);
-  th_localization   = std::thread(thread_localization);
+  // 共有オブジェクト
+  //auto state = std::make_shared<STATUS>();
+  //th_lidar = std::thread(thread_lidar, state);
+
+  th_battery_logger = std::thread(thread_battery_logger, log_path);
+  th_sound_logger   = std::thread(thread_sound, log_path);
+  th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path);
+  th_display        = std::thread(thread_display, log_path);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path);
+  th_localization   = std::thread(thread_localization, log_path);
 
   /**************************************************************************
    * セマフォの初期化
@@ -1086,8 +1087,7 @@ int main(int argc, char *argv[]) {
     shm_disp->v = v;
     shm_disp->w = w;
 
-    std::string path = shm_logdir->path;
-    path += "/enclog";
+    std::string path = log_path->path + "/enclog";
     enc_log.open(path, std::ios_base::app);
     enc_log
       << ts << " "
@@ -1124,11 +1124,10 @@ int main(int argc, char *argv[]) {
 
   sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
-  std::ofstream shmid(std::string(shm_logdir->path) + "/shmID.txt");
+  std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
   shmdt(shm_urg2d);
   shmdt(shm_bat);
   shmdt(shm_loc);
-  shmdt(shm_logdir);
   shmdt(shm_disp);
   shmdt(shm_wp_list);
   shmdt(shm_log);
@@ -1137,8 +1136,6 @@ int main(int argc, char *argv[]) {
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT); shmid << "LOGDIR " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
