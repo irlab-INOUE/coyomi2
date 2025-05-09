@@ -505,8 +505,13 @@ void thread_2D_Lidar_b() {
 }
 
 void thread_localization() {
+  // coyomi_yamlをこのスレッド内で新しく取得する
+  std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
+  YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
+  add_log(shm_log, "coyomi.yaml is open in thread_localization.");
+
   add_log(shm_log, "START LOCALIZATION SETUP");
-  MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Map file path
   std::string MAP_NAME
     = MAP_PATH+ "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
