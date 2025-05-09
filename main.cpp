@@ -736,7 +736,7 @@ int main(int argc, char *argv[]) {
     strftime(s, N, "%H", pnow); log_path->hour = s;
     strftime(s, N, "%M", pnow); log_path->min  = s;
     strftime(s, N, "%S", pnow); log_path->sec  = s;
-    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/" + log_path->mday + "/" + log_path->hour + "/" + log_path->min + "/" + log_path->sec;
+    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/" + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
     checkDir(log_path->path);
 
     std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;

@@ -5,7 +5,7 @@
 #include <fstream>
 #include <cstdio>
 
-void checkDir(std::string_view storeDir) 
+void checkDir(std::string storeDir)
 {
 	std::ifstream dir(storeDir);
 	if (!dir.is_open()) {
