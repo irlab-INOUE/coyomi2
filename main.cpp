@@ -58,6 +58,7 @@ std::thread th_battery_logger;
 std::thread th_sound_logger;
 std::thread th_3D_Lidar;
 std::thread th_display;
+std::thread th_2D_Lidar_b;
 
 SDL_Joystick* joystick;
 
@@ -438,6 +439,71 @@ void thread_display() {
   exit(EXIT_SUCCESS);
 }
 
+void thread_2D_Lidar_b() {
+  // coyomi_yamlをこのスレッド内で新しく取得する
+  std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
+  YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
+  std::cerr << "coyomi.yaml is open.\n";
+
+  shm_urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
+  shm_urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
+  shm_urg2d->step_angle    = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
+  shm_urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
+  shm_urg2d->size =
+    ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1)
+    * shm_urg2d->max_echo_size;
+  for (int i = 0; i < shm_urg2d->size; i++) {
+    shm_urg2d->r[i] = 0;
+  }
+  
+  Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
+  // urgのopen可否を受け取る
+  if(urg2d.getConnectionSuccessfully() == false) {
+    while (running.load()) {
+      add_log(shm_log, "2D-Urg Open Error");
+      sleep_for(seconds(5));
+    }
+  } else {
+    for (int i = 0; i < ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1); i++) {
+      double ang = (i * shm_urg2d->step_angle + shm_urg2d->start_angle)*M_PI/180;
+      shm_urg2d->ang[i] = ang;
+      shm_urg2d->cs[i] = cos(ang);
+      shm_urg2d->sn[i] = sin(ang);
+    }
+
+    std::string path = shm_logdir->path;
+    path += "/urglog";
+    while (running.load()) {
+      fout_urg2d.open(path, std::ios_base::app);
+      long long ts = get_current_time();
+      std::vector<LSP> result = urg2d.getData();
+      urg2d.view(5);
+      fout_urg2d << "LASERSCANRT" << " "
+        << ts << " "
+        << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "
+        << std::to_string(shm_urg2d->start_angle) << " "
+        << std::to_string(shm_urg2d->end_angle) << " "
+        << std::to_string(shm_urg2d->step_angle) << " "
+        << shm_urg2d->max_echo_size << " ";
+      for (auto d: result) {
+        fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
+      }
+      fout_urg2d << ts << "\n";
+      fout_urg2d.close();
+
+      shm_urg2d->ts = ts;
+      shm_urg2d->ts_end = ts;
+      shm_urg2d->size = result.size();
+      for (int k = 0; k < result.size(); k++) {
+        shm_urg2d->r[k] = result[k].data;
+      }
+      sleep_for(milliseconds(10));
+    }
+    urg2d.close();
+  }
+  std::cout << "2D_Lidar_b exit." << std::endl;
+}
+
 /***************************************
  * MAIN
  ***************************************/
@@ -544,6 +610,7 @@ int main(int argc, char *argv[]) {
   th_sound_logger = std::thread(thread_sound);
   th_3D_Lidar = std::thread(thread_3D_Lidar);
   th_display = std::thread(thread_display);
+  th_2D_Lidar_b = std::thread(thread_2D_Lidar_b);
 
   /**************************************************************************
    * セマフォの初期化
@@ -609,7 +676,6 @@ int main(int argc, char *argv[]) {
 
   //trun on exitation on RL motor
   turn_on_motors();
-
 
   /**************************************************************************
    * Waypoint setup
@@ -691,7 +757,7 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * Multi threads setup
    ***************************************************************************/
-  for (int i = 0; i < 2; i++) {
+  for (int i = 0; i < 1; i++) {
     pid_t c_pid = fork();
     if (c_pid == -1) {
       perror("fork");
@@ -699,9 +765,6 @@ int main(int argc, char *argv[]) {
     } else if (c_pid > 0) {
       switch (i) {
         case 0:
-          //std::cerr << "Start 2d-LiDAR log: " << c_pid << "\n";
-          break;
-        case 1:
           //std::cerr << "Start Localization: " << c_pid << "\n";
           break;
         default:
@@ -710,58 +773,7 @@ int main(int argc, char *argv[]) {
       }
       p_list.emplace_back(c_pid);
     } else {
-      if (i == 0) {       // 2d-lidar
-        signal(SIGTERM, signal_handler_SIGTERM_inLIDAR);
-        shm_urg2d->start_angle = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
-        shm_urg2d->end_angle   = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
-        shm_urg2d->step_angle  = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
-        shm_urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
-        shm_urg2d->size =
-          ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1)
-          * shm_urg2d->max_echo_size;
-        for (int i = 0; i < shm_urg2d->size; i++) {
-          shm_urg2d->r[i] = 0;
-        }
-        Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
-        for (int i = 0; i < ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1); i++) {
-          double ang = (i * shm_urg2d->step_angle + shm_urg2d->start_angle)*M_PI/180;
-          shm_urg2d->ang[i] = ang;
-          shm_urg2d->cs[i] = cos(ang);
-          shm_urg2d->sn[i] = sin(ang);
-        }
-
-        std::string path = shm_logdir->path;
-        path += "/urglog";
-        while(!LIDAR_STOP) {
-          fout_urg2d.open(path, std::ios_base::app);
-          long long ts = get_current_time();
-          std::vector<LSP> result = urg2d.getData();
-          urg2d.view(5);
-          fout_urg2d << "LASERSCANRT" << " "
-            << ts << " "
-            << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "
-            <<
-            std::to_string(shm_urg2d->start_angle) << " "
-            << std::to_string(shm_urg2d->end_angle) << " "
-            << std::to_string(shm_urg2d->step_angle) << " "
-            << shm_urg2d->max_echo_size << " ";
-          for (auto d: result) {
-            fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
-          }
-          fout_urg2d << ts << "\n";
-          fout_urg2d.close();
-
-          shm_urg2d->ts = ts;
-          shm_urg2d->ts_end = ts;
-          shm_urg2d->size = result.size();
-          for (int k = 0; k < result.size(); k++) {
-            shm_urg2d->r[k] = result[k].data;
-          }
-          usleep(10000);
-        }
-        urg2d.close();
-        exit(EXIT_SUCCESS);
-      } else if (i == 1) { // localization
+      if (i == 0) { // localization
         signal(SIGTERM, signal_handler_SIGTERM);
         while (1) {
           add_log(shm_log, "START LOCALIZATION SETUP");
@@ -1180,6 +1192,7 @@ int main(int argc, char *argv[]) {
   th_battery_logger.join();
   th_sound_logger.join();
   th_3D_Lidar.join();
+  th_2D_Lidar_b.join();
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
   return 0;

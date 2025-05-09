@@ -21,23 +21,31 @@ Urg2d::Urg2d (double start_angle, double end_angle, double step_angle) {
     // 実際のURGの接続に失敗した場合は終了する
     std::cerr << "Urg_driver::open(): " << information.device_or_ip_name()
               << ": " << urg.what() << std::endl;
-    exit(EXIT_FAILURE);
+    isConnectionSuccessful = false;
+    //exit(EXIT_FAILURE);
 	}
-  std::cout << information.device_or_ip_name() << " " << std::endl;
-  //urg.wakeup();
-  //while(!urg.is_stable()) {
-  //  sleep(1);
-  //}
-  std::cout << "LIDAR set up" << std::endl;
-  // 計測範囲の設定
-  urg.set_scanning_parameter(urg.deg2step(SCAN_START_ANGLE), urg.deg2step(SCAN_END_ANGLE), 0);
-  // 計測開始命令を送信
-  urg.start_measurement(qrk::Urg_driver::Distance, qrk::Urg_driver::Infinity_times, 0);
+
+  if (isConnectionSuccessful) {
+    //std::cout << information.device_or_ip_name() << " " << std::endl;
+    //urg.wakeup();
+    //while(!urg.is_stable()) {
+    //  sleep(1);
+    //}
+    //std::cout << "LIDAR set up" << std::endl;
+    // 計測範囲の設定
+    urg.set_scanning_parameter(urg.deg2step(SCAN_START_ANGLE), urg.deg2step(SCAN_END_ANGLE), 0);
+    // 計測開始命令を送信
+    urg.start_measurement(qrk::Urg_driver::Distance, qrk::Urg_driver::Infinity_times, 0);
+  }
 }
 
 Urg2d::~Urg2d() {
   //cv::destroyWindow("testImg");
   //urg.sleep();
+}
+
+bool Urg2d::getConnectionSuccessfully() {
+  return isConnectionSuccessful;
 }
 
 std::vector<LSP> Urg2d::getData() {
