@@ -63,8 +63,6 @@ std::thread th_localization;
 
 SDL_Joystick* joystick;
 
-bool LIDAR_STOP = false;
-
 // log file
 std::ofstream enc_log;
 std::ofstream fout_urg2d;
@@ -88,18 +86,6 @@ int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定�
 //#define DEBUG_SENDRESP
 
 void sigcatch(int);
-
-void signal_handler_SIGTERM(int signum) {
-  if (signum == SIGTERM) {
-    exit(EXIT_SUCCESS);
-  }
-};
-
-void signal_handler_SIGTERM_inLIDAR(int signum) {
-  if (signum == SIGTERM) {
-    LIDAR_STOP = true;
-  }
-};
 
 YAML::Node yamlRead(std::string path) {
   try {
