@@ -768,6 +768,7 @@ int main(int argc, char *argv[]) {
   th_3D_Lidar = std::thread(thread_3D_Lidar);
   th_display = std::thread(thread_display);
   th_2D_Lidar_b = std::thread(thread_2D_Lidar_b);
+  th_localization = std::thread(thread_localization);
 
   /**************************************************************************
    * セマフォの初期化
@@ -1164,6 +1165,7 @@ int main(int argc, char *argv[]) {
   th_sound_logger.join();
   th_3D_Lidar.join();
   th_2D_Lidar_b.join();
+  th_localization.join();
 
   std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
   return 0;
