@@ -59,6 +59,7 @@ std::thread th_sound_logger;
 std::thread th_3D_Lidar;
 std::thread th_display;
 std::thread th_2D_Lidar_b;
+std::thread th_localization;
 
 SDL_Joystick* joystick;
 
@@ -461,6 +462,8 @@ void thread_2D_Lidar_b() {
     shm_urg2d->cs[i] = cos(ang);
     shm_urg2d->sn[i] = sin(ang);
   }
+  std::string path = shm_logdir->path;
+  path += "/urglog";
 
   Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
   // urgのopen可否を受け取る
@@ -470,9 +473,6 @@ void thread_2D_Lidar_b() {
       sleep_for(seconds(5));
     }
   } else {
-
-    std::string path = shm_logdir->path;
-    path += "/urglog";
     while (running.load()) {
       fout_urg2d.open(path, std::ios_base::app);
       long long ts = get_current_time();
@@ -504,10 +504,162 @@ void thread_2D_Lidar_b() {
   std::cout << "2D_Lidar_b exit." << std::endl;
 }
 
+void thread_localization() {
+  add_log(shm_log, "START LOCALIZATION SETUP");
+  MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  // Map file path
+  std::string MAP_NAME
+    = MAP_PATH+ "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  MAP_NAME.copy(shm_loc->path_to_map_dir, MAP_NAME.size());
+  // Likelyhood file path
+  std::string LIKELYHOOD_FIELD
+    = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
+  LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
+  add_log(shm_log, "DONE LOCALIZATION SETUP");
+  // Initial pose
+  if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
+    double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+    double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+    double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+    shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
+  }
+  Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+  Pose2d previousPose = currentPose;
+
+  MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+  Viewer view(map_path);                        // 現在のoccMapを表示する
+  view.hold();
+  view.show(shm_loc->x, shm_loc->y, 5);
+  //cv::moveWindow("occMap", 700, 0);
+  shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
+  std::vector<WAYPOINT> wp;
+  for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
+    wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
+                    shm_wp_list->wp_list[i].stop_check);
+  }
+
+  // DE with LFM
+  const double Window_xy = 0.2;            // 探索範囲[m]
+  const double Window_a  = 10*M_PI/180;    // 角度[rad]
+  const double population = 20;
+  const double generates = 10;
+  const double F = 0.5;
+  const double CR = 0.1;
+
+  add_log(shm_log, "START DE setup");
+  DELFM de(Window_xy, Window_a, population, generates, F, CR);
+  add_log(shm_log, "START DE lfm");
+  de.set_lfm(shm_loc->path_to_likelyhood_field);
+  add_log(shm_log, "START DE mapinfo");
+  de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+
+  std::string de_logfile_path = std::string(shm_logdir->path) + "/delog";
+
+  add_log(shm_log, "START LOCALIZATION LOOP");
+  while (running.load()) {
+    if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
+    view.plot_wp(wp);
+    view.plot_current_wp(wp[shm_enc->current_wp_index]);
+    view.show(shm_loc->x, shm_loc->y, 5);
+    // 動いてなければ自己位置推定はしない
+    currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+    double _rot = currentPose.a - previousPose.a;
+    double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
+    std::vector<LSP> lsp;
+    double best_x, best_y, best_a, best_eval;
+    if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
+      best_x = shm_loc->x;
+      best_y = shm_loc->y;
+      best_a = shm_loc->a;
+      best_eval = -1;
+    } else {
+      for (int k = 0; k < shm_urg2d->size; k++) {
+        lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+      }
+      // DEwithLFM で自己位置推定
+      std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
+    }
+    Pose2d estimatedPose = Pose2d(best_x, best_y, best_a);
+
+    view.reset();
+    view.robot(estimatedPose);
+    view.urg(estimatedPose, lsp);
+
+    shm_loc->x = estimatedPose.x;
+    shm_loc->y = estimatedPose.y;
+    shm_loc->a = estimatedPose.a;
+
+    de_log.open(de_logfile_path, std::ios_base::app);
+    long long ts = get_current_time();
+    de_log
+      << ts << " "
+      << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
+      << best_eval << " "
+      << "end" << "\n";
+    de_log.close();
+
+    // 次のループの準備
+    previousPose = currentPose;
+    usleep(10000);
+  }
+#if 0
+  // パーティクル初期配置
+  MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
+  mcl.set_lfm(shm_loc->path_to_likelyhood_field);
+  mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+  // MCL(KLD_sampling)
+  while(1) {
+    if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
+    view.plot_wp(wp);
+    view.plot_current_wp(wp[shm_enc->current_wp_index]);
+    view.show(shm_loc->x, shm_loc->y, 5);
+    // 動いてなければ自己位置推定はしない
+    currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+    double _rot = currentPose.a - previousPose.a;
+    double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
+    std::vector<LSP> lsp;
+    if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
+      ;
+    } else {
+      for (int k = 0; k < shm_urg2d->size; k++) {
+        lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+      }
+      mcl.KLD_sampling(lsp, currentPose, previousPose);
+    }
+    Pose2d estimatedPose = mcl.get_best_pose();
+    std::vector<Pose2d> particle = mcl.get_particle_set();
+
+    view.reset();
+    view.robot(estimatedPose);
+    view.urg(estimatedPose, lsp);
+    view.particle(particle);
+
+    shm_loc->x = estimatedPose.x;
+    shm_loc->y = estimatedPose.y;
+    shm_loc->a = estimatedPose.a;
+
+    std::string path = shm_logdir->path;
+    path += "/mcllog";
+    mcl_log.open(path, std::ios_base::app);
+    long long ts = get_current_time();
+    mcl_log
+      << ts << " "
+      << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
+      << particle.size() << " "
+      << "end" << "\n";
+    mcl_log.close();
+
+    // 次のループの準備
+    previousPose = currentPose;
+    usleep(30000);
+  }
+#endif
+  std::cout << "localization exit." << std::endl;
+}
+
 /***************************************
  * MAIN
  ***************************************/
-std::vector<pid_t> p_list;
 int main(int argc, char *argv[]) {
   /* Ctrl+c 対応 */
   if (SIG_ERR == signal( SIGINT, sigcatch )) {
@@ -754,182 +906,6 @@ int main(int argc, char *argv[]) {
   shm_enc->y = first_odo.ry;
   shm_enc->a = first_odo.ra;
 
-  /**************************************************************************
-   * Multi threads setup
-   ***************************************************************************/
-  for (int i = 0; i < 1; i++) {
-    pid_t c_pid = fork();
-    if (c_pid == -1) {
-      perror("fork");
-      exit(EXIT_FAILURE);
-    } else if (c_pid > 0) {
-      switch (i) {
-        case 0:
-          //std::cerr << "Start Localization: " << c_pid << "\n";
-          break;
-        default:
-          //std::cerr << "Error\n";
-          break;
-      }
-      p_list.emplace_back(c_pid);
-    } else {
-      if (i == 0) { // localization
-        signal(SIGTERM, signal_handler_SIGTERM);
-        while (1) {
-          add_log(shm_log, "START LOCALIZATION SETUP");
-          MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-          // Map file path
-          std::string MAP_NAME
-            = MAP_PATH+ "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-          MAP_NAME.copy(shm_loc->path_to_map_dir, MAP_NAME.size());
-          // Likelyhood file path
-          std::string LIKELYHOOD_FIELD
-            = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
-          LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
-          add_log(shm_log, "DONE LOCALIZATION SETUP");
-          // Initial pose
-          if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
-            double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-            double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-            double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
-            shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
-          }
-          Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
-          Pose2d previousPose = currentPose;
-
-          MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
-          Viewer view(map_path);                        // 現在のoccMapを表示する
-          view.hold();
-          view.show(shm_loc->x, shm_loc->y, 5);
-          //cv::moveWindow("occMap", 700, 0);
-          shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
-          std::vector<WAYPOINT> wp;
-          for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
-            wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
-                shm_wp_list->wp_list[i].stop_check);
-          }
-
-          // DE with LFM
-          const double Window_xy = 0.2;            // 探索範囲[m]
-          const double Window_a  = 10*M_PI/180;    // 角度[rad]
-          const double population = 20;
-          const double generates = 10;
-          const double F = 0.5;
-          const double CR = 0.1;
-
-          add_log(shm_log, "START DE setup");
-          DELFM de(Window_xy, Window_a, population, generates, F, CR);
-          add_log(shm_log, "START DE lfm");
-          de.set_lfm(shm_loc->path_to_likelyhood_field);
-          add_log(shm_log, "START DE mapinfo");
-          de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
-
-          std::string de_logfile_path = std::string(shm_logdir->path) + "/delog";
-
-          add_log(shm_log, "START LOCALIZATION LOOP");
-          while(1) {
-            if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
-            view.plot_wp(wp);
-            view.plot_current_wp(wp[shm_enc->current_wp_index]);
-            view.show(shm_loc->x, shm_loc->y, 5);
-            // 動いてなければ自己位置推定はしない
-            currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
-            double _rot = currentPose.a - previousPose.a;
-            double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
-            std::vector<LSP> lsp;
-            double best_x, best_y, best_a, best_eval;
-            if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
-              best_x = shm_loc->x;
-              best_y = shm_loc->y;
-              best_a = shm_loc->a;
-              best_eval = -1;
-            } else {
-              for (int k = 0; k < shm_urg2d->size; k++) {
-                lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
-              }
-              // DEwithLFM で自己位置推定
-              std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
-            }
-            Pose2d estimatedPose = Pose2d(best_x, best_y, best_a);
-
-            view.reset();
-            view.robot(estimatedPose);
-            view.urg(estimatedPose, lsp);
-
-            shm_loc->x = estimatedPose.x;
-            shm_loc->y = estimatedPose.y;
-            shm_loc->a = estimatedPose.a;
-
-            de_log.open(de_logfile_path, std::ios_base::app);
-            long long ts = get_current_time();
-            de_log
-              << ts << " "
-              << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-              << best_eval << " "
-              << "end" << "\n";
-            de_log.close();
-
-            // 次のループの準備
-            previousPose = currentPose;
-            usleep(10000);
-          }
-#if 0
-          // パーティクル初期配置
-          MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
-          mcl.set_lfm(shm_loc->path_to_likelyhood_field);
-          mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
-          // MCL(KLD_sampling)
-          while(1) {
-            if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
-            view.plot_wp(wp);
-            view.plot_current_wp(wp[shm_enc->current_wp_index]);
-            view.show(shm_loc->x, shm_loc->y, 5);
-            // 動いてなければ自己位置推定はしない
-            currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
-            double _rot = currentPose.a - previousPose.a;
-            double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
-            std::vector<LSP> lsp;
-            if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
-              ;
-            } else {
-              for (int k = 0; k < shm_urg2d->size; k++) {
-                lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
-              }
-              mcl.KLD_sampling(lsp, currentPose, previousPose);
-            }
-            Pose2d estimatedPose = mcl.get_best_pose();
-            std::vector<Pose2d> particle = mcl.get_particle_set();
-
-            view.reset();
-            view.robot(estimatedPose);
-            view.urg(estimatedPose, lsp);
-            view.particle(particle);
-
-            shm_loc->x = estimatedPose.x;
-            shm_loc->y = estimatedPose.y;
-            shm_loc->a = estimatedPose.a;
-
-            std::string path = shm_logdir->path;
-            path += "/mcllog";
-            mcl_log.open(path, std::ios_base::app);
-            long long ts = get_current_time();
-            mcl_log
-              << ts << " "
-              << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-              << particle.size() << " "
-              << "end" << "\n";
-            mcl_log.close();
-
-            // 次のループの準備
-            previousPose = currentPose;
-            usleep(30000);
-          }
-          #endif
-        }
-        exit(EXIT_SUCCESS);
-      }
-    }
-  }
 
   /**************************************************************************
    * Starting Main Process
@@ -1148,16 +1124,6 @@ int main(int argc, char *argv[]) {
   fout_urg2d.close();
   mcl_log.close();
   de_log.close();
-
-  for (auto pid: p_list) {
-    kill(pid, SIGTERM);
-  }
-  pid_t wait_pid;
-  while ((wait_pid = wait(nullptr)) > 0)
-    std::cout << "wait:" << wait_pid << "\n";
-  pid_t pid = getpid();
-  std::cout << "If main can't stop, execute next command " << TEXT_GREEN << "**kill " << pid << "** "
-    << TEXT_COLOR_RESET << "in terminal.\n";
 
   running.store(false);
   th_display.join();
