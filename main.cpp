@@ -27,6 +27,11 @@
 #include <mutex>
 #include <thread>
 
+using namespace std::chrono;  // seconds, milliseconds
+using std::this_thread::sleep_for;
+using LockGuard = std::lock_guard<std::mutex>;
+std::mutex mtx;
+
 #include "Urg2d.h"
 #include "MCL.h"
 #include "shm_board.h"
@@ -40,8 +45,6 @@
 #include "DELFM.h"
 #include "GetUrg3d.h"
 
-using namespace std::chrono;  // seconds, milliseconds
-using std::this_thread::sleep_for;
 
 #define N 256 	// 日時の型変換に使うバッファ数
 
@@ -87,7 +90,6 @@ BAT      *shm_bat     = nullptr;
 LOC      *shm_loc     = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 DISPLAY  *shm_disp    = nullptr;
-LOG_DATA *shm_log     = nullptr;
 URG3D    *shm_urg3d   = nullptr;
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
@@ -270,7 +272,7 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
 /***************************************
  * Define thread
  ***************************************/
-void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path) {
+void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
   std::string path = log_path->path + "/batlog";
   std::ofstream bat_log;
   bat_log.open(path);
@@ -283,7 +285,7 @@ void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path) {
   std::cout << "Battery logger2 exit." << std::endl;
 }
 
-void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path) {
+void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
   int prev_wp_index = 0;
   std::string sound_logfile_path = log_path->path + "/sound_log";
   std::ofstream ofs;
@@ -297,16 +299,16 @@ void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path) {
       prev_wp_index = shm_disp->current_wp_index;
       // WP更新をログメッセージ出す
       std::string log_text = "WP updated. Next target->" + std::to_string(shm_disp->current_wp_index);
-      add_log(shm_log, log_text);
+      add_log(log_data, log_text);
     }
     std::string log_text = "Running process. TimeStamp-> " + std::to_string(ts);
-    add_log(shm_log, log_text);
+    add_log(log_data, log_text);
     sleep_for(seconds(1));
   }
   std::cout << "Sound log exit." << std::endl;
 }
 
-void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path) {
+void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
   std::string path = log_path->path + "/urg3dlog";
 
   bool is3DLidar_OK = true;
@@ -314,17 +316,17 @@ void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path) {
   long port = 10904;
   GetUrg3d urg3d(addr, port);
   if(urg3d.initUrg3d() == -1) {
-    add_log(shm_log, "3D-Urg Open Error");
+    add_log(log_data, "3D-Urg Open Error");
     is3DLidar_OK = false;
   }
   while (running.load()) {
     if (!is3DLidar_OK) {
-      add_log(shm_log, "3D-Urg Open Error");
+      add_log(log_data, "3D-Urg Open Error");
       sleep_for(seconds(5));
       continue;
     }
     if (get3DLidarData.load()) {
-      add_log(shm_log, "3D LiDAR measured");
+      add_log(log_data, "3D LiDAR measured");
       std::vector<pointUrg3d> data;
       data = urg3d.get1Frame();
       if (data.size() > 0) {
@@ -345,7 +347,7 @@ void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path) {
   std::cout << "3D_Lidar exit." << std::endl;
 }
 
-void thread_display(std::shared_ptr<LOGDIR_PATH> log_path) {
+void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
   // Ncurses setup
   WINDOW *win = initscr();
   noecho();
@@ -366,7 +368,7 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path) {
   int log_startx = 0;
   WINDOW* log_win = newwin(log_height, log_width, log_starty, log_startx);
 
-  add_log(shm_log, "LOG START");
+  add_log(log_data, "LOG START");
 
   int ROW_MCL = 0;
   int ROW_MOTOR = 7;
@@ -423,7 +425,7 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path) {
     printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
 
     // update Log window
-    draw_log_window(log_win, shm_log, log_width, log_height);
+    draw_log_window(log_win, log_data, log_width, log_height);
 
     refresh();
     sleep_for(milliseconds(100));
@@ -433,11 +435,11 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path) {
   exit(EXIT_SUCCESS);
 }
 
-void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path) {
+void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
-  add_log(shm_log, "coyomi.yaml is open in thread_2D_Lidar_b.");
+  add_log(log_data, "coyomi.yaml is open in thread_2D_Lidar_b.");
 
   shm_urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
   shm_urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
@@ -461,7 +463,7 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path) {
   // urgのopen可否を受け取る
   if(urg2d.getConnectionSuccessfully() == false) {
     while (running.load()) {
-      add_log(shm_log, "2D-Urg Open Error");
+      add_log(log_data, "2D-Urg Open Error");
       sleep_for(seconds(5));
     }
   } else {
@@ -496,13 +498,13 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path) {
   std::cout << "2D_Lidar_b exit." << std::endl;
 }
 
-void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path) {
+void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
-  add_log(shm_log, "coyomi.yaml is open in thread_localization.");
+  add_log(log_data, "coyomi.yaml is open in thread_localization.");
 
-  add_log(shm_log, "START LOCALIZATION SETUP");
+  add_log(log_data, "START LOCALIZATION SETUP");
   std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Map file path
   std::string MAP_NAME
@@ -512,7 +514,7 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path) {
   std::string LIKELYHOOD_FIELD
     = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
   LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
-  add_log(shm_log, "DONE LOCALIZATION SETUP");
+  add_log(log_data, "DONE LOCALIZATION SETUP");
   // Initial pose
   if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
     double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
@@ -543,16 +545,16 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path) {
   const double F = 0.5;
   const double CR = 0.1;
 
-  add_log(shm_log, "START DE setup");
+  add_log(log_data, "START DE setup");
   DELFM de(Window_xy, Window_a, population, generates, F, CR);
-  add_log(shm_log, "START DE lfm");
+  add_log(log_data, "START DE lfm");
   de.set_lfm(shm_loc->path_to_likelyhood_field);
-  add_log(shm_log, "START DE mapinfo");
+  add_log(log_data, "START DE mapinfo");
   de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
   std::string de_logfile_path = log_path->path + "/delog";
 
-  add_log(shm_log, "START LOCALIZATION LOOP");
+  add_log(log_data, "START LOCALIZATION LOOP");
   while (running.load()) {
     if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
@@ -715,7 +717,6 @@ int main(int argc, char *argv[]) {
   shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
   shm_disp    =  (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
-  shm_log     = (LOG_DATA *)shmAt(KEY_LOG, sizeof(LOG_DATA));
   shm_urg3d   =    (URG3D *)shmAt(KEY_URG3D, sizeof(URG3D));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
@@ -749,29 +750,29 @@ int main(int argc, char *argv[]) {
   // 共有オブジェクト
   //auto state = std::make_shared<STATUS>();
   //th_lidar = std::thread(thread_lidar, state);
+  auto log_data = std::make_shared<LOG_DATA>();
 
-  th_battery_logger = std::thread(thread_battery_logger, log_path);
-  th_sound_logger   = std::thread(thread_sound, log_path);
-  th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path);
-  th_display        = std::thread(thread_display, log_path);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path);
-  th_localization   = std::thread(thread_localization, log_path);
+  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data);
+  th_sound_logger   = std::thread(thread_sound, log_path, log_data);
+  th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
+  th_display        = std::thread(thread_display, log_path, log_data);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data);
+  th_localization   = std::thread(thread_localization, log_path, log_data);
 
   /**************************************************************************
-   * セマフォの初期化
+   * log_data initialize
    ***************************************************************************/
-  sem_init(&shm_log->sem, 1, 1); // 1 = プロセス間共有
-  shm_log->current_index = 0;
+  log_data->current_index = 0;
 
   /**************************************************************************
    * Connect check & open serial port for MotoDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
-    add_log(shm_log, "Can't open serial port");
+    add_log(log_data, "Can't open serial port");
     gotoEnd.store(true);
   } else {
     std::string log_text = "Get fd_motor: " + std::to_string(fd_motor);
-    add_log(shm_log, log_text);
+    add_log(log_data, log_text);
   }
 
   /**************************************************************************
@@ -779,7 +780,7 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
     std::string log_text = "Failure SDL initialize. " + std::string(SDL_GetError());
-    add_log(shm_log, log_text);
+    add_log(log_data, log_text);
     gotoEnd.store(true);
   }
   joystick = SDL_JoystickOpen(0);
@@ -790,7 +791,7 @@ int main(int argc, char *argv[]) {
   // calibrate axis until JS_EVENT_BUTTON pressed
   std::vector<joy_calib> j_calib(6);
   SDL_Event e;
-  add_log(shm_log, "Joypad ready completed.");
+  add_log(log_data, "Joypad ready completed.");
 
   /**************************************************************************
    * Serial port setup for Motor Drivers
@@ -810,14 +811,14 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   // BLV-R Driver setup
   // ID Share Config.
-  add_log(shm_log, "ID Share configration...");
+  add_log(log_data, "ID Share configration...");
   simple_send_cmd(Query_IDshare_R, sizeof(Query_IDshare_R));
   simple_send_cmd(Query_IDshare_L, sizeof(Query_IDshare_L));
   simple_send_cmd(Query_READ_R,    sizeof(Query_READ_R));
   simple_send_cmd(Query_READ_L,    sizeof(Query_READ_L));
   simple_send_cmd(Query_WRITE_R,   sizeof(Query_WRITE_R));
   simple_send_cmd(Query_WRITE_L,   sizeof(Query_WRITE_L));
-  add_log(shm_log, "Done");
+  add_log(log_data, "Done");
 
   //trun on exitation on RL motor
   turn_on_motors();
@@ -1122,7 +1123,6 @@ int main(int argc, char *argv[]) {
   std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
   std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
 
-  sem_destroy(&shm_log->sem);
   // 共有メモリのクリア
   std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
   shmdt(shm_urg2d);
@@ -1130,7 +1130,6 @@ int main(int argc, char *argv[]) {
   shmdt(shm_loc);
   shmdt(shm_disp);
   shmdt(shm_wp_list);
-  shmdt(shm_log);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
@@ -1140,8 +1139,6 @@ int main(int argc, char *argv[]) {
   keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOG, sizeof(LOG_DATA), 0666 | IPC_CREAT); shmid << "LOG_DATA " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
 
   th_battery_logger.join();

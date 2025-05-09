@@ -10,6 +10,7 @@
 #include <semaphore.h>
 #include "Urg2d.h"
 
+
 // shm取得から割り当てをまとめて行う
 void *shmAt(key_t KEY, size_t key_size) {
 	int keyID = shmget(KEY, key_size, 0666 | IPC_CREAT);
@@ -203,30 +204,31 @@ const int LOG_HEIGHT = 10;
 #define LOG_SIZE 1024
 #define NUM_LOGS 1000
 // 共有メモリのデータ構造
-#define KEY_LOG 1302
 struct LOG_DATA {
-    sem_t sem;            // セマフォで排他制御
     size_t current_index; // 現在のログインデックス
-    char logs[NUM_LOGS][LOG_SIZE]; // ログ用の固定サイズ配列
-    int operation_flag;   // 操作フラグ（イベント駆動）
+    std::vector<std::string> logs;
+
+    LOG_DATA() {
+      current_index = 0;
+      logs.resize(NUM_LOGS);
+    }
 };
 // ログの追加
-void add_log(LOG_DATA *shared, std::string_view log) {
-    sem_wait(&shared->sem); // セマフォで排他制御
-
+void add_log(std::shared_ptr<LOG_DATA> shared, std::string_view log) {
+  {
+    LockGuard lock(mtx);
     if (shared->current_index < NUM_LOGS) {
-        strncpy(shared->logs[shared->current_index], log.data(), LOG_SIZE - 1);
-        shared->logs[shared->current_index][LOG_SIZE - 1] = '\0';
-        shared->current_index++;
+      shared->logs[shared->current_index] = log;
+      shared->current_index++;
     } else {
-        //std::cerr << "ログがいっぱいです!" << std::endl;
-        shared->current_index = 0;
+      //std::cerr << "ログがいっぱいです!" << std::endl;
+      shared->current_index = 0;
+      shared->logs[shared->current_index] = log;
     }
-
-    sem_post(&shared->sem); // セマフォを解放
+  }
 }
 
-void draw_log_window(WINDOW* win, LOG_DATA *shared, int width, int height) {
+void draw_log_window(WINDOW* win, std::shared_ptr<LOG_DATA> shared, int width, int height) {
     werase(win);
     box(win, 0, 0);
 
@@ -239,18 +241,20 @@ void draw_log_window(WINDOW* win, LOG_DATA *shared, int width, int height) {
         mvwprintw(win, 0, 2, " Log Window ");
     }
 
-    //sem_wait(shared->sem); // セマフォで排他制御
     int max_lines = height - 2;
     int start = std::max(0, (int)shared->current_index - max_lines);
 
-    for (int i = 0; i < max_lines; ++i) {
+    try{
+      for (int i = 0; i < max_lines; ++i) {
         if (i + start < (int)shared->current_index) {
-            mvwprintw(win, i + 1, 2, "%-*s", width - 4, shared->logs[i + start]);
+          mvwprintw(win, i + 1, 2, "%-*s", width - 4, shared->logs[i + start].c_str());
         } else {
-            mvwprintw(win, i + 1, 2, "%-*s", width - 4, "");  // 空行でクリア
+          mvwprintw(win, i + 1, 2, "%-*s", width - 4, "");  // 空行でクリア
         }
+      }
+    } catch (const std::exception& e) {
+      ;
     }
-    //sem_post(shared->sem); // セマフォを解放
 
     wrefresh(win);
 }
