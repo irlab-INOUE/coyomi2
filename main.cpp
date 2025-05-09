@@ -750,11 +750,11 @@ int main(int argc, char *argv[]) {
   }
 
   th_battery_logger = std::thread(thread_battery_logger);
-  th_sound_logger = std::thread(thread_sound);
-  th_3D_Lidar = std::thread(thread_3D_Lidar);
-  th_display = std::thread(thread_display);
-  th_2D_Lidar_b = std::thread(thread_2D_Lidar_b);
-  th_localization = std::thread(thread_localization);
+  th_sound_logger   = std::thread(thread_sound);
+  th_3D_Lidar       = std::thread(thread_3D_Lidar);
+  th_display        = std::thread(thread_display);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b);
+  th_localization   = std::thread(thread_localization);
 
   /**************************************************************************
    * セマフォの初期化
