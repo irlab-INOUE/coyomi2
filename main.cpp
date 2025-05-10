@@ -1149,8 +1149,6 @@ int main(int argc, char *argv[]) {
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
 
