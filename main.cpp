@@ -767,11 +767,11 @@ int main(int argc, char *argv[]) {
   std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
 
   th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp);
-  th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp);
-  th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
-  th_display        = std::thread(thread_display, log_path, log_data, disp);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp);
-  th_localization   = std::thread(thread_localization, log_path, log_data, disp);
+  th_sound_logger   = std::thread(thread_sound,          log_path, log_data, disp);
+  th_3D_Lidar       = std::thread(thread_3D_Lidar,       log_path, log_data);
+  th_display        = std::thread(thread_display,        log_path, log_data, disp);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b,     log_path, log_data, disp);
+  th_localization   = std::thread(thread_localization,   log_path, log_data, disp);
 
   /**************************************************************************
    * log_data initialize
