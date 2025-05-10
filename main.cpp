@@ -52,7 +52,6 @@ std::atomic<bool> running(true);
 std::atomic<bool> get3DLidarData(false);
 std::atomic<bool> gotoEnd(false);
 std::atomic<bool> isFREE(true);
-std::atomic<bool> STORE(true);
 
 std::thread th_battery_logger;
 std::thread th_sound_logger;
@@ -753,25 +752,19 @@ int main(int argc, char *argv[]) {
   std::time_t now_c = std::chrono::system_clock::to_time_t(now);
   std::tm tm = *std::localtime(&now_c);
 
-  if (STORE) {
-    checkDir(std::string(DEFAULT_LOG_DIR));
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y"); log_path->year = oss.str(); oss.str(""); oss.clear();
-    oss << std::put_time(&tm, "%m"); log_path->mon  = oss.str(); oss.str(""); oss.clear();
-    oss << std::put_time(&tm, "%d"); log_path->mday = oss.str(); oss.str(""); oss.clear();
-    oss << std::put_time(&tm, "%H"); log_path->hour = oss.str(); oss.str(""); oss.clear();
-    oss << std::put_time(&tm, "%M"); log_path->min  = oss.str(); oss.str(""); oss.clear();
-    oss << std::put_time(&tm, "%S"); log_path->sec  = oss.str(); oss.str(""); oss.clear();
-    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/"
-      + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
-    checkDir(log_path->path);
+  checkDir(std::string(DEFAULT_LOG_DIR));
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y"); log_path->year = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%m"); log_path->mon  = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%d"); log_path->mday = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%H"); log_path->hour = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%M"); log_path->min  = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%S"); log_path->sec  = oss.str(); oss.str(""); oss.clear();
+  log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/"
+    + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
+  checkDir(log_path->path);
 
-    std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
-    std::cerr << "Press ENTER key";
-    getchar();
-  } else {
-    std::cerr << "ログは保管しません\n";
-  }
+  std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
 
   th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp);
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp);
