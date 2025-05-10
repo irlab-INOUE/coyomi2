@@ -45,9 +45,6 @@ std::mutex mtx;
 #include "DELFM.h"
 #include "GetUrg3d.h"
 
-
-#define N 256 	// 日時の型変換に使うバッファ数
-
 /***************************************
  * Global variable
  ****************************************/
@@ -82,6 +79,20 @@ struct LOGDIR_PATH {
   std::string sec;
   std::string path;
 };
+
+struct DisplayContents {
+  double temp_driver_L;
+  double temp_driver_R;
+  double temp_motor_L;
+  double temp_motor_R;
+
+  double loc_x, loc_y, loc_a;
+};
+
+// 共有オブジェクト
+auto log_path = std::make_shared<LOGDIR_PATH>();
+auto log_data = std::make_shared<LOG_DATA>();
+auto disp     = std::make_shared<DisplayContents>();
 
 // 共有したい構造体毎にアドレスを割り当てる
 ENC      *shm_enc     = nullptr;
@@ -347,7 +358,9 @@ void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_
   std::cout << "3D_Lidar exit." << std::endl;
 }
 
-void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
+void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
+                    std::shared_ptr<DisplayContents> disp) {
+
   // Ncurses setup
   WINDOW *win = initscr();
   noecho();
@@ -381,15 +394,15 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
   while (running.load()) {
     // update status window
-    shm_disp->temp_driver_L = shm_enc->temp_driver_L;
-    shm_disp->temp_driver_R = shm_enc->temp_driver_R;
-    shm_disp->temp_motor_L = shm_enc->temp_motor_L;
-    shm_disp->temp_motor_R = shm_enc->temp_motor_R;
+    disp->temp_driver_L = shm_enc->temp_driver_L;
+    disp->temp_driver_R = shm_enc->temp_driver_R;
+    disp->temp_motor_L  = shm_enc->temp_motor_L;
+    disp->temp_motor_R  = shm_enc->temp_motor_R;
 
     move(ROW_MCL+2, 0); clrtoeol();
-    mvprintw(ROW_MCL+2, 0, "%.3f", shm_disp->loc_x);
-    mvprintw(ROW_MCL+2, 9, "%.3f", shm_disp->loc_y);
-    mvprintw(ROW_MCL+2,19, "%.1f", shm_disp->loc_a*180/M_PI);
+    mvprintw(ROW_MCL+2, 0, "%.3f", disp->loc_x);
+    mvprintw(ROW_MCL+2, 9, "%.3f", disp->loc_y);
+    mvprintw(ROW_MCL+2,19, "%.1f", disp->loc_a*180/M_PI);
 
     move(ROW_MCL+3, 0); clrtoeol();
     printw("Current WP Index: %d", shm_disp->current_wp_index);
@@ -410,10 +423,10 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     printw("Voltage: %.1f", shm_disp->battery);
 
     move(ROW_MOTOR+4, 0); clrtoeol();
-    printw("TmpL_D %.1f  TmpR_D %.1f", shm_disp->temp_driver_L, shm_disp->temp_driver_R);
+    printw("TmpL_D %.1f  TmpR_D %.1f", disp->temp_driver_L, disp->temp_driver_R);
 
     move(ROW_MOTOR+5, 0); clrtoeol();
-    printw("TmpL_M %.1f  TmpR_M %.1f", shm_disp->temp_motor_L, shm_disp->temp_motor_R);
+    printw("TmpL_M %.1f  TmpR_M %.1f", disp->temp_motor_L, disp->temp_motor_R);
 
     move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
     printw("Total %.1f", shm_disp->total_travel);
@@ -498,7 +511,8 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
   std::cout << "2D_Lidar_b exit." << std::endl;
 }
 
-void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
+void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
+                         std::shared_ptr<DisplayContents> disp) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -587,6 +601,10 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     shm_loc->x = estimatedPose.x;
     shm_loc->y = estimatedPose.y;
     shm_loc->a = estimatedPose.a;
+
+    disp->loc_x = shm_loc->x;
+    disp->loc_y = shm_loc->y;
+    disp->loc_a = shm_loc->a;
 
     de_log.open(de_logfile_path, std::ios_base::app);
     long long ts = get_current_time();
@@ -724,20 +742,22 @@ int main(int argc, char *argv[]) {
    * DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
    * なければ作成する
    ***************************************************************************/
-  auto log_path = std::make_shared<LOGDIR_PATH>();
   // 現在日付時刻のディレクトリを作成する
-  time_t now = time(NULL);
-  struct tm *pnow = localtime(&now);
-  char s[N] = {'\0'};
+  auto now = std::chrono::system_clock::now();
+  std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+  std::tm tm = *std::localtime(&now_c);
+
   if (STORE) {
     checkDir(std::string(DEFAULT_LOG_DIR));
-    strftime(s, N, "%Y", pnow); log_path->year = s;
-    strftime(s, N, "%m", pnow); log_path->mon  = s;
-    strftime(s, N, "%d", pnow); log_path->mday = s;
-    strftime(s, N, "%H", pnow); log_path->hour = s;
-    strftime(s, N, "%M", pnow); log_path->min  = s;
-    strftime(s, N, "%S", pnow); log_path->sec  = s;
-    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/" + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y"); log_path->year = oss.str(); oss.str(""); oss.clear();
+    oss << std::put_time(&tm, "%m"); log_path->mon  = oss.str(); oss.str(""); oss.clear();
+    oss << std::put_time(&tm, "%d"); log_path->mday = oss.str(); oss.str(""); oss.clear();
+    oss << std::put_time(&tm, "%H"); log_path->hour = oss.str(); oss.str(""); oss.clear();
+    oss << std::put_time(&tm, "%M"); log_path->min  = oss.str(); oss.str(""); oss.clear();
+    oss << std::put_time(&tm, "%S"); log_path->sec  = oss.str(); oss.str(""); oss.clear();
+    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/" 
+      + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
     checkDir(log_path->path);
 
     std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
@@ -747,17 +767,12 @@ int main(int argc, char *argv[]) {
     std::cerr << "ログは保管しません\n";
   }
 
-  // 共有オブジェクト
-  //auto state = std::make_shared<STATUS>();
-  //th_lidar = std::thread(thread_lidar, state);
-  auto log_data = std::make_shared<LOG_DATA>();
-
   th_battery_logger = std::thread(thread_battery_logger, log_path, log_data);
   th_sound_logger   = std::thread(thread_sound, log_path, log_data);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
-  th_display        = std::thread(thread_display, log_path, log_data);
+  th_display        = std::thread(thread_display, log_path, log_data, disp);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data);
-  th_localization   = std::thread(thread_localization, log_path, log_data);
+  th_localization   = std::thread(thread_localization, log_path, log_data, disp);
 
   /**************************************************************************
    * log_data initialize
