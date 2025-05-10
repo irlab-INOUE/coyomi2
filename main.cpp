@@ -87,6 +87,15 @@ struct DisplayContents {
   double temp_motor_R;
 
   double loc_x, loc_y, loc_a;
+  double enc_x, enc_y, enc_a;
+  int current_wp_index;
+  double total_travel;
+  int current_map_path_index;
+  double v, w;
+
+  double min_obstacle_x, min_obstacle_y;
+
+  double battery;
 };
 
 // 共有オブジェクト
@@ -100,7 +109,6 @@ URG2D    *shm_urg2d   = nullptr;
 BAT      *shm_bat     = nullptr;
 LOC      *shm_loc     = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
-DISPLAY  *shm_disp    = nullptr;
 URG3D    *shm_urg3d   = nullptr;
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
@@ -283,20 +291,22 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
 /***************************************
  * Define thread
  ***************************************/
-void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
+void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
+    std::shared_ptr<DisplayContents> disp) {
   std::string path = log_path->path + "/batlog";
   std::ofstream bat_log;
   bat_log.open(path);
   while (running.load()) {
     shm_bat->ts = get_current_time();
     bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-    shm_disp->battery = shm_bat->voltage;
+    disp->battery = shm_bat->voltage;
     sleep_for(seconds(1));
   }
   std::cout << "Battery logger2 exit." << std::endl;
 }
 
-void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
+void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
+    std::shared_ptr<DisplayContents> disp) {
   int prev_wp_index = 0;
   std::string sound_logfile_path = log_path->path + "/sound_log";
   std::ofstream ofs;
@@ -307,9 +317,9 @@ void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DAT
     if (prev_wp_index != shm_enc->current_wp_index) {
       std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
       int ret = std::system(cmd.c_str());
-      prev_wp_index = shm_disp->current_wp_index;
+      prev_wp_index = disp->current_wp_index;
       // WP更新をログメッセージ出す
-      std::string log_text = "WP updated. Next target->" + std::to_string(shm_disp->current_wp_index);
+      std::string log_text = "WP updated. Next target->" + std::to_string(disp->current_wp_index);
       add_log(log_data, log_text);
     }
     std::string log_text = "Running process. TimeStamp-> " + std::to_string(ts);
@@ -405,22 +415,22 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     mvprintw(ROW_MCL+2,19, "%.1f", disp->loc_a*180/M_PI);
 
     move(ROW_MCL+3, 0); clrtoeol();
-    printw("Current WP Index: %d", shm_disp->current_wp_index);
+    printw("Current WP Index: %d", disp->current_wp_index);
 
     move(ROW_MCL+4, 0); clrtoeol();
-    printw("v: %.2f  w: %.2f", shm_disp->v, shm_disp->w);
+    printw("v: %.2f  w: %.2f", disp->v, disp->w);
 
     move(ROW_MCL+5, 0); clrtoeol();
-    printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
-           atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
+    printw("obx: %.3f  oby: %.3f  ang: %.1f", disp->min_obstacle_x, disp->min_obstacle_y,
+           atan2(disp->min_obstacle_y, disp->min_obstacle_x) * 180/M_PI);
 
     move(ROW_MOTOR+2, 0); clrtoeol();
-    mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
-    mvprintw(ROW_MOTOR+2, 9, "%.3f", shm_disp->enc_y);
-    mvprintw(ROW_MOTOR+2,19, "%.1f", shm_disp->enc_a*180/M_PI);
+    mvprintw(ROW_MOTOR+2, 0, "%.3f", disp->enc_x);
+    mvprintw(ROW_MOTOR+2, 9, "%.3f", disp->enc_y);
+    mvprintw(ROW_MOTOR+2,19, "%.1f", disp->enc_a*180/M_PI);
 
     move(ROW_MOTOR+3, 0); clrtoeol();
-    printw("Voltage: %.1f", shm_disp->battery);
+    printw("Voltage: %.1f", disp->battery);
 
     move(ROW_MOTOR+4, 0); clrtoeol();
     printw("TmpL_D %.1f  TmpR_D %.1f", disp->temp_driver_L, disp->temp_driver_R);
@@ -429,7 +439,7 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     printw("TmpL_M %.1f  TmpR_M %.1f", disp->temp_motor_L, disp->temp_motor_R);
 
     move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
-    printw("Total %.1f", shm_disp->total_travel);
+    printw("Total %.1f", disp->total_travel);
 
     move(ROW_PATH, 0); clrtoeol();
     printw("%s", shm_loc->path_to_map_dir);
@@ -448,7 +458,8 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   exit(EXIT_SUCCESS);
 }
 
-void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data) {
+void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
+    std::shared_ptr<DisplayContents> disp) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -602,10 +613,6 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     shm_loc->y = estimatedPose.y;
     shm_loc->a = estimatedPose.a;
 
-    disp->loc_x = shm_loc->x;
-    disp->loc_y = shm_loc->y;
-    disp->loc_a = shm_loc->a;
-
     de_log.open(de_logfile_path, std::ios_base::app);
     long long ts = get_current_time();
     de_log
@@ -733,7 +740,6 @@ int main(int argc, char *argv[]) {
   shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
   shm_bat     =      (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
   shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
-  shm_disp    =  (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   shm_urg3d   =    (URG3D *)shmAt(KEY_URG3D, sizeof(URG3D));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
@@ -756,7 +762,7 @@ int main(int argc, char *argv[]) {
     oss << std::put_time(&tm, "%H"); log_path->hour = oss.str(); oss.str(""); oss.clear();
     oss << std::put_time(&tm, "%M"); log_path->min  = oss.str(); oss.str(""); oss.clear();
     oss << std::put_time(&tm, "%S"); log_path->sec  = oss.str(); oss.str(""); oss.clear();
-    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/" 
+    log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/"
       + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
     checkDir(log_path->path);
 
@@ -767,11 +773,11 @@ int main(int argc, char *argv[]) {
     std::cerr << "ログは保管しません\n";
   }
 
-  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data);
-  th_sound_logger   = std::thread(thread_sound, log_path, log_data);
+  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp);
+  th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp);
   th_localization   = std::thread(thread_localization, log_path, log_data, disp);
 
   /**************************************************************************
@@ -945,9 +951,9 @@ int main(int argc, char *argv[]) {
     shm_enc->y = odo.ry;
     shm_enc->a = odo.ra;
 
-    shm_disp->enc_x = odo.rx;
-    shm_disp->enc_y = odo.ry;
-    shm_disp->enc_a = odo.ra;
+    disp->enc_x = odo.rx;
+    disp->enc_y = odo.ry;
+    disp->enc_a = odo.ra;
 
     sleep_for(milliseconds(100));
   }
@@ -970,8 +976,8 @@ int main(int argc, char *argv[]) {
     if (MODE == '2') {
       double obx, oby;
       std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
-      shm_disp->min_obstacle_x = obx;
-      shm_disp->min_obstacle_y = oby;
+      disp->min_obstacle_x = obx;
+      disp->min_obstacle_y = oby;
 
 #if 1
       // rotate ricovery
@@ -1013,9 +1019,9 @@ int main(int argc, char *argv[]) {
             shm_enc->y = odo.ry;
             shm_enc->a = odo.ra;
 
-            shm_disp->enc_x = odo.rx;
-            shm_disp->enc_y = odo.ry;
-            shm_disp->enc_a = odo.ra;
+            disp->enc_x = odo.rx;
+            disp->enc_y = odo.ry;
+            disp->enc_a = odo.ra;
           }
         }
       } else if (dist2wp < arrived_check_distance) {
@@ -1091,17 +1097,17 @@ int main(int argc, char *argv[]) {
     shm_enc->y = odo.ry;
     shm_enc->a = odo.ra;
 
-    shm_disp->enc_x = odo.rx;
-    shm_disp->enc_y = odo.ry;
-    shm_disp->enc_a = odo.ra;
-    shm_disp->loc_x = shm_loc->x;
-    shm_disp->loc_y = shm_loc->y;
-    shm_disp->loc_a = shm_loc->a;
-    shm_disp->total_travel = shm_enc->total_travel;
-    shm_disp->current_wp_index = shm_enc->current_wp_index;
-    shm_disp->current_map_path_index = shm_loc->CURRENT_MAP_PATH_INDEX;
-    shm_disp->v = v;
-    shm_disp->w = w;
+    disp->enc_x = odo.rx;
+    disp->enc_y = odo.ry;
+    disp->enc_a = odo.ra;
+    disp->loc_x = shm_loc->x;
+    disp->loc_y = shm_loc->y;
+    disp->loc_a = shm_loc->a;
+    disp->total_travel = shm_enc->total_travel;
+    disp->current_wp_index = shm_enc->current_wp_index;
+    disp->current_map_path_index = shm_loc->CURRENT_MAP_PATH_INDEX;
+    disp->v = v;
+    disp->w = w;
 
     std::string path = log_path->path + "/enclog";
     enc_log.open(path, std::ios_base::app);
@@ -1143,7 +1149,6 @@ int main(int argc, char *argv[]) {
   shmdt(shm_urg2d);
   shmdt(shm_bat);
   shmdt(shm_loc);
-  shmdt(shm_disp);
   shmdt(shm_wp_list);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
