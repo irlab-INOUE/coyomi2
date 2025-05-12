@@ -79,21 +79,6 @@ struct URG2D {
   double sn[1081];
 };
 
-#define keyJs	333
-#define keyLoc	4000
-
-// for Control
-#define KEY_CTRL 1277
-struct CTRL {
-  double v;
-  double w;
-	double velocity_max;
-	double velocity_down_coefficient;
-	double back_velocity;
-	double arrived_check_distance;
-	bool auto_loop;
-};
-
 // for ROUTE_LIST
 #define KEY_WP_LIST 1288
 enum class ChangeWPTrigger {
