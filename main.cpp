@@ -152,6 +152,21 @@ struct ENC {
   int current_wp_index;
 };
 
+// for 2D-LIDAR
+struct URG2D {
+	long long ts;
+	long long ts_end;
+  double start_angle;
+  double end_angle;
+  double step_angle;
+  int size;
+  int max_echo_size;
+  long r[5000];
+  double ang[1081];
+  double cs[1081];
+  double sn[1081];
+};
+
 // 共有オブジェクト
 auto log_path = std::make_shared<LOGDIR_PATH>();
 auto log_data = std::make_shared<LOG_DATA>();
@@ -159,9 +174,9 @@ auto disp     = std::make_shared<DisplayContents>();
 auto bat      = std::make_shared<BAT>();
 auto loc      = std::make_shared<LOC>();
 auto enc      = std::make_shared<ENC>();
+auto urg2d    = std::make_shared<URG2D>();
 
 // 共有したい構造体毎にアドレスを割り当てる
-URG2D    *shm_urg2d   = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
@@ -512,33 +527,32 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
 }
 
 void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-    std::shared_ptr<DisplayContents> disp) {
+    std::shared_ptr<DisplayContents> disp, std::shared_ptr<URG2D> urg2d) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
   add_log(log_data, "coyomi.yaml is open in thread_2D_Lidar_b.");
 
-  shm_urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
-  shm_urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
-  shm_urg2d->step_angle    = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
-  shm_urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
-  shm_urg2d->size =
-    ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1)
-    * shm_urg2d->max_echo_size;
-  for (int i = 0; i < shm_urg2d->size; i++) {
-    shm_urg2d->r[i] = 0;
+  urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
+  urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
+  urg2d->step_angle    = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
+  urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
+  urg2d->size =
+    ((urg2d->end_angle - urg2d->start_angle)/urg2d->step_angle + 1) * urg2d->max_echo_size;
+  for (int i = 0; i < urg2d->size; i++) {
+    urg2d->r[i] = 0;
   }
-  for (int i = 0; i < ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1); i++) {
-    double ang = (i * shm_urg2d->step_angle + shm_urg2d->start_angle)*M_PI/180;
-    shm_urg2d->ang[i] = ang;
-    shm_urg2d->cs[i] = cos(ang);
-    shm_urg2d->sn[i] = sin(ang);
+  for (int i = 0; i < ((urg2d->end_angle - urg2d->start_angle)/urg2d->step_angle + 1); i++) {
+    double ang = (i * urg2d->step_angle + urg2d->start_angle)*M_PI/180;
+    urg2d->ang[i] = ang;
+    urg2d->cs[i] = cos(ang);
+    urg2d->sn[i] = sin(ang);
   }
   std::string path = log_path->path + "/urglog";
 
-  Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
+  Urg2d urg2d_b(urg2d->start_angle, urg2d->end_angle, urg2d->step_angle);
   // urgのopen可否を受け取る
-  if(urg2d.getConnectionSuccessfully() == false) {
+  if(urg2d_b.getConnectionSuccessfully() == false) {
     while (running.load()) {
       add_log(log_data, "2D-Urg Open Error");
       sleep_for(seconds(5));
@@ -547,37 +561,38 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
     while (running.load()) {
       fout_urg2d.open(path, std::ios_base::app);
       long long ts = get_current_time();
-      std::vector<LSP> result = urg2d.getData();
-      urg2d.view(5);
+      std::vector<LSP> result = urg2d_b.getData();
+      urg2d_b.view(5);
       fout_urg2d << "LASERSCANRT" << " "
         << ts << " "
-        << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "
-        << std::to_string(shm_urg2d->start_angle) << " "
-        << std::to_string(shm_urg2d->end_angle) << " "
-        << std::to_string(shm_urg2d->step_angle) << " "
-        << shm_urg2d->max_echo_size << " ";
+        << static_cast<int>(result.size()) * urg2d->max_echo_size << " "
+        << std::to_string(urg2d->start_angle) << " "
+        << std::to_string(urg2d->end_angle) << " "
+        << std::to_string(urg2d->step_angle) << " "
+        << urg2d->max_echo_size << " ";
       for (auto d: result) {
         fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
       }
       fout_urg2d << ts << "\n";
       fout_urg2d.close();
 
-      shm_urg2d->ts = ts;
-      shm_urg2d->ts_end = ts;
-      shm_urg2d->size = result.size();
+      urg2d->ts = ts;
+      urg2d->ts_end = ts;
+      urg2d->size = result.size();
       for (int k = 0; k < result.size(); k++) {
-        shm_urg2d->r[k] = result[k].data;
+        urg2d->r[k] = result[k].data;
       }
       sleep_for(milliseconds(10));
     }
-    urg2d.close();
+    urg2d_b.close();
   }
   std::cout << "2D_Lidar_b exit." << std::endl;
 }
 
 void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
                          std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc,
-                         std::shared_ptr<ENC> enc) {
+                         std::shared_ptr<ENC> enc,
+                         std::shared_ptr<URG2D> urg2d) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -651,8 +666,8 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
       best_a = loc->a;
       best_eval = -1;
     } else {
-      for (int k = 0; k < shm_urg2d->size; k++) {
-        lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+      for (int k = 0; k < urg2d->size; k++) {
+        lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
       }
       // DEwithLFM で自己位置推定
       std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, loc->x, loc->y, loc->a);
@@ -699,8 +714,8 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
       ;
     } else {
-      for (int k = 0; k < shm_urg2d->size; k++) {
-        lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+      for (int k = 0; k < urg2d->size; k++) {
+        lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
       }
       mcl.KLD_sampling(lsp, currentPose, previousPose);
     }
@@ -790,7 +805,6 @@ int main(int argc, char *argv[]) {
    * 共有メモリの確保
    * 共有したい構造体毎にアドレスを割り当てる
    ***************************************************************************/
-  shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
@@ -827,8 +841,8 @@ int main(int argc, char *argv[]) {
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp, enc);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp);
-  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp, urg2d);
+  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d);
 
   /**************************************************************************
    * log_data initialize
@@ -1014,8 +1028,8 @@ int main(int argc, char *argv[]) {
     read_joystick(tmp_v, tmp_w, j_calib);
 
     std::vector<LSP> lsp;
-    for (int k = 0; k < shm_urg2d->size; k++) {
-      lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+    for (int k = 0; k < urg2d->size; k++) {
+      lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
     }
     Pose2d estimatedPose(loc->x, loc->y, loc->a);
     if (MODE == '1') {
@@ -1195,11 +1209,8 @@ int main(int argc, char *argv[]) {
 
   // 共有メモリのクリア
   std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
-  shmdt(shm_urg2d);
   shmdt(shm_wp_list);
-  int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
+  int keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
 
   th_battery_logger.join();

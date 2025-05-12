@@ -24,28 +24,6 @@ void *shmAt(key_t KEY, size_t key_size) {
   return shmat(keyID, 0, 0);
 }
 
-enum class Status {
-  Ready,
-  Run
-};
-
-// for 2D-LIDAR
-#define KEY_URG2D 1244
-struct URG2D {
-	Status state;
-	long long ts;
-	long long ts_end;
-  double start_angle;
-  double end_angle;
-  double step_angle;
-  int size;
-  int max_echo_size;
-  long r[5000];
-  double ang[1081];
-  double cs[1081];
-  double sn[1081];
-};
-
 // for ROUTE_LIST
 #define KEY_WP_LIST 1288
 enum class ChangeWPTrigger {
