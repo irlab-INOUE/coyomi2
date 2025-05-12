@@ -79,18 +79,6 @@ struct URG2D {
   double sn[1081];
 };
 
-// for LOG-DIR
-#define KEY_LOGDIR 1266
-struct LOGDIR {
-  char year[5];
-  char  mon[3];
-  char mday[3];
-  char hour[3];
-  char  min[3];
-  char  sec[3];
-  char path[256]; 	// フルパス
-};
-
 #define keyJs	333
 #define keyLoc	4000
 
