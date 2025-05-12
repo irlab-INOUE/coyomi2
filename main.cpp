@@ -121,6 +121,36 @@ struct LOC {
   bool MCL_EXE;
 };
 
+// for Encoder receiver
+struct ENC {
+  long long ts;
+  double x;
+  double y;
+  double a;
+  double v;
+  double omega;
+  double ac;
+  double wa;
+  double total_travel;
+  int cmdLed;
+	long long left;
+	long long right;
+	double ax;
+	double ay;
+	double az;
+	double wx;
+	double wy;
+	double wz;
+	double mx;
+	double my;
+	double mz;
+  double battery;
+  double temp_driver_R;
+  double temp_motor_R;
+  double temp_driver_L;
+  double temp_motor_L;
+  int current_wp_index;
+};
 
 // 共有オブジェクト
 auto log_path = std::make_shared<LOGDIR_PATH>();
@@ -128,9 +158,9 @@ auto log_data = std::make_shared<LOG_DATA>();
 auto disp     = std::make_shared<DisplayContents>();
 auto bat      = std::make_shared<BAT>();
 auto loc      = std::make_shared<LOC>();
+auto enc      = std::make_shared<ENC>();
 
 // 共有したい構造体毎にアドレスを割り当てる
-ENC      *shm_enc     = nullptr;
 URG2D    *shm_urg2d   = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 
@@ -329,15 +359,15 @@ void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_pt
 }
 
 void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-    std::shared_ptr<DisplayContents> disp) {
+    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc) {
   int prev_wp_index = 0;
   std::string sound_logfile_path = log_path->path + "/sound_log";
   std::ofstream ofs;
   ofs.open(sound_logfile_path);
   while (running.load()) {
     long long ts = get_current_time();
-    ofs << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
-    if (prev_wp_index != shm_enc->current_wp_index) {
+    ofs << ts << " " << prev_wp_index << " " << enc->current_wp_index << "\n";
+    if (prev_wp_index != enc->current_wp_index) {
       std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
       int ret = std::system(cmd.c_str());
       prev_wp_index = disp->current_wp_index;
@@ -392,7 +422,7 @@ void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_
 }
 
 void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                    std::shared_ptr<DisplayContents> disp) {
+                    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc) {
 
   // Ncurses setup
   WINDOW *win = initscr();
@@ -427,10 +457,10 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
   while (running.load()) {
     // update status window
-    disp->temp_driver_L = shm_enc->temp_driver_L;
-    disp->temp_driver_R = shm_enc->temp_driver_R;
-    disp->temp_motor_L  = shm_enc->temp_motor_L;
-    disp->temp_motor_R  = shm_enc->temp_motor_R;
+    disp->temp_driver_L = enc->temp_driver_L;
+    disp->temp_driver_R = enc->temp_driver_R;
+    disp->temp_motor_L  = enc->temp_motor_L;
+    disp->temp_motor_R  = enc->temp_motor_R;
 
     move(ROW_MCL+2, 0); clrtoeol();
     mvprintw(ROW_MCL+2, 0, "%.3f", disp->loc_x);
@@ -546,7 +576,8 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
 }
 
 void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                         std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc) {
+                         std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc,
+                         std::shared_ptr<ENC> enc) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -570,7 +601,7 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     double initial_pose_a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
     loc->x = initial_pose_x; loc->y = initial_pose_y; loc->a = initial_pose_a;
   }
-  Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+  Pose2d currentPose = Pose2d(enc->x, enc->y, enc->a);
   Pose2d previousPose = currentPose;
 
   MapPath map_path(MAP_PATH, loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
@@ -606,10 +637,10 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   while (running.load()) {
     if (loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
-    view.plot_current_wp(wp[shm_enc->current_wp_index]);
+    view.plot_current_wp(wp[enc->current_wp_index]);
     view.show(loc->x, loc->y, 5);
     // 動いてなければ自己位置推定はしない
-    currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+    currentPose = Pose2d(enc->x, enc->y, enc->a);
     double _rot = currentPose.a - previousPose.a;
     double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
     std::vector<LSP> lsp;
@@ -658,10 +689,10 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   while(1) {
     if (loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
-    view.plot_current_wp(wp[shm_enc->current_wp_index]);
+    view.plot_current_wp(wp[enc->current_wp_index]);
     view.show(loc->x, loc->y, 5);
     // 動いてなければ自己位置推定はしない
-    currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+    currentPose = Pose2d(enc->x, enc->y, enc->a);
     double _rot = currentPose.a - previousPose.a;
     double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
     std::vector<LSP> lsp;
@@ -759,7 +790,6 @@ int main(int argc, char *argv[]) {
    * 共有メモリの確保
    * 共有したい構造体毎にアドレスを割り当てる
    ***************************************************************************/
-  shm_enc     =      (ENC *)shmAt(KEY_ENC, sizeof(ENC));
   shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
@@ -794,11 +824,11 @@ int main(int argc, char *argv[]) {
   }
 
   th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp, bat);
-  th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp);
+  th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
-  th_display        = std::thread(thread_display, log_path, log_data, disp);
+  th_display        = std::thread(thread_display, log_path, log_data, disp, enc);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp);
-  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc);
+  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc);
 
   /**************************************************************************
    * log_data initialize
@@ -920,7 +950,7 @@ int main(int argc, char *argv[]) {
     shm_wp_list->wp_list[i].a = wp[i].a;
     shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
-  shm_enc->current_wp_index = 0;
+  enc->current_wp_index = 0;
 
   /**************************************************************************
    * initial pose setup
@@ -936,10 +966,10 @@ int main(int argc, char *argv[]) {
   ODOMETORY first_odo;
   read_state(first_odo, first_ts);
   sleep(1);
-  shm_enc->ts = first_ts;
-  shm_enc->x = first_odo.rx;
-  shm_enc->y = first_odo.ry;
-  shm_enc->a = first_odo.ra;
+  enc->ts = first_ts;
+  enc->x  = first_odo.rx;
+  enc->y  = first_odo.ry;
+  enc->a  = first_odo.ra;
 
 
   /**************************************************************************
@@ -966,10 +996,10 @@ int main(int argc, char *argv[]) {
 
     long long ts = get_current_time();
     read_state(odo, ts);
-    shm_enc->ts = ts;
-    shm_enc->x = odo.rx;
-    shm_enc->y = odo.ry;
-    shm_enc->a = odo.ra;
+    enc->ts = ts;
+    enc->x = odo.rx;
+    enc->y = odo.ry;
+    enc->a = odo.ra;
 
     disp->enc_x = odo.rx;
     disp->enc_y = odo.ry;
@@ -994,7 +1024,7 @@ int main(int argc, char *argv[]) {
     }
     if (MODE == '2') {
       double obx, oby;
-      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
+      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[enc->current_wp_index]);
       disp->min_obstacle_x = obx;
       disp->min_obstacle_y = oby;
 
@@ -1013,30 +1043,30 @@ int main(int argc, char *argv[]) {
       // 必要ならばWFPを再実行（近距離だけ）
 
       // 通常処理
-      double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
-          wp[shm_enc->current_wp_index].y - estimatedPose.y);
-      if (wp[shm_enc->current_wp_index].stop_check == 2) {
+      double dist2wp = std::hypot(wp[enc->current_wp_index].x - estimatedPose.x,
+          wp[enc->current_wp_index].y - estimatedPose.y);
+      if (wp[enc->current_wp_index].stop_check == 2) {
         if (dist2wp < arrived_check_distance) {
           double dwa_v = v;
           v = v * 0.8;
           if (v < 0.1) v = 0.1;
         }
         if (dist2wp < 0.5) {
-          shm_enc->current_wp_index += 1;
+          enc->current_wp_index += 1;
         }
-      } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
+      } else if (wp[enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
-          shm_enc->current_wp_index += 1;
+          enc->current_wp_index += 1;
           isFREE.store(true);
           free_motors();
           while (isFREE.load() || !gotoEnd.load()) {
             read_joystick(v, w, j_calib);
             long long ts = get_current_time();
             read_state(odo, ts);
-            shm_enc->ts = ts;
-            shm_enc->x = odo.rx;
-            shm_enc->y = odo.ry;
-            shm_enc->a = odo.ra;
+            enc->ts = ts;
+            enc->x = odo.rx;
+            enc->y = odo.ry;
+            enc->a = odo.ra;
 
             disp->enc_x = odo.rx;
             disp->enc_y = odo.ry;
@@ -1044,10 +1074,10 @@ int main(int argc, char *argv[]) {
           }
         }
       } else if (dist2wp < arrived_check_distance) {
-        shm_enc->current_wp_index += 1;
+        enc->current_wp_index += 1;
       }
-      if (shm_enc->current_wp_index >= wp.size()) {
-        shm_enc->current_wp_index = 0;
+      if (enc->current_wp_index >= wp.size()) {
+        enc->current_wp_index = 0;
         v = 0; w = 0;
         calc_vw2hex(Query_NET_ID_WRITE, v, w);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
@@ -1111,10 +1141,10 @@ int main(int argc, char *argv[]) {
     long long ts = get_current_time();
     read_state(odo, ts);
 
-    shm_enc->ts = ts;
-    shm_enc->x = odo.rx;
-    shm_enc->y = odo.ry;
-    shm_enc->a = odo.ra;
+    enc->ts = ts;
+    enc->x = odo.rx;
+    enc->y = odo.ry;
+    enc->a = odo.ra;
 
     disp->enc_x = odo.rx;
     disp->enc_y = odo.ry;
@@ -1122,8 +1152,8 @@ int main(int argc, char *argv[]) {
     disp->loc_x = loc->x;
     disp->loc_y = loc->y;
     disp->loc_a = loc->a;
-    disp->total_travel = shm_enc->total_travel;
-    disp->current_wp_index = shm_enc->current_wp_index;
+    disp->total_travel = enc->total_travel;
+    disp->current_wp_index = enc->current_wp_index;
     disp->current_map_path_index = loc->CURRENT_MAP_PATH_INDEX;
     disp->v = v;
     disp->w = w;
@@ -1160,7 +1190,7 @@ int main(int argc, char *argv[]) {
 
   running.store(false);
   th_display.join();
-  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
+  std::cerr << "Total travel: " << enc->total_travel << "[m]\n";
   std::cerr << "Battery voltage: " << bat->voltage << "[V]\n";
 
   // 共有メモリのクリア

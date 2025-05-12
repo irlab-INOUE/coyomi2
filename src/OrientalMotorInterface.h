@@ -153,13 +153,13 @@ void read_state(ODOMETORY &odo, const long long &ts) {
   double rotation = (dist_R - dist_L)/WHEEL_T;
   double voltage  = (voltage_L + voltage_R)/2.0;
 
-  shm_enc->total_travel = travel;
-  shm_enc->battery = voltage;
+  enc->total_travel = travel;
+  enc->battery = voltage;
   bat->voltage = voltage;
-  shm_enc->temp_driver_R = temp_driver_R;
-  shm_enc->temp_motor_R  = temp_motor_R;
-  shm_enc->temp_driver_L = temp_driver_L;
-  shm_enc->temp_motor_L  = temp_motor_L;
+  enc->temp_driver_R = temp_driver_R;
+  enc->temp_motor_R  = temp_motor_R;
+  enc->temp_driver_L = temp_driver_L;
+  enc->temp_motor_L  = temp_motor_L;
 
   double dl = travel - odo.travel;
   double dth = rotation - odo.rotation;

@@ -29,39 +29,6 @@ enum class Status {
   Run
 };
 
-// for Encoder receiver
-#define KEY_ENC	1235
-struct ENC {
-	Status state;
-  long long ts;
-  double x;
-  double y;
-  double a;
-  double v;
-  double omega;
-  double ac;
-  double wa;
-  double total_travel;
-  int cmdLed;
-	long long left;
-	long long right;
-	double ax;
-	double ay;
-	double az;
-	double wx;
-	double wy;
-	double wz;
-	double mx;
-	double my;
-	double mz;
-  double battery;
-  double temp_driver_R;
-  double temp_motor_R;
-  double temp_driver_L;
-  double temp_motor_L;
-  int current_wp_index;
-};
-
 // for 2D-LIDAR
 #define KEY_URG2D 1244
 struct URG2D {
