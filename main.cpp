@@ -191,7 +191,6 @@ std::vector<WAYPOINT> wpRead(std::string wpname) {
     std::cerr << "WPファイルのパスを指定してください\n";
     exit(EXIT_FAILURE);
   }
-  //std::cerr << wpname << " を読み込みます...";
   std::vector<WAYPOINT> wp;
   std::fstream fn;
   fn.open(wpname);
@@ -202,7 +201,6 @@ std::vector<WAYPOINT> wpRead(std::string wpname) {
     wp.emplace_back(buf);
     fn >> buf.x >> buf.y >> buf.a >> buf.stop_check;
   }
-  //std::cerr << "完了\n";
   return wp;
 }
 
@@ -351,9 +349,6 @@ int main(int argc, char *argv[]) {
     gotoEnd.store(true);
   }
   joystick = SDL_JoystickOpen(0);
-  //std::cerr << "Joystick detected:" << SDL_JoystickName(joystick) << std::endl;
-  //std::cerr << SDL_JoystickNumAxes(joystick) << " axis" << std::endl;
-  //std::cerr << SDL_JoystickNumButtons(joystick) << " buttons" << std::endl << std::endl;
 
   // calibrate axis until JS_EVENT_BUTTON pressed
   std::vector<joy_calib> j_calib(6);
@@ -424,21 +419,7 @@ int main(int argc, char *argv[]) {
     prev_target.x = w.x;
     prev_target.y = w.y;
   }
-  //std::cout << "wave front completed. path size=" << wp.size() << std::endl;
 
-  //cv::Mat img = cv::imread(cfg.map_path);
-  //for (auto w: wp) {
-  //    cv::circle(img,
-  //        cv::Point(wfp.map_info_.originX + w.x/wfp.map_info_.csize, wfp.map_info_.originY - w.y/wfp.map_info_.csize),
-  //        w.a/wfp.map_info_.csize, cv::Scalar(225, 105, 65), 2, cv::LINE_8);
-  //}
-
-  //cv::imwrite("tmpmap.png", img);
-  //cv::Mat dst;
-  //cv::resize(img, dst, cv::Size(img.cols/10, img.rows/10));
-  //cv::imshow("img", dst);
-  //cv::waitKey();
-  //exit(0);
   wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
     wp_list->wp_list[i].x = wp[i].x;
@@ -530,7 +511,6 @@ int main(int argc, char *argv[]) {
         else w = M_PI/8.0;
         v = 0.3 * w;  // rodate radius is 0.3[m]
         if (v > 0.0) v = -v;
-        //sleep(1);
       }
 
       // WP上の障害物判定を入れる
