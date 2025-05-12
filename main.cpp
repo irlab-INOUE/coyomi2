@@ -524,7 +524,6 @@ int main(int argc, char *argv[]) {
       disp->min_obstacle_x = obx;
       disp->min_obstacle_y = oby;
 
-#if 1
       // rotate ricovery
       if (fabs(v) < 1e-6 && fabs(w) <1e-6) {
         if (oby >= 0) w = -M_PI/8.0;
@@ -533,7 +532,6 @@ int main(int argc, char *argv[]) {
         if (v > 0.0) v = -v;
         //sleep(1);
       }
-#endif
 
       // WP上の障害物判定を入れる
       // 必要ならばWFPを再実行（近距離だけ）
