@@ -97,17 +97,111 @@ struct DisplayContents {
   double battery;
 };
 
+// for Battery
+struct BAT {
+  long long ts;
+  double voltage;
+};
+
+// for Localization
+enum class ChangeMapTrigger {
+	kContinue = 0,
+	kChange = 1,
+};
+struct LOC {
+	char path_to_map_dir[256]; 				// 現在使用中の占有格子地図があるディレクトリパス
+	char path_to_likelyhood_field[256]; 	// 現在使用中の尤度場へのパス
+	ChangeMapTrigger change_map_trigger;	// 地図・初期位置のリセットトリガー
+  long long ts;
+  double x;
+  double y;
+  double a;
+  int CURRENT_MAP_PATH_INDEX;
+  bool MCL_EXE;
+};
+
+// for Encoder receiver
+struct ENC {
+  long long ts;
+  double x;
+  double y;
+  double a;
+  double v;
+  double omega;
+  double ac;
+  double wa;
+  double total_travel;
+  int cmdLed;
+	long long left;
+	long long right;
+	double ax;
+	double ay;
+	double az;
+	double wx;
+	double wy;
+	double wz;
+	double mx;
+	double my;
+	double mz;
+  double battery;
+  double temp_driver_R;
+  double temp_motor_R;
+  double temp_driver_L;
+  double temp_motor_L;
+  int current_wp_index;
+};
+
+// for 2D-LIDAR
+struct URG2D {
+	long long ts;
+	long long ts_end;
+  double start_angle;
+  double end_angle;
+  double step_angle;
+  int size;
+  int max_echo_size;
+  long r[5000];
+  double ang[1081];
+  double cs[1081];
+  double sn[1081];
+};
+
+struct WP_LIST {
+  // for ROUTE_LIST
+  enum class ChangeWPTrigger {
+    kContinue = 0,
+    kChange = 1,
+  };
+  struct ROUTE_POINT {
+    double x;
+    double y;
+    double a;
+    int stop_check;
+  };
+  char path_to_wp_file[256]; 			// 現在使用中のWPファイルへのフルパス
+  ChangeWPTrigger change_wp_trigger;	// WPのリセットトリガー
+  int size_wp_list;
+  int size_route_list;
+  int target_index;
+  ROUTE_POINT wp_list[3000]; 		// WAY POINT
+  ROUTE_POINT route_list[3000]; 	// 細分化した通過点
+  int wp_index_list[3000]; 		// 通過点が目指しているWAY POINTのインデックス
+  bool get_ready;
+
+  WP_LIST() {
+    get_ready = false;
+  }
+};
+
 // 共有オブジェクト
 auto log_path = std::make_shared<LOGDIR_PATH>();
 auto log_data = std::make_shared<LOG_DATA>();
 auto disp     = std::make_shared<DisplayContents>();
-
-// 共有したい構造体毎にアドレスを割り当てる
-ENC      *shm_enc     = nullptr;
-URG2D    *shm_urg2d   = nullptr;
-BAT      *shm_bat     = nullptr;
-LOC      *shm_loc     = nullptr;
-WP_LIST  *shm_wp_list = nullptr;
+auto bat      = std::make_shared<BAT>();
+auto loc      = std::make_shared<LOC>();
+auto enc      = std::make_shared<ENC>();
+auto urg2d    = std::make_shared<URG2D>();
+auto wp_list  = std::make_shared<WP_LIST>();
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
@@ -290,29 +384,29 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
  * Define thread
  ***************************************/
 void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-    std::shared_ptr<DisplayContents> disp) {
+    std::shared_ptr<DisplayContents> disp, std::shared_ptr<BAT> bat) {
   std::string path = log_path->path + "/batlog";
   std::ofstream bat_log;
   bat_log.open(path);
   while (running.load()) {
-    shm_bat->ts = get_current_time();
-    bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-    disp->battery = shm_bat->voltage;
+    bat->ts = get_current_time();
+    bat_log << bat->ts << " " << bat->voltage << "\n";
+    disp->battery = bat->voltage;
     sleep_for(seconds(1));
   }
   std::cout << "Battery logger2 exit." << std::endl;
 }
 
 void thread_sound(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-    std::shared_ptr<DisplayContents> disp) {
+    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc) {
   int prev_wp_index = 0;
   std::string sound_logfile_path = log_path->path + "/sound_log";
   std::ofstream ofs;
   ofs.open(sound_logfile_path);
   while (running.load()) {
     long long ts = get_current_time();
-    ofs << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
-    if (prev_wp_index != shm_enc->current_wp_index) {
+    ofs << ts << " " << prev_wp_index << " " << enc->current_wp_index << "\n";
+    if (prev_wp_index != enc->current_wp_index) {
       std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
       int ret = std::system(cmd.c_str());
       prev_wp_index = disp->current_wp_index;
@@ -367,7 +461,7 @@ void thread_3D_Lidar(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_
 }
 
 void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                    std::shared_ptr<DisplayContents> disp) {
+                    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc) {
 
   // Ncurses setup
   WINDOW *win = initscr();
@@ -402,10 +496,10 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
   while (running.load()) {
     // update status window
-    disp->temp_driver_L = shm_enc->temp_driver_L;
-    disp->temp_driver_R = shm_enc->temp_driver_R;
-    disp->temp_motor_L  = shm_enc->temp_motor_L;
-    disp->temp_motor_R  = shm_enc->temp_motor_R;
+    disp->temp_driver_L = enc->temp_driver_L;
+    disp->temp_driver_R = enc->temp_driver_R;
+    disp->temp_motor_L  = enc->temp_motor_L;
+    disp->temp_motor_R  = enc->temp_motor_R;
 
     move(ROW_MCL+2, 0); clrtoeol();
     mvprintw(ROW_MCL+2, 0, "%.3f", disp->loc_x);
@@ -440,10 +534,10 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     printw("Total %.1f", disp->total_travel);
 
     move(ROW_PATH, 0); clrtoeol();
-    printw("%s", shm_loc->path_to_map_dir);
+    printw("%s", loc->path_to_map_dir);
 
     move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
-    printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
+    printw("CURRENT_MAP_PATH_INDEX %d", loc->CURRENT_MAP_PATH_INDEX);
 
     // update Log window
     draw_log_window(log_win, log_data, log_width, log_height);
@@ -457,33 +551,32 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
 }
 
 void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-    std::shared_ptr<DisplayContents> disp) {
+    std::shared_ptr<DisplayContents> disp, std::shared_ptr<URG2D> urg2d) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
   add_log(log_data, "coyomi.yaml is open in thread_2D_Lidar_b.");
 
-  shm_urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
-  shm_urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
-  shm_urg2d->step_angle    = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
-  shm_urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
-  shm_urg2d->size =
-    ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1)
-    * shm_urg2d->max_echo_size;
-  for (int i = 0; i < shm_urg2d->size; i++) {
-    shm_urg2d->r[i] = 0;
+  urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
+  urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
+  urg2d->step_angle    = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
+  urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
+  urg2d->size =
+    ((urg2d->end_angle - urg2d->start_angle)/urg2d->step_angle + 1) * urg2d->max_echo_size;
+  for (int i = 0; i < urg2d->size; i++) {
+    urg2d->r[i] = 0;
   }
-  for (int i = 0; i < ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1); i++) {
-    double ang = (i * shm_urg2d->step_angle + shm_urg2d->start_angle)*M_PI/180;
-    shm_urg2d->ang[i] = ang;
-    shm_urg2d->cs[i] = cos(ang);
-    shm_urg2d->sn[i] = sin(ang);
+  for (int i = 0; i < ((urg2d->end_angle - urg2d->start_angle)/urg2d->step_angle + 1); i++) {
+    double ang = (i * urg2d->step_angle + urg2d->start_angle)*M_PI/180;
+    urg2d->ang[i] = ang;
+    urg2d->cs[i] = cos(ang);
+    urg2d->sn[i] = sin(ang);
   }
   std::string path = log_path->path + "/urglog";
 
-  Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
+  Urg2d urg2d_b(urg2d->start_angle, urg2d->end_angle, urg2d->step_angle);
   // urgのopen可否を受け取る
-  if(urg2d.getConnectionSuccessfully() == false) {
+  if(urg2d_b.getConnectionSuccessfully() == false) {
     while (running.load()) {
       add_log(log_data, "2D-Urg Open Error");
       sleep_for(seconds(5));
@@ -492,72 +585,77 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
     while (running.load()) {
       fout_urg2d.open(path, std::ios_base::app);
       long long ts = get_current_time();
-      std::vector<LSP> result = urg2d.getData();
-      urg2d.view(5);
+      std::vector<LSP> result = urg2d_b.getData();
+      urg2d_b.view(5);
       fout_urg2d << "LASERSCANRT" << " "
         << ts << " "
-        << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "
-        << std::to_string(shm_urg2d->start_angle) << " "
-        << std::to_string(shm_urg2d->end_angle) << " "
-        << std::to_string(shm_urg2d->step_angle) << " "
-        << shm_urg2d->max_echo_size << " ";
+        << static_cast<int>(result.size()) * urg2d->max_echo_size << " "
+        << std::to_string(urg2d->start_angle) << " "
+        << std::to_string(urg2d->end_angle) << " "
+        << std::to_string(urg2d->step_angle) << " "
+        << urg2d->max_echo_size << " ";
       for (auto d: result) {
         fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
       }
       fout_urg2d << ts << "\n";
       fout_urg2d.close();
 
-      shm_urg2d->ts = ts;
-      shm_urg2d->ts_end = ts;
-      shm_urg2d->size = result.size();
+      urg2d->ts = ts;
+      urg2d->ts_end = ts;
+      urg2d->size = result.size();
       for (int k = 0; k < result.size(); k++) {
-        shm_urg2d->r[k] = result[k].data;
+        urg2d->r[k] = result[k].data;
       }
       sleep_for(milliseconds(10));
     }
-    urg2d.close();
+    urg2d_b.close();
   }
   std::cout << "2D_Lidar_b exit." << std::endl;
 }
 
 void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                         std::shared_ptr<DisplayContents> disp) {
+                         std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc,
+                         std::shared_ptr<ENC> enc,
+                         std::shared_ptr<URG2D> urg2d,
+                         std::shared_ptr<WP_LIST> wp_list) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
   add_log(log_data, "coyomi.yaml is open in thread_localization.");
 
   add_log(log_data, "START LOCALIZATION SETUP");
-  std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  std::string MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Map file path
   std::string MAP_NAME
-    = MAP_PATH+ "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-  MAP_NAME.copy(shm_loc->path_to_map_dir, MAP_NAME.size());
+    = MAP_PATH+ "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  MAP_NAME.copy(loc->path_to_map_dir, MAP_NAME.size());
   // Likelyhood file path
   std::string LIKELYHOOD_FIELD
-    = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
-  LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
+    = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
+  LIKELYHOOD_FIELD.copy(loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
   add_log(log_data, "DONE LOCALIZATION SETUP");
   // Initial pose
-  if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
-    double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-    double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-    double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
-    shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
+  if (loc->CURRENT_MAP_PATH_INDEX != 0) {
+    double initial_pose_x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+    double initial_pose_y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+    double initial_pose_a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+    loc->x = initial_pose_x; loc->y = initial_pose_y; loc->a = initial_pose_a;
   }
-  Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+  Pose2d currentPose = Pose2d(enc->x, enc->y, enc->a);
   Pose2d previousPose = currentPose;
 
-  MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+  MapPath map_path(MAP_PATH, loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
   Viewer view(map_path);                        // 現在のoccMapを表示する
   view.hold();
-  view.show(shm_loc->x, shm_loc->y, 5);
+  view.show(loc->x, loc->y, 5);
   //cv::moveWindow("occMap", 700, 0);
-  shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
+  loc->change_map_trigger = ChangeMapTrigger::kContinue;
   std::vector<WAYPOINT> wp;
-  for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
-    wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
-                    shm_wp_list->wp_list[i].stop_check);
+  while (!wp_list->get_ready) {
+    sleep_for(seconds(1));
+  }
+  for (int i = 0; i < wp_list->size_wp_list; i++) {
+    wp.emplace_back(wp_list->wp_list[i].x, wp_list->wp_list[i].y, wp_list->wp_list[i].a, wp_list->wp_list[i].stop_check);
   }
 
   // DE with LFM
@@ -571,35 +669,35 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   add_log(log_data, "START DE setup");
   DELFM de(Window_xy, Window_a, population, generates, F, CR);
   add_log(log_data, "START DE lfm");
-  de.set_lfm(shm_loc->path_to_likelyhood_field);
+  de.set_lfm(loc->path_to_likelyhood_field);
   add_log(log_data, "START DE mapinfo");
-  de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+  de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
   std::string de_logfile_path = log_path->path + "/delog";
 
   add_log(log_data, "START LOCALIZATION LOOP");
   while (running.load()) {
-    if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
+    if (loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
-    view.plot_current_wp(wp[shm_enc->current_wp_index]);
-    view.show(shm_loc->x, shm_loc->y, 5);
+    view.plot_current_wp(wp[enc->current_wp_index]);
+    view.show(loc->x, loc->y, 5);
     // 動いてなければ自己位置推定はしない
-    currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+    currentPose = Pose2d(enc->x, enc->y, enc->a);
     double _rot = currentPose.a - previousPose.a;
     double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
     std::vector<LSP> lsp;
     double best_x, best_y, best_a, best_eval;
     if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
-      best_x = shm_loc->x;
-      best_y = shm_loc->y;
-      best_a = shm_loc->a;
+      best_x = loc->x;
+      best_y = loc->y;
+      best_a = loc->a;
       best_eval = -1;
     } else {
-      for (int k = 0; k < shm_urg2d->size; k++) {
-        lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+      for (int k = 0; k < urg2d->size; k++) {
+        lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
       }
       // DEwithLFM で自己位置推定
-      std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
+      std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, loc->x, loc->y, loc->a);
     }
     Pose2d estimatedPose = Pose2d(best_x, best_y, best_a);
 
@@ -607,9 +705,9 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     view.robot(estimatedPose);
     view.urg(estimatedPose, lsp);
 
-    shm_loc->x = estimatedPose.x;
-    shm_loc->y = estimatedPose.y;
-    shm_loc->a = estimatedPose.a;
+    loc->x = estimatedPose.x;
+    loc->y = estimatedPose.y;
+    loc->a = estimatedPose.a;
 
     de_log.open(de_logfile_path, std::ios_base::app);
     long long ts = get_current_time();
@@ -626,25 +724,25 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   }
 #if 0
   // パーティクル初期配置
-  MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
-  mcl.set_lfm(shm_loc->path_to_likelyhood_field);
-  mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+  MCL mcl(Pose2d(loc->x, loc->y, loc->a));
+  mcl.set_lfm(loc->path_to_likelyhood_field);
+  mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
   // MCL(KLD_sampling)
   while(1) {
-    if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
+    if (loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
-    view.plot_current_wp(wp[shm_enc->current_wp_index]);
-    view.show(shm_loc->x, shm_loc->y, 5);
+    view.plot_current_wp(wp[enc->current_wp_index]);
+    view.show(loc->x, loc->y, 5);
     // 動いてなければ自己位置推定はしない
-    currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
+    currentPose = Pose2d(enc->x, enc->y, enc->a);
     double _rot = currentPose.a - previousPose.a;
     double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
     std::vector<LSP> lsp;
     if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
       ;
     } else {
-      for (int k = 0; k < shm_urg2d->size; k++) {
-        lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+      for (int k = 0; k < urg2d->size; k++) {
+        lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
       }
       mcl.KLD_sampling(lsp, currentPose, previousPose);
     }
@@ -656,9 +754,9 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     view.urg(estimatedPose, lsp);
     view.particle(particle);
 
-    shm_loc->x = estimatedPose.x;
-    shm_loc->y = estimatedPose.y;
-    shm_loc->a = estimatedPose.a;
+    loc->x = estimatedPose.x;
+    loc->y = estimatedPose.y;
+    loc->a = estimatedPose.a;
 
     std::string path = log_path + "/mcllog";
     mcl_log.open(path, std::ios_base::app);
@@ -730,16 +828,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  /**************************************************************************
-   * 共有メモリの確保
-   * 共有したい構造体毎にアドレスを割り当てる
-   ***************************************************************************/
-  shm_enc     =      (ENC *)shmAt(KEY_ENC, sizeof(ENC));
-  shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
-  shm_bat     =      (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
-  shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
-  shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
-  std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
    * LOG保管場所を作成する
    * DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
@@ -764,12 +852,12 @@ int main(int argc, char *argv[]) {
 
   std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
 
-  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp);
-  th_sound_logger   = std::thread(thread_sound,          log_path, log_data, disp);
-  th_3D_Lidar       = std::thread(thread_3D_Lidar,       log_path, log_data);
-  th_display        = std::thread(thread_display,        log_path, log_data, disp);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b,     log_path, log_data, disp);
-  th_localization   = std::thread(thread_localization,   log_path, log_data, disp);
+  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp, bat);
+  th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp, enc);
+  th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
+  th_display        = std::thread(thread_display, log_path, log_data, disp, enc);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp, urg2d);
+  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
    * log_data initialize
@@ -841,16 +929,16 @@ int main(int argc, char *argv[]) {
    * For the wavefront planner to work properly, the occMap should have
    * traversable areas marked in white.
    ***************************************************************************/
-  shm_loc->CURRENT_MAP_PATH_INDEX = 0;
-  if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
-  std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  loc->CURRENT_MAP_PATH_INDEX = 0;
+  if (argc > 1) loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
+  std::string MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Reading Way Point
   std::vector<WAYPOINT> tmp_wp, wp;
-  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
   WAYPOINT prev_target(0, 0, 0, 0);
   wavefrontplanner::Config cfg;
-  cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-  cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+  cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
   wavefrontplanner::WaveFrontPlanner wfp(cfg);
   for (auto w: tmp_wp) {
     wavefrontplanner::Config cfg;
@@ -884,21 +972,22 @@ int main(int argc, char *argv[]) {
   //cv::imshow("img", dst);
   //cv::waitKey();
   //exit(0);
-  shm_wp_list->size_wp_list = wp.size();
+  wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
-    shm_wp_list->wp_list[i].x = wp[i].x;
-    shm_wp_list->wp_list[i].y = wp[i].y;
-    shm_wp_list->wp_list[i].a = wp[i].a;
-    shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+    wp_list->wp_list[i].x = wp[i].x;
+    wp_list->wp_list[i].y = wp[i].y;
+    wp_list->wp_list[i].a = wp[i].a;
+    wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
-  shm_enc->current_wp_index = 0;
+  wp_list->get_ready = true;
+  enc->current_wp_index = 0;
 
   /**************************************************************************
    * initial pose setup
    ***************************************************************************/
-  shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-  shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-  shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+  loc->x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+  loc->y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+  loc->a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
   /**************************************************************************
    * initial enc setup
@@ -907,11 +996,10 @@ int main(int argc, char *argv[]) {
   ODOMETORY first_odo;
   read_state(first_odo, first_ts);
   sleep(1);
-  shm_enc->ts = first_ts;
-  shm_enc->x = first_odo.rx;
-  shm_enc->y = first_odo.ry;
-  shm_enc->a = first_odo.ra;
-
+  enc->ts = first_ts;
+  enc->x  = first_odo.rx;
+  enc->y  = first_odo.ry;
+  enc->a  = first_odo.ra;
 
   /**************************************************************************
    * Starting Main Process
@@ -937,10 +1025,10 @@ int main(int argc, char *argv[]) {
 
     long long ts = get_current_time();
     read_state(odo, ts);
-    shm_enc->ts = ts;
-    shm_enc->x = odo.rx;
-    shm_enc->y = odo.ry;
-    shm_enc->a = odo.ra;
+    enc->ts = ts;
+    enc->x = odo.rx;
+    enc->y = odo.ry;
+    enc->a = odo.ra;
 
     disp->enc_x = odo.rx;
     disp->enc_y = odo.ry;
@@ -955,17 +1043,17 @@ int main(int argc, char *argv[]) {
     read_joystick(tmp_v, tmp_w, j_calib);
 
     std::vector<LSP> lsp;
-    for (int k = 0; k < shm_urg2d->size; k++) {
-      lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+    for (int k = 0; k < urg2d->size; k++) {
+      lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
     }
-    Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
+    Pose2d estimatedPose(loc->x, loc->y, loc->a);
     if (MODE == '1') {
       v = tmp_v; w = tmp_w;
       //isFREE = true;
     }
     if (MODE == '2') {
       double obx, oby;
-      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
+      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[enc->current_wp_index]);
       disp->min_obstacle_x = obx;
       disp->min_obstacle_y = oby;
 
@@ -984,30 +1072,30 @@ int main(int argc, char *argv[]) {
       // 必要ならばWFPを再実行（近距離だけ）
 
       // 通常処理
-      double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
-          wp[shm_enc->current_wp_index].y - estimatedPose.y);
-      if (wp[shm_enc->current_wp_index].stop_check == 2) {
+      double dist2wp = std::hypot(wp[enc->current_wp_index].x - estimatedPose.x,
+          wp[enc->current_wp_index].y - estimatedPose.y);
+      if (wp[enc->current_wp_index].stop_check == 2) {
         if (dist2wp < arrived_check_distance) {
           double dwa_v = v;
           v = v * 0.8;
           if (v < 0.1) v = 0.1;
         }
         if (dist2wp < 0.5) {
-          shm_enc->current_wp_index += 1;
+          enc->current_wp_index += 1;
         }
-      } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
+      } else if (wp[enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
-          shm_enc->current_wp_index += 1;
+          enc->current_wp_index += 1;
           isFREE.store(true);
           free_motors();
           while (isFREE.load() || !gotoEnd.load()) {
             read_joystick(v, w, j_calib);
             long long ts = get_current_time();
             read_state(odo, ts);
-            shm_enc->ts = ts;
-            shm_enc->x = odo.rx;
-            shm_enc->y = odo.ry;
-            shm_enc->a = odo.ra;
+            enc->ts = ts;
+            enc->x = odo.rx;
+            enc->y = odo.ry;
+            enc->a = odo.ra;
 
             disp->enc_x = odo.rx;
             disp->enc_y = odo.ry;
@@ -1015,29 +1103,29 @@ int main(int argc, char *argv[]) {
           }
         }
       } else if (dist2wp < arrived_check_distance) {
-        shm_enc->current_wp_index += 1;
+        enc->current_wp_index += 1;
       }
-      if (shm_enc->current_wp_index >= wp.size()) {
-        shm_enc->current_wp_index = 0;
+      if (enc->current_wp_index >= wp.size()) {
+        enc->current_wp_index = 0;
         v = 0; w = 0;
         calc_vw2hex(Query_NET_ID_WRITE, v, w);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
         sleep(1);
 
         // Change current map
-        shm_loc->CURRENT_MAP_PATH_INDEX++;
-        if (shm_loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
-          shm_loc->CURRENT_MAP_PATH_INDEX = 0;
+        loc->CURRENT_MAP_PATH_INDEX++;
+        if (loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
+          loc->CURRENT_MAP_PATH_INDEX = 0;
         }
-        MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+        MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
         // Reading Way Point
         tmp_wp.clear();
         wp.clear();
-        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
         WAYPOINT prev_target(0, 0, 0, 0);
         wavefrontplanner::Config cfg;
-        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
         wavefrontplanner::WaveFrontPlanner wfp(cfg);
         for (auto w: tmp_wp) {
           wavefrontplanner::Config cfg;
@@ -1057,16 +1145,16 @@ int main(int argc, char *argv[]) {
           prev_target.y = w.y;
         }
         std::cout << "wave front completed. path size=" << wp.size() << std::endl;
-        shm_wp_list->size_wp_list = wp.size();
+        wp_list->size_wp_list = wp.size();
         for (int i = 0; i < wp.size(); i++) {
-          shm_wp_list->wp_list[i].x = wp[i].x;
-          shm_wp_list->wp_list[i].y = wp[i].y;
-          shm_wp_list->wp_list[i].a = wp[i].a;
-          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+          wp_list->wp_list[i].x = wp[i].x;
+          wp_list->wp_list[i].y = wp[i].y;
+          wp_list->wp_list[i].a = wp[i].a;
+          wp_list->wp_list[i].stop_check = wp[i].stop_check;
         }
         // 地図・初期位置のリセットトリガー
-        shm_loc->change_map_trigger = ChangeMapTrigger::kChange;
-        while(shm_loc->change_map_trigger == ChangeMapTrigger::kChange) {
+        loc->change_map_trigger = ChangeMapTrigger::kChange;
+        while(loc->change_map_trigger == ChangeMapTrigger::kChange) {
           usleep(100000);
         }
         clear();
@@ -1082,20 +1170,20 @@ int main(int argc, char *argv[]) {
     long long ts = get_current_time();
     read_state(odo, ts);
 
-    shm_enc->ts = ts;
-    shm_enc->x = odo.rx;
-    shm_enc->y = odo.ry;
-    shm_enc->a = odo.ra;
+    enc->ts = ts;
+    enc->x = odo.rx;
+    enc->y = odo.ry;
+    enc->a = odo.ra;
 
     disp->enc_x = odo.rx;
     disp->enc_y = odo.ry;
     disp->enc_a = odo.ra;
-    disp->loc_x = shm_loc->x;
-    disp->loc_y = shm_loc->y;
-    disp->loc_a = shm_loc->a;
-    disp->total_travel = shm_enc->total_travel;
-    disp->current_wp_index = shm_enc->current_wp_index;
-    disp->current_map_path_index = shm_loc->CURRENT_MAP_PATH_INDEX;
+    disp->loc_x = loc->x;
+    disp->loc_y = loc->y;
+    disp->loc_a = loc->a;
+    disp->total_travel = enc->total_travel;
+    disp->current_wp_index = enc->current_wp_index;
+    disp->current_map_path_index = loc->CURRENT_MAP_PATH_INDEX;
     disp->v = v;
     disp->w = w;
 
@@ -1131,23 +1219,8 @@ int main(int argc, char *argv[]) {
 
   running.store(false);
   th_display.join();
-  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
-
-  // 共有メモリのクリア
-  std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
-  shmdt(shm_urg2d);
-  shmdt(shm_bat);
-  shmdt(shm_loc);
-  shmdt(shm_wp_list);
-  int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
+  std::cerr << "Total travel: " << enc->total_travel << "[m]\n";
+  std::cerr << "Battery voltage: " << bat->voltage << "[V]\n";
 
   th_battery_logger.join();
   th_sound_logger.join();
@@ -1155,7 +1228,6 @@ int main(int argc, char *argv[]) {
   th_2D_Lidar_b.join();
   th_localization.join();
 
-  std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
   return 0;
 }
 
