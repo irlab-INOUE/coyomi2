@@ -109,7 +109,6 @@ URG2D    *shm_urg2d   = nullptr;
 BAT      *shm_bat     = nullptr;
 LOC      *shm_loc     = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
-URG3D    *shm_urg3d   = nullptr;
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
@@ -741,7 +740,6 @@ int main(int argc, char *argv[]) {
   shm_bat     =      (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
   shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
-  shm_urg3d   =    (URG3D *)shmAt(KEY_URG3D, sizeof(URG3D));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
    * LOG保管場所を作成する
@@ -959,7 +957,6 @@ int main(int argc, char *argv[]) {
   }
   start_bell_ret = std::system(start_bell_cmd.c_str());
 
-  shm_urg3d->measure = false;
   while(!gotoEnd.load()) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);

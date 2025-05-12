@@ -79,26 +79,6 @@ struct URG2D {
   double sn[1081];
 };
 
-// for 3D-LIDAR
-#define KEY_URG3D 1255
-struct POINT3D {
-  double x;
-  double y;
-  double z;
-  double r;
-  double phi;
-  double theta;
-  int intensity;
-};
-
-struct URG3D {
-  Status state;
-  long long ts;
-  int size;
-  POINT3D pt[30000];
-  bool measure;
-};
-
 // for LOG-DIR
 #define KEY_LOGDIR 1266
 struct LOGDIR {
