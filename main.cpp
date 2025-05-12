@@ -98,15 +98,21 @@ struct DisplayContents {
   double battery;
 };
 
+// for Battery
+struct BAT {
+  long long ts;
+  double voltage;
+};
+
 // 共有オブジェクト
 auto log_path = std::make_shared<LOGDIR_PATH>();
 auto log_data = std::make_shared<LOG_DATA>();
 auto disp     = std::make_shared<DisplayContents>();
+auto bat      = std::make_shared<BAT>();
 
 // 共有したい構造体毎にアドレスを割り当てる
 ENC      *shm_enc     = nullptr;
 URG2D    *shm_urg2d   = nullptr;
-BAT      *shm_bat     = nullptr;
 LOC      *shm_loc     = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 
@@ -291,14 +297,14 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
  * Define thread
  ***************************************/
 void thread_battery_logger(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-    std::shared_ptr<DisplayContents> disp) {
+    std::shared_ptr<DisplayContents> disp, std::shared_ptr<BAT> bat) {
   std::string path = log_path->path + "/batlog";
   std::ofstream bat_log;
   bat_log.open(path);
   while (running.load()) {
-    shm_bat->ts = get_current_time();
-    bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-    disp->battery = shm_bat->voltage;
+    bat->ts = get_current_time();
+    bat_log << bat->ts << " " << bat->voltage << "\n";
+    disp->battery = bat->voltage;
     sleep_for(seconds(1));
   }
   std::cout << "Battery logger2 exit." << std::endl;
@@ -737,7 +743,6 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   shm_enc     =      (ENC *)shmAt(KEY_ENC, sizeof(ENC));
   shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
-  shm_bat     =      (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
   shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
@@ -771,7 +776,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "ログは保管しません\n";
   }
 
-  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp);
+  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp, bat);
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp);
@@ -1139,17 +1144,14 @@ int main(int argc, char *argv[]) {
   running.store(false);
   th_display.join();
   std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
+  std::cerr << "Battery voltage: " << bat->voltage << "[V]\n";
 
   // 共有メモリのクリア
   std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
   shmdt(shm_urg2d);
-  shmdt(shm_bat);
   shmdt(shm_loc);
   shmdt(shm_wp_list);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);

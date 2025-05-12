@@ -136,14 +136,6 @@ struct LOC {
   bool MCL_EXE;
 };
 
-// for Battery
-#define KEY_BAT 1300
-struct BAT {
-	Status state;
-  long long ts;
-  double voltage;
-};
-
 // for DISPLAY
 #define KEY_DISPLAY 1301
 struct DISPLAY {

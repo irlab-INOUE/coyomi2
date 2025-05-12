@@ -129,9 +129,9 @@ void read_state(ODOMETORY &odo, const long long &ts) {
   double temp_driver_R = static_cast<int>(buf[ 7] << 24 | buf[ 8] << 16 | buf[ 9] << 8 | buf[10]) * 0.1;
   double temp_motor_R  = static_cast<int>(buf[11] << 24 | buf[12] << 16 | buf[13] << 8 | buf[14]) * 0.1;
   //int position_R       = static_cast<int>(buf[15] << 24 | buf[16] << 16 | buf[17] << 8 | buf[18]);
-  int32_t position_R       = static_cast<int32_t>((static_cast<uint32_t>(buf[15]) << 24) | 
-                                          (static_cast<uint32_t>(buf[16]) << 16) | 
-                                          (static_cast<uint32_t>(buf[17]) << 8)  | 
+  int32_t position_R       = static_cast<int32_t>((static_cast<uint32_t>(buf[15]) << 24) |
+                                          (static_cast<uint32_t>(buf[16]) << 16) |
+                                          (static_cast<uint32_t>(buf[17]) << 8)  |
                                           (static_cast<uint32_t>(buf[18])));
   int power_R          = static_cast<int>(buf[19] << 24 | buf[20] << 16 | buf[21] << 8 | buf[22]);
   double voltage_R     = static_cast<int>(buf[23] << 24 | buf[24] << 16 | buf[25] << 8 | buf[26]) * 0.1;
@@ -140,9 +140,9 @@ void read_state(ODOMETORY &odo, const long long &ts) {
   double temp_driver_L = static_cast<int>(buf[ 7 + OFFSET] << 24 | buf[ 8 + OFFSET] << 16 | buf[ 9 + OFFSET] << 8 | buf[10 + OFFSET]) * 0.1;
   double temp_motor_L  = static_cast<int>(buf[11 + OFFSET] << 24 | buf[12 + OFFSET] << 16 | buf[13 + OFFSET] << 8 | buf[14 + OFFSET]) * 0.1;
   //int position_L       = static_cast<uint32_t>(buf[15 + OFFSET] << 24 | buf[16 + OFFSET] << 16 | buf[17 + OFFSET] << 8 | buf[18 + OFFSET]);
-  int32_t position_L       = static_cast<int32_t>((static_cast<uint32_t>(buf[15+OFFSET]) << 24) | 
-                                          (static_cast<uint32_t>(buf[16+OFFSET]) << 16) | 
-                                          (static_cast<uint32_t>(buf[17+OFFSET]) << 8)  | 
+  int32_t position_L       = static_cast<int32_t>((static_cast<uint32_t>(buf[15+OFFSET]) << 24) |
+                                          (static_cast<uint32_t>(buf[16+OFFSET]) << 16) |
+                                          (static_cast<uint32_t>(buf[17+OFFSET]) << 8)  |
                                           (static_cast<uint32_t>(buf[18+OFFSET])));
   int power_L          = static_cast<int>(buf[19 + OFFSET] << 24 | buf[20 + OFFSET] << 16 | buf[21 + OFFSET] << 8 | buf[22 + OFFSET]);
   double voltage_L     = static_cast<int>(buf[23 + OFFSET] << 24 | buf[24 + OFFSET] << 16 | buf[25 + OFFSET] << 8 | buf[26 + OFFSET]) * 0.1;
@@ -155,7 +155,7 @@ void read_state(ODOMETORY &odo, const long long &ts) {
 
   shm_enc->total_travel = travel;
   shm_enc->battery = voltage;
-  shm_bat->voltage = voltage;
+  bat->voltage = voltage;
   shm_enc->temp_driver_R = temp_driver_R;
   shm_enc->temp_motor_R  = temp_motor_R;
   shm_enc->temp_driver_L = temp_driver_L;
@@ -222,8 +222,8 @@ void show_state(uint8_t *buf, const long long &ts) {
   double travel = (dist_L + dist_R)/2.0;
   double rotation = (dist_R - dist_L)/WHEEL_T;
 
-  shm_bat->ts = ts;
-  shm_bat->voltage = (voltage_L + voltage_R)/2.0;
+  bat->ts = ts;
+  bat->voltage = (voltage_L + voltage_R)/2.0;
 
   std::cerr << "\033[1;1H" << "-------------";
   std::cerr << "\033[2;1H" << "Alarm_L:" << alarm_code_L;
