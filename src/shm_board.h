@@ -102,25 +102,6 @@ struct WP_LIST {
 	int wp_index_list[3000]; 		// 通過点が目指しているWAY POINTのインデックス
 };
 
-// for Localization
-#define KEY_LOC 1299
-enum class ChangeMapTrigger {
-	kContinue = 0,
-	kChange = 1,
-};
-struct LOC {
-	Status state; 							// localization実行/停止
-	char path_to_map_dir[256]; 				// 現在使用中の占有格子地図があるディレクトリパス
-	char path_to_likelyhood_field[256]; 	// 現在使用中の尤度場へのパス
-	ChangeMapTrigger change_map_trigger;	// 地図・初期位置のリセットトリガー
-  long long ts;
-  double x;
-  double y;
-  double a;
-  int CURRENT_MAP_PATH_INDEX;
-  bool MCL_EXE;
-};
-
 // for LOG Display
 const int LOG_HEIGHT = 10;
 #define LOG_SIZE 1024

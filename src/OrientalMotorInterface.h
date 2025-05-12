@@ -240,7 +240,7 @@ void show_state(uint8_t *buf, const long long &ts) {
   std::cerr << "\033[6;40H" <<  "Power_R:" << power_R;
   std::cerr << "\033[7;40H" <<  "Voltage_R:" << voltage_R;
   std::cerr << "\033[8;1H\033[2K" << travel << " " << rotation * 180.0/M_PI
-    << " " << shm_loc->x << " " << shm_loc->y << " " << shm_loc->a * 180/M_PI;
+    << " " << loc->x << " " << loc->y << " " << loc->a * 180/M_PI;
   std::cerr << "\033[9;1H" << "-------------\n";
 }
 

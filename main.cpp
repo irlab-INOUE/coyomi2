@@ -104,16 +104,34 @@ struct BAT {
   double voltage;
 };
 
+// for Localization
+enum class ChangeMapTrigger {
+	kContinue = 0,
+	kChange = 1,
+};
+struct LOC {
+	char path_to_map_dir[256]; 				// 現在使用中の占有格子地図があるディレクトリパス
+	char path_to_likelyhood_field[256]; 	// 現在使用中の尤度場へのパス
+	ChangeMapTrigger change_map_trigger;	// 地図・初期位置のリセットトリガー
+  long long ts;
+  double x;
+  double y;
+  double a;
+  int CURRENT_MAP_PATH_INDEX;
+  bool MCL_EXE;
+};
+
+
 // 共有オブジェクト
 auto log_path = std::make_shared<LOGDIR_PATH>();
 auto log_data = std::make_shared<LOG_DATA>();
 auto disp     = std::make_shared<DisplayContents>();
 auto bat      = std::make_shared<BAT>();
+auto loc      = std::make_shared<LOC>();
 
 // 共有したい構造体毎にアドレスを割り当てる
 ENC      *shm_enc     = nullptr;
 URG2D    *shm_urg2d   = nullptr;
-LOC      *shm_loc     = nullptr;
 WP_LIST  *shm_wp_list = nullptr;
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
@@ -447,10 +465,10 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     printw("Total %.1f", disp->total_travel);
 
     move(ROW_PATH, 0); clrtoeol();
-    printw("%s", shm_loc->path_to_map_dir);
+    printw("%s", loc->path_to_map_dir);
 
     move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
-    printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
+    printw("CURRENT_MAP_PATH_INDEX %d", loc->CURRENT_MAP_PATH_INDEX);
 
     // update Log window
     draw_log_window(log_win, log_data, log_width, log_height);
@@ -528,39 +546,39 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
 }
 
 void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                         std::shared_ptr<DisplayContents> disp) {
+                         std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
   add_log(log_data, "coyomi.yaml is open in thread_localization.");
 
   add_log(log_data, "START LOCALIZATION SETUP");
-  std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  std::string MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Map file path
   std::string MAP_NAME
-    = MAP_PATH+ "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-  MAP_NAME.copy(shm_loc->path_to_map_dir, MAP_NAME.size());
+    = MAP_PATH+ "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  MAP_NAME.copy(loc->path_to_map_dir, MAP_NAME.size());
   // Likelyhood file path
   std::string LIKELYHOOD_FIELD
-    = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
-  LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
+    = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
+  LIKELYHOOD_FIELD.copy(loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
   add_log(log_data, "DONE LOCALIZATION SETUP");
   // Initial pose
-  if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
-    double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-    double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-    double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
-    shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
+  if (loc->CURRENT_MAP_PATH_INDEX != 0) {
+    double initial_pose_x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+    double initial_pose_y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+    double initial_pose_a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+    loc->x = initial_pose_x; loc->y = initial_pose_y; loc->a = initial_pose_a;
   }
   Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
   Pose2d previousPose = currentPose;
 
-  MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
+  MapPath map_path(MAP_PATH, loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
   Viewer view(map_path);                        // 現在のoccMapを表示する
   view.hold();
-  view.show(shm_loc->x, shm_loc->y, 5);
+  view.show(loc->x, loc->y, 5);
   //cv::moveWindow("occMap", 700, 0);
-  shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
+  loc->change_map_trigger = ChangeMapTrigger::kContinue;
   std::vector<WAYPOINT> wp;
   for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
     wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
@@ -578,18 +596,18 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   add_log(log_data, "START DE setup");
   DELFM de(Window_xy, Window_a, population, generates, F, CR);
   add_log(log_data, "START DE lfm");
-  de.set_lfm(shm_loc->path_to_likelyhood_field);
+  de.set_lfm(loc->path_to_likelyhood_field);
   add_log(log_data, "START DE mapinfo");
-  de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+  de.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
 
   std::string de_logfile_path = log_path->path + "/delog";
 
   add_log(log_data, "START LOCALIZATION LOOP");
   while (running.load()) {
-    if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
+    if (loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
     view.plot_current_wp(wp[shm_enc->current_wp_index]);
-    view.show(shm_loc->x, shm_loc->y, 5);
+    view.show(loc->x, loc->y, 5);
     // 動いてなければ自己位置推定はしない
     currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
     double _rot = currentPose.a - previousPose.a;
@@ -597,16 +615,16 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     std::vector<LSP> lsp;
     double best_x, best_y, best_a, best_eval;
     if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
-      best_x = shm_loc->x;
-      best_y = shm_loc->y;
-      best_a = shm_loc->a;
+      best_x = loc->x;
+      best_y = loc->y;
+      best_a = loc->a;
       best_eval = -1;
     } else {
       for (int k = 0; k < shm_urg2d->size; k++) {
         lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
       }
       // DEwithLFM で自己位置推定
-      std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, shm_loc->x, shm_loc->y, shm_loc->a);
+      std::tie(best_x, best_y, best_a, best_eval) = de.optimize_de(lsp, loc->x, loc->y, loc->a);
     }
     Pose2d estimatedPose = Pose2d(best_x, best_y, best_a);
 
@@ -614,9 +632,9 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     view.robot(estimatedPose);
     view.urg(estimatedPose, lsp);
 
-    shm_loc->x = estimatedPose.x;
-    shm_loc->y = estimatedPose.y;
-    shm_loc->a = estimatedPose.a;
+    loc->x = estimatedPose.x;
+    loc->y = estimatedPose.y;
+    loc->a = estimatedPose.a;
 
     de_log.open(de_logfile_path, std::ios_base::app);
     long long ts = get_current_time();
@@ -633,15 +651,15 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   }
 #if 0
   // パーティクル初期配置
-  MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
-  mcl.set_lfm(shm_loc->path_to_likelyhood_field);
-  mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
+  MCL mcl(Pose2d(loc->x, loc->y, loc->a));
+  mcl.set_lfm(loc->path_to_likelyhood_field);
+  mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
   // MCL(KLD_sampling)
   while(1) {
-    if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
+    if (loc->change_map_trigger == ChangeMapTrigger::kChange) break;
     view.plot_wp(wp);
     view.plot_current_wp(wp[shm_enc->current_wp_index]);
-    view.show(shm_loc->x, shm_loc->y, 5);
+    view.show(loc->x, loc->y, 5);
     // 動いてなければ自己位置推定はしない
     currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
     double _rot = currentPose.a - previousPose.a;
@@ -663,9 +681,9 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     view.urg(estimatedPose, lsp);
     view.particle(particle);
 
-    shm_loc->x = estimatedPose.x;
-    shm_loc->y = estimatedPose.y;
-    shm_loc->a = estimatedPose.a;
+    loc->x = estimatedPose.x;
+    loc->y = estimatedPose.y;
+    loc->a = estimatedPose.a;
 
     std::string path = log_path + "/mcllog";
     mcl_log.open(path, std::ios_base::app);
@@ -743,7 +761,6 @@ int main(int argc, char *argv[]) {
    ***************************************************************************/
   shm_enc     =      (ENC *)shmAt(KEY_ENC, sizeof(ENC));
   shm_urg2d   =    (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
-  shm_loc     =      (LOC *)shmAt(KEY_LOC, sizeof(LOC));
   shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
   std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
@@ -781,7 +798,7 @@ int main(int argc, char *argv[]) {
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp);
-  th_localization   = std::thread(thread_localization, log_path, log_data, disp);
+  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc);
 
   /**************************************************************************
    * log_data initialize
@@ -853,16 +870,16 @@ int main(int argc, char *argv[]) {
    * For the wavefront planner to work properly, the occMap should have
    * traversable areas marked in white.
    ***************************************************************************/
-  shm_loc->CURRENT_MAP_PATH_INDEX = 0;
-  if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
-  std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+  loc->CURRENT_MAP_PATH_INDEX = 0;
+  if (argc > 1) loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
+  std::string MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Reading Way Point
   std::vector<WAYPOINT> tmp_wp, wp;
-  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
   WAYPOINT prev_target(0, 0, 0, 0);
   wavefrontplanner::Config cfg;
-  cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-  cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+  cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
   wavefrontplanner::WaveFrontPlanner wfp(cfg);
   for (auto w: tmp_wp) {
     wavefrontplanner::Config cfg;
@@ -908,9 +925,9 @@ int main(int argc, char *argv[]) {
   /**************************************************************************
    * initial pose setup
    ***************************************************************************/
-  shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-  shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-  shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+  loc->x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+  loc->y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+  loc->a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
   /**************************************************************************
    * initial enc setup
@@ -970,7 +987,7 @@ int main(int argc, char *argv[]) {
     for (int k = 0; k < shm_urg2d->size; k++) {
       lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
     }
-    Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
+    Pose2d estimatedPose(loc->x, loc->y, loc->a);
     if (MODE == '1') {
       v = tmp_v; w = tmp_w;
       //isFREE = true;
@@ -1037,19 +1054,19 @@ int main(int argc, char *argv[]) {
         sleep(1);
 
         // Change current map
-        shm_loc->CURRENT_MAP_PATH_INDEX++;
-        if (shm_loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
-          shm_loc->CURRENT_MAP_PATH_INDEX = 0;
+        loc->CURRENT_MAP_PATH_INDEX++;
+        if (loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
+          loc->CURRENT_MAP_PATH_INDEX = 0;
         }
-        MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+        MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
         // Reading Way Point
         tmp_wp.clear();
         wp.clear();
-        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
         WAYPOINT prev_target(0, 0, 0, 0);
         wavefrontplanner::Config cfg;
-        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
         wavefrontplanner::WaveFrontPlanner wfp(cfg);
         for (auto w: tmp_wp) {
           wavefrontplanner::Config cfg;
@@ -1077,8 +1094,8 @@ int main(int argc, char *argv[]) {
           shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
         }
         // 地図・初期位置のリセットトリガー
-        shm_loc->change_map_trigger = ChangeMapTrigger::kChange;
-        while(shm_loc->change_map_trigger == ChangeMapTrigger::kChange) {
+        loc->change_map_trigger = ChangeMapTrigger::kChange;
+        while(loc->change_map_trigger == ChangeMapTrigger::kChange) {
           usleep(100000);
         }
         clear();
@@ -1102,12 +1119,12 @@ int main(int argc, char *argv[]) {
     disp->enc_x = odo.rx;
     disp->enc_y = odo.ry;
     disp->enc_a = odo.ra;
-    disp->loc_x = shm_loc->x;
-    disp->loc_y = shm_loc->y;
-    disp->loc_a = shm_loc->a;
+    disp->loc_x = loc->x;
+    disp->loc_y = loc->y;
+    disp->loc_a = loc->a;
     disp->total_travel = shm_enc->total_travel;
     disp->current_wp_index = shm_enc->current_wp_index;
-    disp->current_map_path_index = shm_loc->CURRENT_MAP_PATH_INDEX;
+    disp->current_map_path_index = loc->CURRENT_MAP_PATH_INDEX;
     disp->v = v;
     disp->w = w;
 
@@ -1149,11 +1166,8 @@ int main(int argc, char *argv[]) {
   // 共有メモリのクリア
   std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
   shmdt(shm_urg2d);
-  shmdt(shm_loc);
   shmdt(shm_wp_list);
   int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
   keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
   shmctl(keyID, IPC_RMID, nullptr);
