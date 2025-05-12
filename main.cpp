@@ -686,8 +686,8 @@ int main(int argc, char *argv[]) {
 
   running.store(false);
   th_display.join();
-  std::cerr << "Total travel: " << enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << bat->voltage << "[V]\n";
+  std::cerr << "Total travel: " << enc->total_travel << "[m]" << std::endl;
+  std::cerr << "Battery voltage: " << bat->voltage << "[V]" << std::endl;
 
   th_battery_logger.join();
   th_sound_logger.join();

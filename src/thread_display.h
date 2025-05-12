@@ -88,6 +88,5 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   }
   endwin();   // ncurses end
   std::cout << "Display exit." << std::endl;
-  exit(EXIT_SUCCESS);
 }
 
