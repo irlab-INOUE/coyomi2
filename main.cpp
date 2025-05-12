@@ -264,7 +264,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Please select an action in following list.\n"
     << "[1]: Only localization (default)\n"
     << " 2 : Navigation\n"
-    << " 3 : WayPoint editor\n";
+    << " 3 : WayPoint editor\n"
     << " 4 : exit" << std::endl;
   char MODE;
   while (1) {
@@ -292,9 +292,9 @@ int main(int argc, char *argv[]) {
       WaypointEditor(MAP_PATH, WP_NAME, OCC_NAME);
 
       return 0;
-    } 
+    }
     else if (MODE == '4') {
-      std::cout << "Hello, Coyomi2. Exit." << std::endl;;
+      std::cout << "Hello, Coyomi2. Exit." << std::endl;
       return 0;
     }
   }
