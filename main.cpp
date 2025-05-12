@@ -63,6 +63,7 @@ std::thread th_display;
 std::thread th_2D_Lidar_b;
 std::thread th_localization;
 
+// ジョイスティック
 SDL_Joystick* joystick;
 
 // 共有オブジェクト
@@ -75,6 +76,7 @@ auto enc      = std::make_shared<ENC>();
 auto urg2d    = std::make_shared<URG2D>();
 auto wp_list  = std::make_shared<WP_LIST>();
 
+// Oriental Motors
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
@@ -263,6 +265,7 @@ int main(int argc, char *argv[]) {
     << "[1]: Only localization (default)\n"
     << " 2 : Navigation\n"
     << " 3 : WayPoint editor\n";
+    << " 4 : exit" << std::endl;
   char MODE;
   while (1) {
     MODE = getchar();
@@ -289,7 +292,10 @@ int main(int argc, char *argv[]) {
       WaypointEditor(MAP_PATH, WP_NAME, OCC_NAME);
 
       return 0;
-      break;
+    } 
+    else if (MODE == '4') {
+      std::cout << "Hello, Coyomi2. Exit." << std::endl;;
+      return 0;
     }
   }
 
