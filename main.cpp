@@ -167,6 +167,33 @@ struct URG2D {
   double sn[1081];
 };
 
+struct WP_LIST {
+  // for ROUTE_LIST
+  enum class ChangeWPTrigger {
+    kContinue = 0,
+    kChange = 1,
+  };
+  struct ROUTE_POINT {
+    double x;
+    double y;
+    double a;
+    int stop_check;
+  };
+  char path_to_wp_file[256]; 			// 現在使用中のWPファイルへのフルパス
+  ChangeWPTrigger change_wp_trigger;	// WPのリセットトリガー
+  int size_wp_list;
+  int size_route_list;
+  int target_index;
+  ROUTE_POINT wp_list[3000]; 		// WAY POINT
+  ROUTE_POINT route_list[3000]; 	// 細分化した通過点
+  int wp_index_list[3000]; 		// 通過点が目指しているWAY POINTのインデックス
+  bool get_ready;
+
+  WP_LIST() {
+    get_ready = false;
+  }
+};
+
 // 共有オブジェクト
 auto log_path = std::make_shared<LOGDIR_PATH>();
 auto log_data = std::make_shared<LOG_DATA>();
@@ -175,9 +202,7 @@ auto bat      = std::make_shared<BAT>();
 auto loc      = std::make_shared<LOC>();
 auto enc      = std::make_shared<ENC>();
 auto urg2d    = std::make_shared<URG2D>();
-
-// 共有したい構造体毎にアドレスを割り当てる
-WP_LIST  *shm_wp_list = nullptr;
+auto wp_list  = std::make_shared<WP_LIST>();
 
 int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
@@ -592,7 +617,8 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
 void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
                          std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc,
                          std::shared_ptr<ENC> enc,
-                         std::shared_ptr<URG2D> urg2d) {
+                         std::shared_ptr<URG2D> urg2d,
+                         std::shared_ptr<WP_LIST> wp_list) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -626,9 +652,11 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
   //cv::moveWindow("occMap", 700, 0);
   loc->change_map_trigger = ChangeMapTrigger::kContinue;
   std::vector<WAYPOINT> wp;
-  for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
-    wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
-                    shm_wp_list->wp_list[i].stop_check);
+  while (!wp_list->get_ready) {
+    sleep_for(seconds(1));
+  }
+  for (int i = 0; i < wp_list->size_wp_list; i++) {
+    wp.emplace_back(wp_list->wp_list[i].x, wp_list->wp_list[i].y, wp_list->wp_list[i].a, wp_list->wp_list[i].stop_check);
   }
 
   // DE with LFM
@@ -801,12 +829,6 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  /**************************************************************************
-   * 共有メモリの確保
-   * 共有したい構造体毎にアドレスを割り当てる
-   ***************************************************************************/
-  shm_wp_list =  (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
-  std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
    * LOG保管場所を作成する
    * DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
@@ -842,7 +864,7 @@ int main(int argc, char *argv[]) {
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp, enc);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp, urg2d);
-  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d);
+  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
    * log_data initialize
@@ -957,13 +979,14 @@ int main(int argc, char *argv[]) {
   //cv::imshow("img", dst);
   //cv::waitKey();
   //exit(0);
-  shm_wp_list->size_wp_list = wp.size();
+  wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
-    shm_wp_list->wp_list[i].x = wp[i].x;
-    shm_wp_list->wp_list[i].y = wp[i].y;
-    shm_wp_list->wp_list[i].a = wp[i].a;
-    shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+    wp_list->wp_list[i].x = wp[i].x;
+    wp_list->wp_list[i].y = wp[i].y;
+    wp_list->wp_list[i].a = wp[i].a;
+    wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
+  wp_list->get_ready = true;
   enc->current_wp_index = 0;
 
   /**************************************************************************
@@ -984,7 +1007,6 @@ int main(int argc, char *argv[]) {
   enc->x  = first_odo.rx;
   enc->y  = first_odo.ry;
   enc->a  = first_odo.ra;
-
 
   /**************************************************************************
    * Starting Main Process
@@ -1130,12 +1152,12 @@ int main(int argc, char *argv[]) {
           prev_target.y = w.y;
         }
         std::cout << "wave front completed. path size=" << wp.size() << std::endl;
-        shm_wp_list->size_wp_list = wp.size();
+        wp_list->size_wp_list = wp.size();
         for (int i = 0; i < wp.size(); i++) {
-          shm_wp_list->wp_list[i].x = wp[i].x;
-          shm_wp_list->wp_list[i].y = wp[i].y;
-          shm_wp_list->wp_list[i].a = wp[i].a;
-          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+          wp_list->wp_list[i].x = wp[i].x;
+          wp_list->wp_list[i].y = wp[i].y;
+          wp_list->wp_list[i].a = wp[i].a;
+          wp_list->wp_list[i].stop_check = wp[i].stop_check;
         }
         // 地図・初期位置のリセットトリガー
         loc->change_map_trigger = ChangeMapTrigger::kChange;
@@ -1207,19 +1229,12 @@ int main(int argc, char *argv[]) {
   std::cerr << "Total travel: " << enc->total_travel << "[m]\n";
   std::cerr << "Battery voltage: " << bat->voltage << "[V]\n";
 
-  // 共有メモリのクリア
-  std::ofstream shmid(std::string(log_path->path) + "/shmID.txt");
-  shmdt(shm_wp_list);
-  int keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-
   th_battery_logger.join();
   th_sound_logger.join();
   th_3D_Lidar.join();
   th_2D_Lidar_b.join();
   th_localization.join();
 
-  std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
   return 0;
 }
 
