@@ -331,11 +331,6 @@ int main(int argc, char *argv[]) {
   th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
-   * log_data initialize
-   ***************************************************************************/
-  log_data->current_index = 0;
-
-  /**************************************************************************
    * Connect check & open serial port for MotoDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
