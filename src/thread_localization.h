@@ -2,7 +2,7 @@
 #include "global_variable.h"
 
 void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                         std::shared_ptr<DisplayContents> disp, std::shared_ptr<LOC> loc,
+                         std::shared_ptr<LOC> loc,
                          std::shared_ptr<ENC> enc,
                          std::shared_ptr<URG2D> urg2d,
                          std::shared_ptr<WP_LIST> wp_list) {

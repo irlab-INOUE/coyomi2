@@ -327,7 +327,7 @@ int main(int argc, char *argv[]) {
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc, bat);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, urg2d);
-  th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d, wp_list);
+  th_localization   = std::thread(thread_localization, log_path, log_data, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
    * log_data initialize
