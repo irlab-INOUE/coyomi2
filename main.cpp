@@ -33,7 +33,6 @@ using LockGuard = std::lock_guard<std::mutex>;
 std::mutex mtx;
 
 #include "common.h"
-#include "MCL.h"
 #include "shm_board.h"
 #include "Viewer.h"
 #include "yaml-cpp/yaml.h"
@@ -323,10 +322,10 @@ int main(int argc, char *argv[]) {
 
   std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
 
-  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, disp, bat);
+  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, bat);
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
-  th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc);
+  th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc, bat);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp, urg2d);
   th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d, wp_list);
 
@@ -479,10 +478,6 @@ int main(int argc, char *argv[]) {
     enc->y = odo.ry;
     enc->a = odo.ra;
 
-    disp->enc_x = odo.rx;
-    disp->enc_y = odo.ry;
-    disp->enc_a = odo.ra;
-
     sleep_for(milliseconds(100));
   }
   start_bell_ret = std::system(start_bell_cmd.c_str());
@@ -542,10 +537,6 @@ int main(int argc, char *argv[]) {
             enc->x = odo.rx;
             enc->y = odo.ry;
             enc->a = odo.ra;
-
-            disp->enc_x = odo.rx;
-            disp->enc_y = odo.ry;
-            disp->enc_a = odo.ra;
           }
         }
       } else if (dist2wp < arrived_check_distance) {
@@ -621,12 +612,6 @@ int main(int argc, char *argv[]) {
     enc->y = odo.ry;
     enc->a = odo.ra;
 
-    disp->enc_x = odo.rx;
-    disp->enc_y = odo.ry;
-    disp->enc_a = odo.ra;
-    disp->loc_x = loc->x;
-    disp->loc_y = loc->y;
-    disp->loc_a = loc->a;
     disp->total_travel = enc->total_travel;
     disp->current_wp_index = enc->current_wp_index;
     disp->current_map_path_index = loc->CURRENT_MAP_PATH_INDEX;

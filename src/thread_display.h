@@ -2,7 +2,8 @@
 #include "global_variable.h"
 
 void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc, std::shared_ptr<LOC> loc) {
+                    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc, std::shared_ptr<LOC> loc,
+                    std::shared_ptr<BAT> bat) {
 
   // Ncurses setup
   WINDOW *win = initscr();
@@ -37,15 +38,10 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
   while (running.load()) {
     // update status window
-    disp->temp_driver_L = enc->temp_driver_L;
-    disp->temp_driver_R = enc->temp_driver_R;
-    disp->temp_motor_L  = enc->temp_motor_L;
-    disp->temp_motor_R  = enc->temp_motor_R;
-
     move(ROW_MCL+2, 0); clrtoeol();
-    mvprintw(ROW_MCL+2, 0, "%.3f", disp->loc_x);
-    mvprintw(ROW_MCL+2, 9, "%.3f", disp->loc_y);
-    mvprintw(ROW_MCL+2,19, "%.1f", disp->loc_a*180/M_PI);
+    mvprintw(ROW_MCL+2, 0, "%.3f", loc->x);
+    mvprintw(ROW_MCL+2, 9, "%.3f", loc->y);
+    mvprintw(ROW_MCL+2,19, "%.1f", loc->a*180/M_PI);
 
     move(ROW_MCL+3, 0); clrtoeol();
     printw("Current WP Index: %d", disp->current_wp_index);
@@ -58,18 +54,18 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
            atan2(disp->min_obstacle_y, disp->min_obstacle_x) * 180/M_PI);
 
     move(ROW_MOTOR+2, 0); clrtoeol();
-    mvprintw(ROW_MOTOR+2, 0, "%.3f", disp->enc_x);
-    mvprintw(ROW_MOTOR+2, 9, "%.3f", disp->enc_y);
-    mvprintw(ROW_MOTOR+2,19, "%.1f", disp->enc_a*180/M_PI);
+    mvprintw(ROW_MOTOR+2, 0, "%.3f", enc->x);
+    mvprintw(ROW_MOTOR+2, 9, "%.3f", enc->y);
+    mvprintw(ROW_MOTOR+2,19, "%.1f", enc->a*180/M_PI);
 
     move(ROW_MOTOR+3, 0); clrtoeol();
-    printw("Voltage: %.1f", disp->battery);
+    printw("Voltage: %.1f", bat->voltage);
 
     move(ROW_MOTOR+4, 0); clrtoeol();
-    printw("TmpL_D %.1f  TmpR_D %.1f", disp->temp_driver_L, disp->temp_driver_R);
+    printw("TmpL_D %.1f  TmpR_D %.1f", enc->temp_driver_L, enc->temp_driver_R);
 
     move(ROW_MOTOR+5, 0); clrtoeol();
-    printw("TmpL_M %.1f  TmpR_M %.1f", disp->temp_motor_L, disp->temp_motor_R);
+    printw("TmpL_M %.1f  TmpR_M %.1f", enc->temp_motor_L, enc->temp_motor_R);
 
     move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
     printw("Total %.1f", disp->total_travel);
