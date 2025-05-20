@@ -39,9 +39,9 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
   while (running.load()) {
     // update status window
     move(ROW_MCL+2, 0); clrtoeol();
-    mvprintw(ROW_MCL+2, 0, "%.3f", disp->loc_x);
-    mvprintw(ROW_MCL+2, 9, "%.3f", disp->loc_y);
-    mvprintw(ROW_MCL+2,19, "%.1f", disp->loc_a*180/M_PI);
+    mvprintw(ROW_MCL+2, 0, "%.3f", loc->x);
+    mvprintw(ROW_MCL+2, 9, "%.3f", loc->y);
+    mvprintw(ROW_MCL+2,19, "%.1f", loc->a*180/M_PI);
 
     move(ROW_MCL+3, 0); clrtoeol();
     printw("Current WP Index: %d", disp->current_wp_index);
