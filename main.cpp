@@ -323,7 +323,7 @@ int main(int argc, char *argv[]) {
   std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
 
   th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, bat);
-  th_sound_logger   = std::thread(thread_sound, log_path, log_data, disp, enc);
+  th_sound_logger   = std::thread(thread_sound, log_path, log_data, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc, bat);
   th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp, urg2d);
