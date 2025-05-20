@@ -44,7 +44,7 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     mvprintw(ROW_MCL+2,19, "%.1f", loc->a*180/M_PI);
 
     move(ROW_MCL+3, 0); clrtoeol();
-    printw("Current WP Index: %d", disp->current_wp_index);
+    printw("Current WP Index: %d", enc->current_wp_index);
 
     move(ROW_MCL+4, 0); clrtoeol();
     printw("v: %.2f  w: %.2f", disp->v, disp->w);
@@ -68,7 +68,7 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     printw("TmpL_M %.1f  TmpR_M %.1f", enc->temp_motor_L, enc->temp_motor_R);
 
     move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
-    printw("Total %.1f", disp->total_travel);
+    printw("Total %.1f", enc->total_travel);
 
     move(ROW_PATH, 0); clrtoeol();
     printw("%s", loc->path_to_map_dir);

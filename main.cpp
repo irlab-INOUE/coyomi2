@@ -617,9 +617,6 @@ int main(int argc, char *argv[]) {
     enc->y = odo.ry;
     enc->a = odo.ra;
 
-    disp->total_travel = enc->total_travel;
-    disp->current_wp_index = enc->current_wp_index;
-    disp->current_map_path_index = loc->CURRENT_MAP_PATH_INDEX;
     disp->v = v;
     disp->w = w;
 
