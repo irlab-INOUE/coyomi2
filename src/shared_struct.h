@@ -11,21 +11,8 @@ struct LOGDIR_PATH {
 };
 
 struct DisplayContents {
-  double temp_driver_L;
-  double temp_driver_R;
-  double temp_motor_L;
-  double temp_motor_R;
-
-  double loc_x, loc_y, loc_a;
-  double enc_x, enc_y, enc_a;
-  int current_wp_index;
-  double total_travel;
-  int current_map_path_index;
   double v, w;
-
   double min_obstacle_x, min_obstacle_y;
-
-  double battery;
 };
 
 // for Battery
