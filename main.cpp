@@ -484,10 +484,6 @@ int main(int argc, char *argv[]) {
     enc->y = odo.ry;
     enc->a = odo.ra;
 
-    disp->enc_x = odo.rx;
-    disp->enc_y = odo.ry;
-    disp->enc_a = odo.ra;
-
     sleep_for(milliseconds(100));
   }
   start_bell_ret = std::system(start_bell_cmd.c_str());
@@ -547,10 +543,6 @@ int main(int argc, char *argv[]) {
             enc->x = odo.rx;
             enc->y = odo.ry;
             enc->a = odo.ra;
-
-            disp->enc_x = odo.rx;
-            disp->enc_y = odo.ry;
-            disp->enc_a = odo.ra;
           }
         }
       } else if (dist2wp < arrived_check_distance) {
@@ -626,9 +618,6 @@ int main(int argc, char *argv[]) {
     enc->y = odo.ry;
     enc->a = odo.ra;
 
-    disp->enc_x = odo.rx;
-    disp->enc_y = odo.ry;
-    disp->enc_a = odo.ra;
     disp->loc_x = loc->x;
     disp->loc_y = loc->y;
     disp->loc_a = loc->a;
