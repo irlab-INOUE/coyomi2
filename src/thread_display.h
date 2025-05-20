@@ -2,7 +2,8 @@
 #include "global_variable.h"
 
 void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data,
-                    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc, std::shared_ptr<LOC> loc) {
+                    std::shared_ptr<DisplayContents> disp, std::shared_ptr<ENC> enc, std::shared_ptr<LOC> loc,
+                    std::shared_ptr<BAT> bat) {
 
   // Ncurses setup
   WINDOW *win = initscr();
@@ -63,7 +64,7 @@ void thread_display(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_D
     mvprintw(ROW_MOTOR+2,19, "%.1f", disp->enc_a*180/M_PI);
 
     move(ROW_MOTOR+3, 0); clrtoeol();
-    printw("Voltage: %.1f", disp->battery);
+    printw("Voltage: %.1f", bat->voltage);
 
     move(ROW_MOTOR+4, 0); clrtoeol();
     printw("TmpL_D %.1f  TmpR_D %.1f", disp->temp_driver_L, disp->temp_driver_R);
