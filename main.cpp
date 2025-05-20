@@ -326,7 +326,7 @@ int main(int argc, char *argv[]) {
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc, bat);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, disp, urg2d);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, urg2d);
   th_localization   = std::thread(thread_localization, log_path, log_data, disp, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
