@@ -40,6 +40,16 @@ struct Connection_information::pImpl
         baudrate_or_port_number_ = 115200;
     }
 
+    void set_serial_connection(std::string lidar_select)
+    {
+        connection_type_ = Urg_driver::Serial;
+        if (lidar_select == "t") {
+          device_or_ip_name_ = "/dev/lidar_1";
+        } else if (lidar_select == "b") {
+          device_or_ip_name_ = "/dev/lidar_2";
+        }
+        baudrate_or_port_number_ = 115200;
+    }
 
     void set_ethernet_connection(const char* ip_address = NULL)
     {
@@ -98,6 +108,10 @@ Connection_information::Connection_information(int argc,
 Connection_information::Connection_information() : pimpl(new pImpl) {
   pimpl->set_serial_connection();
   //pimpl->set_ethernet_connection();
+}
+
+Connection_information::Connection_information(std::string lidar_select) : pimpl(new pImpl) {
+  pimpl->set_serial_connection(lidar_select);
 }
 
 Connection_information::~Connection_information(void)

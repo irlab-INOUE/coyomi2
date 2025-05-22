@@ -60,6 +60,7 @@ std::thread th_sound_logger;
 std::thread th_3D_Lidar;
 std::thread th_display;
 std::thread th_2D_Lidar_b;
+std::thread th_2D_Lidar_t;
 std::thread th_localization;
 
 // ジョイスティック
@@ -73,6 +74,7 @@ auto bat      = std::make_shared<BAT>();
 auto loc      = std::make_shared<LOC>();
 auto enc      = std::make_shared<ENC>();
 auto urg2d    = std::make_shared<URG2D>();
+auto urg2d_t  = std::make_shared<URG2D>();
 auto wp_list  = std::make_shared<WP_LIST>();
 
 // Oriental Motors
@@ -326,7 +328,8 @@ int main(int argc, char *argv[]) {
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
   th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc, bat);
-  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, log_path, log_data, urg2d);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, std::string("b"), log_path, log_data, urg2d);
+  th_2D_Lidar_t     = std::thread(thread_2D_Lidar_b, std::string("t"), log_path, log_data, urg2d_t);
   th_localization   = std::thread(thread_localization, log_path, log_data, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
@@ -659,6 +662,7 @@ int main(int argc, char *argv[]) {
   th_sound_logger.join();
   th_3D_Lidar.join();
   th_2D_Lidar_b.join();
+  th_2D_Lidar_t.join();
   th_localization.join();
 
   return 0;

@@ -52,7 +52,7 @@ class Urg2d {
 
     bool isConnectionSuccessful = true;
   public:
-    Urg2d(double, double, double);
+    Urg2d(const std::string, double, double, double);
     ~Urg2d();
     std::vector<LSP> getData();
     std::vector<LSP> getData(const cv::Mat &imgMap, const Pose2d &pose,

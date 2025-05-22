@@ -3,7 +3,7 @@
 #include "common.h"
 #include "Urg2d.h"
 
-void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data, std::shared_ptr<URG2D> urg2d) {
+void thread_2D_Lidar_b(const std::string lidar_select, std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LOG_DATA> log_data, std::shared_ptr<URG2D> urg2d) {
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
@@ -26,7 +26,7 @@ void thread_2D_Lidar_b(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<LO
   }
   std::string path = log_path->path + "/urglog";
 
-  Urg2d urg2d_b(urg2d->start_angle, urg2d->end_angle, urg2d->step_angle);
+  Urg2d urg2d_b(lidar_select, urg2d->start_angle, urg2d->end_angle, urg2d->step_angle);
   // urgのopen可否を受け取る
   if(urg2d_b.getConnectionSuccessfully() == false) {
     while (running.load()) {

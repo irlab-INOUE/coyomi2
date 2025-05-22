@@ -20,6 +20,7 @@ namespace qrk
 		public:
 			Connection_information(int argc, const char*const argv[]);
 			Connection_information();
+			Connection_information(std::string lidar_select);
 			~Connection_information(void);
 
 			Lidar::connection_type_t connection_type() const;
