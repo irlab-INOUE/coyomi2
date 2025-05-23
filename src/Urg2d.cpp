@@ -115,6 +115,39 @@ int Urg2d::view(int wait_time) {
   return cv::waitKey(wait_time);
 }
 
+int Urg2d::view(const std::string lidar_select, int wait_time) {
+  cv::Mat testImg;
+  baseImg.copyTo(testImg);
+  if (lidar_select == "t") {
+    int k = 0;
+    for (auto d: store_data) {
+      if (d.r < 35 && k % 10 == 0) {
+        int ix = IMG_ORIGIN_X + d.y / csize;
+        int iy = IMG_ORIGIN_Y - d.x / csize;
+        if (ix >= 0 && ix < 600 && iy >= 0 && iy < 600) {
+          cv::circle(testImg, cv::Point(ix, iy), 1, cv::Scalar(0, 0, 0), -1);
+        }
+      }
+      k++;
+    }
+    cv::imshow("lidar_top", testImg);
+  } else if (lidar_select == "b") {
+    int k = 0;
+    for (auto d: store_data) {
+      if (d.r < 35 && k % 10 == 0) {
+        int ix = IMG_ORIGIN_X - d.y / csize;
+        int iy = IMG_ORIGIN_Y - d.x / csize;
+        if (ix >= 0 && ix < 600 && iy >= 0 && iy < 600) {
+          cv::circle(testImg, cv::Point(ix, iy), 1, cv::Scalar(0, 0, 0), -1);
+        }
+      }
+      k++;
+    }
+    cv::imshow("lidar_bottom", testImg);
+  }
+  return cv::waitKey(wait_time);
+}
+
 void Urg2d::close() {
   urg.close();
 }

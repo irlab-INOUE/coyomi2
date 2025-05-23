@@ -38,7 +38,7 @@ void thread_2D_Lidar_b(const std::string lidar_select, std::shared_ptr<LOGDIR_PA
       fout_urg2d.open(path, std::ios_base::app);
       long long ts = get_current_time();
       std::vector<LSP> result = urg2d_b.getData();
-      urg2d_b.view(5);
+      urg2d_b.view(lidar_select, 5);
       fout_urg2d << "LASERSCANRT" << " "
         << ts << " "
         << static_cast<int>(result.size()) * urg2d->max_echo_size << " "
