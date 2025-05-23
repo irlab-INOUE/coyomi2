@@ -62,6 +62,6 @@ void thread_2D_Lidar_b(const std::string lidar_select, std::shared_ptr<LOGDIR_PA
     }
     urg2d_b.close();
   }
-  std::cout << "2D_Lidar_b exit." << std::endl;
+  std::cout << "2D_Lidar_" << lidar_select << " exit." << std::endl;
 }
 
