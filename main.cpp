@@ -648,17 +648,21 @@ int main(int argc, char *argv[]) {
   mcl_log.close();
   de_log.close();
 
+  double message_travel = enc->total_travel;
+  double message_voltage = bat->voltage;
+
   running.store(false);
   th_display.join();
-  std::cerr << "Total travel: " << enc->total_travel << "[m]" << std::endl;
-  std::cerr << "Battery voltage: " << bat->voltage << "[V]" << std::endl;
-
   th_battery_logger.join();
   th_sound_logger.join();
   th_3D_Lidar.join();
   th_2D_Lidar_b.join();
   th_2D_Lidar_t.join();
   th_localization.join();
+
+  std::cerr << "===========" << std::endl;
+  std::cerr << "Total travel: " << message_travel << "[m]" << std::endl;
+  std::cerr << "Battery voltage: " << message_voltage << "[V]" << std::endl;
 
   return 0;
 }
