@@ -138,12 +138,21 @@ void Viewer::plot_smoothPath(std::vector<WAYPOINT> smooth_path) {
 }
 
 void Viewer::robot(Pose2d pose) {
-    cv::circle(imgMap,
-        cv::Point(originX + pose.x/csize, originY - pose.y/csize),
-        0.25/csize, cv::Scalar(0, 0, 255), -1, cv::LINE_8);
-    cv::circle(AccMap,
-        cv::Point(originX + pose.x/csize, originY - pose.y/csize),
-        1.0/csize, cv::Scalar(0, 0, 255), -1, cv::LINE_8);
+  int rx = originX + pose.x/csize;
+  int ry = originY - pose.y/csize;
+  int arrow_x = static_cast<int>(cos(pose.a)/csize) + rx;
+  int arrow_y =-static_cast<int>(sin(pose.a)/csize) + ry;
+
+  cv::circle(imgMap,
+      cv::Point(rx, ry),
+      0.25/csize, cv::Scalar(0, 0, 255), -1, cv::LINE_8);
+  cv::line(imgMap,
+      cv::Point(rx, ry), cv::Point(arrow_x, arrow_y),
+      cv::Scalar(0,0,255), 2, cv::LINE_8);
+
+  cv::circle(AccMap,
+      cv::Point(originX + pose.x/csize, originY - pose.y/csize),
+      1.0/csize, cv::Scalar(0, 0, 255), -1, cv::LINE_8);
 }
 
 void Viewer::particle(const std::vector<Pose2d> &particle) {

@@ -21,4 +21,7 @@ add_executable(GetDistance3D
     matrix.cpp
     )
 
+add_executable(data_analysis data_analysis.cpp GetUrg3d.cpp matrix.cpp)
+
 target_link_libraries(GetDistance3D urg3d ${OpenCV_LIBRARIES})
+target_link_libraries(data_analysis urg3d ${OpenCV_LIBRARIES})

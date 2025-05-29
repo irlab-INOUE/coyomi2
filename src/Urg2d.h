@@ -49,13 +49,17 @@ class Urg2d {
     const int IMG_ORIGIN_Y = 200;
     const double csize = 12.0/400;
     cv::Mat baseImg;
+
+    bool isConnectionSuccessful = true;
   public:
-    Urg2d(double, double, double);
+    Urg2d(const std::string, double, double, double);
     ~Urg2d();
     std::vector<LSP> getData();
     std::vector<LSP> getData(const cv::Mat &imgMap, const Pose2d &pose,
         const int originX, const int originY, const double csize);
     int view(int wait_time);
+    int view(const std::string lidar_select, int wait_time);
     void close();
+    bool getConnectionSuccessfully();
 };
 

@@ -1,3 +1,11 @@
+/**************************************************************************
+ * Robot control program using DE with LFM
+ *
+ * author: Kazumichi INOUE <kazumichiinoue@mail.saitama-u.ac.jp>
+ * Github: https://github.com/irlab-INOUE/coyomi2
+ * date:   2023/6/20
+ * update: 2025/4/19
+ ****************************************************************************/
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
@@ -15,9 +23,16 @@
 #include <termios.h>
 #include <unistd.h>
 #include <ncurses.h>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
-#include "Urg2d.h"
-#include "MCL.h"
+using namespace std::chrono;  // seconds, milliseconds
+using std::this_thread::sleep_for;
+using LockGuard = std::lock_guard<std::mutex>;
+std::mutex mtx;
+
+#include "common.h"
 #include "shm_board.h"
 #include "Viewer.h"
 #include "yaml-cpp/yaml.h"
@@ -25,58 +40,49 @@
 #include "checkDirectory.h"
 #include "Config.h"
 #include "wave_front_planner.h"
+#include "time_utility.h"
+#include "DELFM.h"
+#include "GetUrg3d.h"
+#include "shared_struct.h"
+#include "thread_battery_logger.h"
+#include "thread_sound.h"
+#include "thread_3D_Lidar.h"
+#include "thread_display.h"
+#include "thread_2D_Lidar_b.h"
+#include "thread_localization.h"
+#include "global_variable.h"
 
-#define N 256 	// 日時の型変換に使うバッファ数
+/***************************************
+ * Global variable
+ ****************************************/
+std::thread th_battery_logger;
+std::thread th_sound_logger;
+std::thread th_3D_Lidar;
+std::thread th_display;
+std::thread th_2D_Lidar_b;
+std::thread th_2D_Lidar_t;
+std::thread th_localization;
 
-int fd_motor;
+// ジョイスティック
 SDL_Joystick* joystick;
 
-// 共有したい構造体毎にアドレスを割り当てる
-ENC *shm_enc         = nullptr;
-URG2D *shm_urg2d     = nullptr;
-BAT *shm_bat         = nullptr;
-LOC *shm_loc         = nullptr;
-LOGDIR *shm_logdir   = nullptr;
-WP_LIST *shm_wp_list = nullptr;
-DISPLAY *shm_disp    = nullptr;
+// 共有オブジェクト
+auto log_path = std::make_shared<LOGDIR_PATH>();
+auto log_data = std::make_shared<LOG_DATA>();
+auto disp     = std::make_shared<DisplayContents>();
+auto bat      = std::make_shared<BAT>();
+auto loc      = std::make_shared<LOC>();
+auto enc      = std::make_shared<ENC>();
+auto urg2d    = std::make_shared<URG2D>();
+auto urg2d_t  = std::make_shared<URG2D>();
+auto wp_list  = std::make_shared<WP_LIST>();
 
+// Oriental Motors
+int fd_motor;   // FDをOrientalMotorInterface.hで使うのでinclude前に定義
 #include "OrientalMotorInterface.h"
 //#define DEBUG_SENDRESP
 
-using namespace std::chrono;
-
-void sigcatch( int );
-
-void signal_handler_SIGTERM(int signum) {
-  if (signum == SIGTERM) {
-    exit(0);
-  }
-};
-
-bool LIDAR_STOP = false;
-void signal_handler_SIGTERM_inLIDAR(int signum) {
-  if (signum == SIGTERM) {
-    LIDAR_STOP = true;
-  }
-};
-
-bool isFREE = false;
-bool gotoEnd = false;
-
-// log file
-std::ofstream enc_log;
-std::ofstream fout_urg2d;
-std::ofstream bat_log;
-std::ofstream mcl_log;
-
-YAML::Node yamlRead(std::string path) {
-  try {
-    return YAML::LoadFile(path);
-  } catch(YAML::BadFile &e) {
-    std::cerr << "read error! yaml is not exist."<< std::endl;
-    exit(1);
-  }
-}
+void sigcatch(int);
 
 // The max (min) value for each axis based measurement value
 struct joy_calib {
@@ -110,62 +116,60 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
   double axis0 = 0;
   double axis1 = 0;
 
+  auto set_vw = [&v, &w](double _v, double _w) {v = _v; w = _w;};
+
   /* read the joystick state */
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     switch (e.type) {
       case SDL_JOYBUTTONUP:
       case 1:
-        v = 0.0; w = 0.0;
-        break;
       case 2:
-        v = 0.0; w = 0.0;
-        break;
       case 0:
-        v = 0.0; w = 0.0;
-        break;
       case 3:
-        v = 0.0; w = 0.0;
-        break;
       default:
-        v = 0.0; w = 0.0;
+        set_vw(0.0, 0.0);
         break;
       case SDL_JOYBUTTONDOWN:
         switch (static_cast<int>(e.jbutton.button)) {
           case 1:
-            v = 0.5; w = 0.0;
+            set_vw(0.5, 0.0);
             break;
           case 2:
-            v = -0.5; w = 0.0;
+            set_vw(-0.5, 0.0);
             break;
           case 0:
-            v = 0.0; w = 1.0;
+            set_vw(0.0, 1.0);
             break;
           case 3:
-            v = 0.0; w = -1.0;
+            set_vw(0.0, -1.0);
+            break;
+          case 4:
+          case 5:
+            get3DLidarData.store(true);
             break;
           case 10:
+            gotoEnd.store(true);
             //std::cerr << "End\n";
-            v = 0.0; w = 0.0;
+            set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-            usleep(1500000);
-            gotoEnd = true;
+            sleep_for(milliseconds(150));
             break;
           case 12:
             //std::cerr << "FREE\n";
-            v = 0.0; w = 0.0;
+            set_vw(0.0, 0.0);
             calc_vw2hex(Query_NET_ID_WRITE, v, w);
             simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-            usleep(1000000);
-            isFREE = !isFREE;
-            if (isFREE)
+            sleep_for(milliseconds(100));
+            isFREE.store(!(isFREE.load()));
+            if (isFREE.load())
               free_motors();
             else
               turn_on_motors();
             break;
           default:
-            v = 0.0; w = 0.0;
+            set_vw(0.0, 0.0);
             break;
         }
     }
@@ -183,18 +187,13 @@ void read_joystick(double &v, double &w, const std::vector<joy_calib> &j_calib) 
       }
     }
   }
-  // method 1
-  //v = -axis1 * 0.8;
-  //w = -axis0 * 10*M_PI/180.0;
-  // method 2
 }
 
 std::vector<WAYPOINT> wpRead(std::string wpname) {
   if (wpname == "") {
     std::cerr << "WPファイルのパスを指定してください\n";
-    exit(0);
+    exit(EXIT_FAILURE);
   }
-  //std::cerr << wpname << " を読み込みます...";
   std::vector<WAYPOINT> wp;
   std::fstream fn;
   fn.open(wpname);
@@ -205,7 +204,6 @@ std::vector<WAYPOINT> wpRead(std::string wpname) {
     wp.emplace_back(buf);
     fn >> buf.x >> buf.y >> buf.a >> buf.stop_check;
   }
-  //std::cerr << "完了\n";
   return wp;
 }
 
@@ -242,22 +240,18 @@ void WaypointEditor(std::string MAP_PATH, std::string WP_NAME, std::string OCC_N
     } else if (wp_index < 0) {
       wp_index = static_cast<int>(wp.size()) - 1;
     }
-    usleep(5000);
+    sleep_for(milliseconds(5));
   }
 }
 
-long long get_current_time() {
-  auto time_now = high_resolution_clock::now();
-  long long ts = duration_cast<milliseconds>(time_now.time_since_epoch()).count();
-  return ts;
-}
-
-std::vector<pid_t> p_list;
+/***************************************
+ * MAIN
+ ***************************************/
 int main(int argc, char *argv[]) {
   /* Ctrl+c 対応 */
   if (SIG_ERR == signal( SIGINT, sigcatch )) {
     std::printf("failed to set signal handler\n");
-    exit(1);
+    exit(EXIT_FAILURE);
   }
 
   /* Configその他の読み込みセクション */
@@ -271,7 +265,8 @@ int main(int argc, char *argv[]) {
   std::cout << "Please select an action in following list.\n"
     << "[1]: Only localization (default)\n"
     << " 2 : Navigation\n"
-    << " 3 : WayPoint editor\n";
+    << " 3 : WayPoint editor\n"
+    << " 4 : exit" << std::endl;
   char MODE;
   while (1) {
     MODE = getchar();
@@ -298,112 +293,74 @@ int main(int argc, char *argv[]) {
       WaypointEditor(MAP_PATH, WP_NAME, OCC_NAME);
 
       return 0;
-      break;
+    }
+    else if (MODE == '4') {
+      std::cout << "Hello, Coyomi2. Exit." << std::endl;
+      return 0;
     }
   }
 
-  /**************************************************************************
-        共有メモリの確保
-     ***************************************************************************/
-  // 共有したい構造体毎にアドレスを割り当てる
-  shm_enc        =        (ENC *)shmAt(KEY_ENC, sizeof(ENC));
-  shm_urg2d      =      (URG2D *)shmAt(KEY_URG2D, sizeof(URG2D));
-  shm_bat        =        (BAT *)shmAt(KEY_BAT,   sizeof(BAT));
-  shm_loc        =        (LOC *)shmAt(KEY_LOC, sizeof(LOC));
-  shm_logdir     =     (LOGDIR *)shmAt(KEY_LOGDIR, sizeof(LOGDIR));
-  shm_disp       =    (DISPLAY *)shmAt(KEY_DISPLAY, sizeof(DISPLAY));
-  shm_wp_list    =    (WP_LIST *)shmAt(KEY_WP_LIST, sizeof(WP_LIST));
-  std::cerr << TEXT_GREEN << "Completed shared memory allocation\n" << TEXT_COLOR_RESET;
   /***************************************************************************
-    LOG保管場所を作成する
-    DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
-        なければ作成する
-     ***************************************************************************/
-  std::string storeDir = DEFAULT_LOG_DIR;
+   * LOG保管場所を作成する
+   * DEFAULT_LOG_DIRの場所にcoyomi_log ディレクトリがあるかチェックし，
+   * なければ作成する
+   ***************************************************************************/
   // 現在日付時刻のディレクトリを作成する
-  time_t now = time(NULL);
-  struct tm *pnow = localtime(&now);
-  char s[N] = {'\0'};
-  bool STORE = true;
-  if (STORE) {
-    checkDir(storeDir);
-    strftime(s, N, "%Y", pnow); strcpy(shm_logdir->year, s); shm_logdir->year[4] = '\0';
-    strftime(s, N, "%m", pnow); strcpy(shm_logdir->mon,  s); shm_logdir->mon[2]  = '\0';
-    strftime(s, N, "%d", pnow); strcpy(shm_logdir->mday, s); shm_logdir->mday[2] = '\0';
-    strftime(s, N, "%H", pnow); strcpy(shm_logdir->hour, s); shm_logdir->hour[2] = '\0';
-    strftime(s, N, "%M", pnow); strcpy(shm_logdir->min , s); shm_logdir->min[2]  = '\0';
-    strftime(s, N, "%S", pnow); strcpy(shm_logdir->sec , s); shm_logdir->sec[2]  = '\0';
-    storeDir += "/" + std::string(shm_logdir->year, 4)
-      + "/" + std::string(shm_logdir->mon,  2)
-      + "/" + std::string(shm_logdir->mday, 2)
-      + "/" + std::string(shm_logdir->hour, 2)
-      + std::string(shm_logdir->min, 2)
-      + std::string(shm_logdir->sec, 2);
-    std::cerr << storeDir << std::endl;
-    storeDir.copy(shm_logdir->path, storeDir.size());
-    checkDir(storeDir);
+  auto now = std::chrono::system_clock::now();
+  std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+  std::tm tm = *std::localtime(&now_c);
 
-    std::cerr << "path: " << shm_logdir->path << "にログを保存します" << std::endl;
-    std::cerr << "Press ENTER key";
-    getchar();
-  } else {
-    std::cerr << "ログは保管しません\n";
-  }
+  checkDir(std::string(DEFAULT_LOG_DIR));
+  std::ostringstream oss;
+  oss << std::put_time(&tm, "%Y"); log_path->year = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%m"); log_path->mon  = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%d"); log_path->mday = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%H"); log_path->hour = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%M"); log_path->min  = oss.str(); oss.str(""); oss.clear();
+  oss << std::put_time(&tm, "%S"); log_path->sec  = oss.str(); oss.str(""); oss.clear();
+  log_path->path = std::string(DEFAULT_LOG_DIR) + "/" + log_path->year + "/" + log_path->mon + "/"
+    + log_path->mday + "/" + log_path->hour + log_path->min + log_path->sec;
+  checkDir(log_path->path);
+
+  std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
+
+  th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, bat);
+  th_sound_logger   = std::thread(thread_sound, log_path, log_data, enc);
+  th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
+  th_display        = std::thread(thread_display, log_path, log_data, disp, enc, loc, bat);
+  th_2D_Lidar_b     = std::thread(thread_2D_Lidar_b, std::string("b"), log_path, log_data, urg2d);
+  th_2D_Lidar_t     = std::thread(thread_2D_Lidar_b, std::string("t"), log_path, log_data, urg2d_t);
+  th_localization   = std::thread(thread_localization, log_path, log_data, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
-        Connect check & open serial port
-     ***************************************************************************/
+   * Connect check & open serial port for MotoDriver
+   ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
-    std::cerr << "Can't open serial port\n";
-    return false;
+    add_log(log_data, "Can't open serial port");
+    gotoEnd.store(true);
   } else {
-    std::cerr << "Get fd_motor: " << fd_motor << "\n";
+    std::string log_text = "Get fd_motor: " + std::to_string(fd_motor);
+    add_log(log_data, log_text);
   }
 
   /**************************************************************************
-        Joystick setup
-     ***************************************************************************/
+   * Joystick setup
+   ***************************************************************************/
   if (SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) < 0) {
-    std::cerr << "Failure SDL initialize. " << SDL_GetError() << std::endl;
-    return 1;
+    std::string log_text = "Failure SDL initialize. " + std::string(SDL_GetError());
+    add_log(log_data, log_text);
+    gotoEnd.store(true);
   }
   joystick = SDL_JoystickOpen(0);
-  std::cerr << "Joystick detected:" << SDL_JoystickName(joystick) << std::endl;
-  std::cerr << SDL_JoystickNumAxes(joystick) << " axis" << std::endl;
-  std::cerr << SDL_JoystickNumButtons(joystick) << " buttons" << std::endl << std::endl;
 
   // calibrate axis until JS_EVENT_BUTTON pressed
-  bool loop_out_flag = false;
   std::vector<joy_calib> j_calib(6);
-  std::cerr << "Calibrate js axis. Rotate LEFT axis to the all direction, then press any button\n";
   SDL_Event e;
-  while (1) {
-    while (!loop_out_flag) {
-      while (SDL_PollEvent(&e))
-        switch (e.type) {
-          case SDL_JOYBUTTONDOWN:
-            std::cout << "Pressed SDL_JOYBUTTONDOWN\n";
-            loop_out_flag = true;
-            break;
-          case SDL_JOYAXISMOTION:
-            //j_calib[static_cast<int>(e.jaxis.axis)].set_val(e.jaxis.value);
-            j_calib[static_cast<int>(e.jaxis.axis)].set_zero(e.jaxis.value);
-            break;
-          default:
-            break;
-        }
-    }
-    if (loop_out_flag) break;
-    usleep(10000);
-  }
-  for (auto j: j_calib) {
-    std::cout << j.min << " " << j.max << " " << j.zero << "\n";
-  }
-  std::cerr << "Joypad ready completed" << std::endl;
+  add_log(log_data, "Joypad ready completed.");
 
   /**************************************************************************
-        Serial port setup
-     ***************************************************************************/
+   * Serial port setup for Motor Drivers
+   ***************************************************************************/
   struct termios tio;
   memset(&tio, 0, sizeof(tio));
   tio.c_cflag = CS8 | CLOCAL | CREAD | PARENB;
@@ -415,51 +372,38 @@ int main(int argc, char *argv[]) {
   tcsetattr(fd_motor, TCSANOW, &tio);
 
   /**************************************************************************
-        Motor driver setup
-     ***************************************************************************/
+   * Motor driver setup
+   ***************************************************************************/
   // BLV-R Driver setup
   // ID Share Config.
-  std::cerr << "ID Share configration...";
+  add_log(log_data, "ID Share configration...");
   simple_send_cmd(Query_IDshare_R, sizeof(Query_IDshare_R));
   simple_send_cmd(Query_IDshare_L, sizeof(Query_IDshare_L));
   simple_send_cmd(Query_READ_R,    sizeof(Query_READ_R));
   simple_send_cmd(Query_READ_L,    sizeof(Query_READ_L));
   simple_send_cmd(Query_WRITE_R,   sizeof(Query_WRITE_R));
   simple_send_cmd(Query_WRITE_L,   sizeof(Query_WRITE_L));
-  std::cerr << "Done.\n";
+  add_log(log_data, "Done");
 
   //trun on exitation on RL motor
   turn_on_motors();
 
   /**************************************************************************
-        Ncurses setup
-     ***************************************************************************/
-  int key;    // curses用キーボード入力判定
-  WINDOW *win = initscr();
-  noecho();
-  cbreak();
-  keypad(stdscr, TRUE);
-  curs_set(0);
-  start_color();
-  timeout(0);
-  init_pair(1,COLOR_BLUE, COLOR_BLACK);
-
-  /**************************************************************************
-        Waypoint setup
-        Note:
-          For the wavefront planner to work properly, the occMap should have
-          traversable areas marked in white.
-     ***************************************************************************/
-  shm_loc->CURRENT_MAP_PATH_INDEX = 0;
-  if (argc > 1) shm_loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
-  std::string MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
+   * Waypoint setup
+   * Note:
+   * For the wavefront planner to work properly, the occMap should have
+   * traversable areas marked in white.
+   ***************************************************************************/
+  loc->CURRENT_MAP_PATH_INDEX = 0;
+  if (argc > 1) loc->CURRENT_MAP_PATH_INDEX = std::atoi(argv[1]);
+  std::string MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
   // Reading Way Point
   std::vector<WAYPOINT> tmp_wp, wp;
-  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+  tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
   WAYPOINT prev_target(0, 0, 0, 0);
   wavefrontplanner::Config cfg;
-  cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-  cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+  cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+  cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
   wavefrontplanner::WaveFrontPlanner wfp(cfg);
   for (auto w: tmp_wp) {
     wavefrontplanner::Config cfg;
@@ -470,7 +414,7 @@ int main(int argc, char *argv[]) {
     wfp.Init(cfg);
     std::vector<wavefrontplanner::Path> path = wfp.SearchGoal();
     for (auto p: path) {
-      WAYPOINT w(p.x, p.y, 0, 0);
+      WAYPOINT w(p.x, p.y, p.r, 0);
       wp.emplace_back(w);
     }
     wp.emplace_back(w);
@@ -478,306 +422,42 @@ int main(int argc, char *argv[]) {
     prev_target.x = w.x;
     prev_target.y = w.y;
   }
-  std::cout << "wave front completed. path size=" << wp.size() << std::endl;
-  shm_wp_list->size_wp_list = wp.size();
+
+  wp_list->size_wp_list = wp.size();
   for (int i = 0; i < wp.size(); i++) {
-    shm_wp_list->wp_list[i].x = wp[i].x;
-    shm_wp_list->wp_list[i].y = wp[i].y;
-    shm_wp_list->wp_list[i].a = wp[i].a;
-    shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+    wp_list->wp_list[i].x = wp[i].x;
+    wp_list->wp_list[i].y = wp[i].y;
+    wp_list->wp_list[i].a = wp[i].a;
+    wp_list->wp_list[i].stop_check = wp[i].stop_check;
   }
-  shm_enc->current_wp_index = 0;
-#if 0
-  std::ofstream wplog("./wplog");
-  for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
-    wplog << shm_wp_list->wp_list[i].x << " " << shm_wp_list->wp_list[i].y
-      << " " << shm_wp_list->wp_list[i].a << " " << shm_wp_list->wp_list[i].stop_check << "\n";
-  }
-#endif
+  wp_list->get_ready = true;
+  enc->current_wp_index = 0;
 
   /**************************************************************************
-        initial pose setup
-     ***************************************************************************/
-  shm_loc->x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-  shm_loc->y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-  shm_loc->a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+   * initial pose setup
+   ***************************************************************************/
+  loc->x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+  loc->y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+  loc->a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
 
   /**************************************************************************
-        initial enc setup
-     ***************************************************************************/
+   * initial enc setup
+   ***************************************************************************/
   long long first_ts = get_current_time();
   ODOMETORY first_odo;
   read_state(first_odo, first_ts);
   sleep(1);
-  shm_enc->ts = first_ts;
-  shm_enc->x = first_odo.rx;
-  shm_enc->y = first_odo.ry;
-  shm_enc->a = first_odo.ra;
+  enc->ts = first_ts;
+  enc->x  = first_odo.rx;
+  enc->y  = first_odo.ry;
+  enc->a  = first_odo.ra;
 
   /**************************************************************************
-        Multi threads setup
-     ***************************************************************************/
-  for (int i = 0; i < 5; i++) {
-    pid_t c_pid = fork();
-    if (c_pid == -1) {
-      perror("fork");
-      exit(EXIT_FAILURE);
-    } else if (c_pid > 0) {
-      switch (i) {
-        case 0:
-          std::cerr << "Start 2d-LiDAR log: " << c_pid << "\n";
-          break;
-        case 1:
-          std::cerr << "Start battery log: " << c_pid << "\n";
-          break;
-        case 2:
-          std::cerr << "Start Localization: " << c_pid << "\n";
-          break;
-        case 3:
-          std::cerr << "Start state display: " << c_pid << "\n";
-          break;
-        case 4:
-          std::cerr << "Start sound on: " << c_pid << "\n";
-          break;
-        default:
-          std::cerr << "Error\n";
-          break;
-      }
-      p_list.emplace_back(c_pid);
-    } else {
-      if (i == 0) {       // 2d-lidar
-        signal(SIGTERM, signal_handler_SIGTERM_inLIDAR);
-        shm_urg2d->start_angle = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
-        shm_urg2d->end_angle   = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
-        shm_urg2d->step_angle  = coyomi_yaml["2DLIDAR"]["step_angle"].as<double>();
-        shm_urg2d->max_echo_size = coyomi_yaml["2DLIDAR"]["max_echo_size"].as<double>();
-        shm_urg2d->size =
-          ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1)
-          * shm_urg2d->max_echo_size;
-        for (int i = 0; i < shm_urg2d->size; i++) {
-          shm_urg2d->r[i] = 0;
-        }
-        Urg2d urg2d(shm_urg2d->start_angle, shm_urg2d->end_angle, shm_urg2d->step_angle);
-        for (int i = 0; i < ((shm_urg2d->end_angle - shm_urg2d->start_angle)/shm_urg2d->step_angle + 1); i++) {
-          double ang = (i * shm_urg2d->step_angle + shm_urg2d->start_angle)*M_PI/180;
-          shm_urg2d->ang[i] = ang;
-          shm_urg2d->cs[i] = cos(ang);
-          shm_urg2d->sn[i] = sin(ang);
-        }
-
-        std::string path = shm_logdir->path;
-        path += "/urglog";
-        while(1) {
-          fout_urg2d.open(path, std::ios_base::app);
-          long long ts = get_current_time();
-          std::vector<LSP> result = urg2d.getData();
-          urg2d.view(5);
-          fout_urg2d << "LASERSCANRT" << " "
-            << ts << " "
-            << static_cast<int>(result.size()) * shm_urg2d->max_echo_size << " "
-            <<
-            std::to_string(shm_urg2d->start_angle) << " "
-            << std::to_string(shm_urg2d->end_angle) << " "
-            << std::to_string(shm_urg2d->step_angle) << " "
-            << shm_urg2d->max_echo_size << " ";
-          for (auto d: result) {
-            fout_urg2d << d.data << " " << "0" << " " << "0" << " ";
-          }
-          fout_urg2d << ts << "\n";
-          fout_urg2d.close();
-
-          shm_urg2d->ts = ts;
-          shm_urg2d->ts_end = ts;
-          shm_urg2d->size = result.size();
-          for (int k = 0; k < result.size(); k++) {
-            shm_urg2d->r[k] = result[k].data;
-          }
-          if (LIDAR_STOP) {
-            urg2d.close();
-            exit(0);
-          }
-        }
-        exit(EXIT_SUCCESS);
-      } else if (i == 1) { // battery
-        signal(SIGTERM, signal_handler_SIGTERM);
-        std::string path = shm_logdir->path;
-        path += "/batlog";
-        while (1) {
-          bat_log.open(path, std::ios_base::app);
-          long long ts = get_current_time();
-          bat_log << shm_bat->ts << " " << shm_bat->voltage << "\n";
-          sleep(1);
-          bat_log.close();
-          shm_disp->battery = shm_bat->voltage;
-        }
-        exit(EXIT_SUCCESS);
-      } else if (i == 2) { // localization
-        signal(SIGTERM, signal_handler_SIGTERM);
-        while (1) {
-          MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-          // Map file path
-          std::string MAP_NAME
-            = MAP_PATH+ "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-          MAP_NAME.copy(shm_loc->path_to_map_dir, MAP_NAME.size());
-          // Likelyhood file path
-          std::string LIKELYHOOD_FIELD
-            = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["likelyhood_field"].as<std::string>();
-          LIKELYHOOD_FIELD.copy(shm_loc->path_to_likelyhood_field, LIKELYHOOD_FIELD.size());
-          // Initial pose
-          if (shm_loc->CURRENT_MAP_PATH_INDEX != 0) {
-            double initial_pose_x = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-            double initial_pose_y = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-            double initial_pose_a = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
-            shm_loc->x = initial_pose_x; shm_loc->y = initial_pose_y; shm_loc->a = initial_pose_a;
-          }
-          Pose2d currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
-          Pose2d previousPose = currentPose;
-          // パーティクル初期配置
-          MCL mcl(Pose2d(shm_loc->x, shm_loc->y, shm_loc->a));
-          mcl.set_lfm(shm_loc->path_to_likelyhood_field);
-          mcl.set_mapInfo(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>());
-
-          MapPath map_path(MAP_PATH, shm_loc->path_to_map_dir, "","","lfm.txt", "mapInfo.yaml", 0, 0, 0);
-          Viewer view(map_path);                        // 現在のoccMapを表示する
-          view.hold();
-          view.show(shm_loc->x, shm_loc->y, 5);
-          //cv::moveWindow("occMap", 700, 0);
-          shm_loc->change_map_trigger = ChangeMapTrigger::kContinue;
-          std::vector<WAYPOINT> wp;
-          for (int i = 0; i < shm_wp_list->size_wp_list; i++) {
-            wp.emplace_back(shm_wp_list->wp_list[i].x, shm_wp_list->wp_list[i].y, shm_wp_list->wp_list[i].a,
-                            shm_wp_list->wp_list[i].stop_check);
-          }
-          // MCL(KLD_sampling)
-          while(1) {
-            if (shm_loc->change_map_trigger == ChangeMapTrigger::kChange) break;
-            view.plot_wp(wp);
-            view.plot_current_wp(wp[shm_enc->current_wp_index]);
-            view.show(shm_loc->x, shm_loc->y, 5);
-            // 動いてなければ自己位置推定はしない
-            currentPose = Pose2d(shm_enc->x, shm_enc->y, shm_enc->a);
-            double _rot = currentPose.a - previousPose.a;
-            double _tran = std::hypot(currentPose.x - previousPose.x, currentPose.y - previousPose.y);
-            std::vector<LSP> lsp;
-            if ((_tran < 1e-4) && (fabs(_rot) < 1e-8)) {
-              ;
-            } else {
-              for (int k = 0; k < shm_urg2d->size; k++) {
-                lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
-              }
-              mcl.KLD_sampling(lsp, currentPose, previousPose);
-            }
-            Pose2d estimatedPose = mcl.get_best_pose();
-            std::vector<Pose2d> particle = mcl.get_particle_set();
-
-            view.reset();
-            view.robot(estimatedPose);
-            view.urg(estimatedPose, lsp);
-            view.particle(particle);
-
-            shm_loc->x = estimatedPose.x;
-            shm_loc->y = estimatedPose.y;
-            shm_loc->a = estimatedPose.a;
-
-            std::string path = shm_logdir->path;
-            path += "/mcllog";
-            mcl_log.open(path, std::ios_base::app);
-            long long ts = get_current_time();
-            mcl_log
-              << ts << " "
-              << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-              << particle.size() << " "
-              << "end" << "\n";
-            mcl_log.close();
-
-            // 次のループの準備
-            previousPose = currentPose;
-            usleep(30000);
-          }
-        }
-        exit(EXIT_SUCCESS);
-      } else if (i == 3) { // State display
-        signal(SIGTERM, signal_handler_SIGTERM);
-        std::cerr << "Please waite 5 sec...";
-        sleep(5);
-        clear();
-        int ROW_MCL = 0;
-        int ROW_MOTOR = 7;
-        int ROW_TOTAL_TRAVEL = 14;
-        int ROW_PATH = 15;
-        int ROW_CURRENT_MAP_PATH_INDEX = 16;
-        mvprintw(ROW_MCL,     0, "MCL Information");
-        mvprintw(ROW_MCL+1,   0, "X[m]     Y[m]      A[deg]");
-        mvprintw(ROW_MOTOR,   0, "Motor Information");
-        mvprintw(ROW_MOTOR+1, 0, "X[m]     Y[m]      A[deg]");
-        while (1) {
-          shm_disp->temp_driver_L = shm_enc->temp_driver_L;
-          shm_disp->temp_driver_R = shm_enc->temp_driver_R;
-          shm_disp->temp_motor_L = shm_enc->temp_motor_L;
-          shm_disp->temp_motor_R = shm_enc->temp_motor_R;
-
-          move(ROW_MCL+2, 0); clrtoeol();
-          mvprintw(ROW_MCL+2, 0, "%.3f", shm_disp->loc_x);
-          mvprintw(ROW_MCL+2, 9, "%.3f", shm_disp->loc_y);
-          mvprintw(ROW_MCL+2,19, "%.1f", shm_disp->loc_a*180/M_PI);
-          move(ROW_MCL+3, 0); clrtoeol();
-          printw("Current WP Index: %d", shm_disp->current_wp_index);
-          move(ROW_MCL+4, 0); clrtoeol();
-          printw("v: %.2f  w: %.2f", shm_disp->v, shm_disp->w);
-          move(ROW_MCL+5, 0); clrtoeol();
-          printw("obx: %.3f  oby: %.3f  ang: %.1f", shm_disp->min_obstacle_x, shm_disp->min_obstacle_y,
-                 atan2(shm_disp->min_obstacle_y, shm_disp->min_obstacle_x) * 180/M_PI);
-          move(ROW_MOTOR+2, 0); clrtoeol();
-          mvprintw(ROW_MOTOR+2, 0, "%.3f", shm_disp->enc_x);
-          mvprintw(ROW_MOTOR+2, 9, "%.3f", shm_disp->enc_y);
-          mvprintw(ROW_MOTOR+2,19, "%.1f", shm_disp->enc_a*180/M_PI);
-          move(ROW_MOTOR+3, 0); clrtoeol();
-          printw("Voltage: %.1f", shm_disp->battery);
-          move(ROW_MOTOR+4, 0); clrtoeol();
-          printw("TmpL_D %.1f  TmpR_D %.1f", shm_disp->temp_driver_L, shm_disp->temp_driver_R);
-          move(ROW_MOTOR+5, 0); clrtoeol();
-          printw("TmpL_M %.1f  TmpR_M %.1f", shm_disp->temp_motor_L, shm_disp->temp_motor_R);
-
-          move(ROW_TOTAL_TRAVEL, 0); clrtoeol();
-          printw("Total %.1f", shm_disp->total_travel);
-          move(ROW_PATH, 0); clrtoeol();
-          printw("%s", shm_loc->path_to_map_dir);
-          move(ROW_CURRENT_MAP_PATH_INDEX, 0); clrtoeol();
-          printw("CURRENT_MAP_PATH_INDEX %d", shm_loc->CURRENT_MAP_PATH_INDEX);
-          refresh();
-        }
-        exit(EXIT_SUCCESS);
-      } else if (i == 4) { // sound on
-        signal(SIGTERM, signal_handler_SIGTERM);
-        int prev_wp_index = 0;
-        std::string path = shm_logdir->path;
-        path += "/sound_log";
-        std::ofstream sound_log;
-        while (1) {
-          sound_log.open(path, std::ios_base::app);
-          long long ts = get_current_time();
-          sound_log << ts << " " << prev_wp_index << " " << shm_enc->current_wp_index << "\n";
-          sound_log.close();
-          if (prev_wp_index != shm_enc->current_wp_index) {
-            std::string cmd = "paplay /usr/share/sounds/freedesktop/stereo/complete.oga";
-            int ret = std::system(cmd.c_str());
-            prev_wp_index = shm_disp->current_wp_index;
-          }
-          sleep(1);
-        }
-        exit(EXIT_SUCCESS);
-      }
-    }
-  }
-
-  /**************************************************************************
-        Starting Main Process
-     ***************************************************************************/
+   * Starting Main Process
+   ***************************************************************************/
   double v = 0.0;
   double w = 0.0;
   ODOMETORY odo;
-  int number_of_lidar_view_count = 1;
-  int lidar_view_countdown = number_of_lidar_view_count;
   tcflush(fd_motor, TCIOFLUSH);
   DynamicWindowApproach dwa(coyomi_yaml);
   double arrived_check_distance = coyomi_yaml["MotionControlParameter"]["arrived_check_distance"].as<double>();
@@ -785,140 +465,107 @@ int main(int argc, char *argv[]) {
   calc_vw2hex(Query_NET_ID_WRITE, v, w);
   simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
   usleep(100000);
-  isFREE = !isFREE;
   free_motors();
   std::string start_bell_cmd = "paplay /usr/share/sounds/freedesktop/stereo/bell.oga";
   int start_bell_ret = std::system(start_bell_cmd.c_str());
 
-  while (isFREE) {
+  while (isFREE.load()) {
+    if (gotoEnd.load()) break;
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
-    if (gotoEnd) goto CLEANUP;
-    usleep(100000);
 
     long long ts = get_current_time();
     read_state(odo, ts);
-    shm_enc->ts = ts;
-    shm_enc->x = odo.rx;
-    shm_enc->y = odo.ry;
-    shm_enc->a = odo.ra;
+    enc->ts = ts;
+    enc->x = odo.rx;
+    enc->y = odo.ry;
+    enc->a = odo.ra;
 
-    shm_disp->enc_x = odo.rx;
-    shm_disp->enc_y = odo.ry;
-    shm_disp->enc_a = odo.ra;
+    sleep_for(milliseconds(100));
   }
   start_bell_ret = std::system(start_bell_cmd.c_str());
 
-  while(1) {
+  while(!gotoEnd.load()) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
-    if (gotoEnd) goto CLEANUP;
 
     std::vector<LSP> lsp;
-    for (int k = 0; k < shm_urg2d->size; k++) {
-      lsp.emplace_back(shm_urg2d->r[k], shm_urg2d->r[k]/1000.0, shm_urg2d->ang[k], shm_urg2d->cs[k], shm_urg2d->sn[k]);
+    for (int k = 0; k < urg2d->size; k++) {
+      lsp.emplace_back(urg2d->r[k], urg2d->r[k]/1000.0, urg2d->ang[k], urg2d->cs[k], urg2d->sn[k]);
     }
-    Pose2d estimatedPose(shm_loc->x, shm_loc->y, shm_loc->a);
+    Pose2d estimatedPose(loc->x, loc->y, loc->a);
     if (MODE == '1') {
       v = tmp_v; w = tmp_w;
       //isFREE = true;
     }
     if (MODE == '2') {
       double obx, oby;
-      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[shm_enc->current_wp_index]);
-      shm_disp->min_obstacle_x = obx;
-      shm_disp->min_obstacle_y = oby;
+      std::tie(v, w, obx, oby) = dwa.run(lsp, estimatedPose, v, w, wp[enc->current_wp_index]);
+      disp->min_obstacle_x = obx;
+      disp->min_obstacle_y = oby;
 
-#if 1
       // rotate ricovery
       if (fabs(v) < 1e-6 && fabs(w) <1e-6) {
         if (oby >= 0) w = -M_PI/8.0;
         else w = M_PI/8.0;
         v = 0.3 * w;  // rodate radius is 0.3[m]
         if (v > 0.0) v = -v;
-        //sleep(1);
       }
-#endif
 
-      double dist2wp = std::hypot(wp[shm_enc->current_wp_index].x - estimatedPose.x,
-                                  wp[shm_enc->current_wp_index].y - estimatedPose.y);
-      if (wp[shm_enc->current_wp_index].stop_check == 2) {
+      // WP上の障害物判定を入れる
+      // 必要ならばWFPを再実行（近距離だけ）
+
+      // 通常処理
+      double dist2wp = std::hypot(wp[enc->current_wp_index].x - estimatedPose.x,
+          wp[enc->current_wp_index].y - estimatedPose.y);
+      if (wp[enc->current_wp_index].stop_check == 2) {
         if (dist2wp < arrived_check_distance) {
           double dwa_v = v;
           v = v * 0.8;
           if (v < 0.1) v = 0.1;
         }
         if (dist2wp < 0.5) {
-          shm_enc->current_wp_index += 1;
+          enc->current_wp_index += 1;
         }
-      } else if (wp[shm_enc->current_wp_index].stop_check == 1) {
+      } else if (wp[enc->current_wp_index].stop_check == 1) {
         if (dist2wp < 0.5) {
-          shm_enc->current_wp_index += 1;
-          isFREE = !isFREE;
+          enc->current_wp_index += 1;
+          isFREE.store(true);
           free_motors();
-          while (isFREE) {
+          while (isFREE.load() || !gotoEnd.load()) {
             read_joystick(v, w, j_calib);
             long long ts = get_current_time();
             read_state(odo, ts);
-            shm_enc->ts = ts;
-            shm_enc->x = odo.rx;
-            shm_enc->y = odo.ry;
-            shm_enc->a = odo.ra;
-
-            shm_disp->enc_x = odo.rx;
-            shm_disp->enc_y = odo.ry;
-            shm_disp->enc_a = odo.ra;
+            enc->ts = ts;
+            enc->x = odo.rx;
+            enc->y = odo.ry;
+            enc->a = odo.ra;
           }
         }
       } else if (dist2wp < arrived_check_distance) {
-        shm_enc->current_wp_index += 1;
-#ifdef THETAV
-        v = 0; w = 0;
-        calc_vw2hex(Query_NET_ID_WRITE, v, w);
-        simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-        sleep(2);
-
-        std::string lx = std::to_string(estimatedPose.x);
-        std::string ly = std::to_string(estimatedPose.y);
-        std::string cmd = "./bin/capture " + lx + " " + ly;
-        int ret = std::system(cmd.c_str());
-        if (ret == -1) {
-          std::cerr << "script error" << std::endl;
-        }
-#endif
+        enc->current_wp_index += 1;
       }
-      if (shm_enc->current_wp_index >= wp.size()) {
-        shm_enc->current_wp_index = 0;
+      if (enc->current_wp_index >= wp.size()) {
+        enc->current_wp_index = 0;
         v = 0; w = 0;
         calc_vw2hex(Query_NET_ID_WRITE, v, w);
         simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
         sleep(1);
 
         // Change current map
-        shm_loc->CURRENT_MAP_PATH_INDEX++;
-        if (shm_loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
-          shm_loc->CURRENT_MAP_PATH_INDEX = 0;
+        loc->CURRENT_MAP_PATH_INDEX++;
+        if (loc->CURRENT_MAP_PATH_INDEX >= coyomi_yaml["MapPath"].size()) {
+          loc->CURRENT_MAP_PATH_INDEX = 0;
         }
-        MAP_PATH = coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
-#if 0
-        // Reading Way Point
-        wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
-        shm_wp_list->size_wp_list = wp.size();
-        for (int i = 0; i < wp.size(); i++) {
-          shm_wp_list->wp_list[i].x = wp[i].x;
-          shm_wp_list->wp_list[i].y = wp[i].y;
-          shm_wp_list->wp_list[i].a = wp[i].a;
-          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
-        }
-#endif
+        MAP_PATH = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["path"].as<std::string>();
         // Reading Way Point
         tmp_wp.clear();
         wp.clear();
-        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
+        tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
         WAYPOINT prev_target(0, 0, 0, 0);
         wavefrontplanner::Config cfg;
-        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
-        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][shm_loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
+        cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
+        cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
         wavefrontplanner::WaveFrontPlanner wfp(cfg);
         for (auto w: tmp_wp) {
           wavefrontplanner::Config cfg;
@@ -938,23 +585,23 @@ int main(int argc, char *argv[]) {
           prev_target.y = w.y;
         }
         std::cout << "wave front completed. path size=" << wp.size() << std::endl;
-        shm_wp_list->size_wp_list = wp.size();
+        wp_list->size_wp_list = wp.size();
         for (int i = 0; i < wp.size(); i++) {
-          shm_wp_list->wp_list[i].x = wp[i].x;
-          shm_wp_list->wp_list[i].y = wp[i].y;
-          shm_wp_list->wp_list[i].a = wp[i].a;
-          shm_wp_list->wp_list[i].stop_check = wp[i].stop_check;
+          wp_list->wp_list[i].x = wp[i].x;
+          wp_list->wp_list[i].y = wp[i].y;
+          wp_list->wp_list[i].a = wp[i].a;
+          wp_list->wp_list[i].stop_check = wp[i].stop_check;
         }
         // 地図・初期位置のリセットトリガー
-        shm_loc->change_map_trigger = ChangeMapTrigger::kChange;
-        while(shm_loc->change_map_trigger == ChangeMapTrigger::kChange) {
+        loc->change_map_trigger = ChangeMapTrigger::kChange;
+        while(loc->change_map_trigger == ChangeMapTrigger::kChange) {
           usleep(100000);
         }
         clear();
       }
     }
 
-    if (isFREE) {
+    if (isFREE.load()) {
       v = 0.0;
       w = 0.0;
     }
@@ -963,25 +610,15 @@ int main(int argc, char *argv[]) {
     long long ts = get_current_time();
     read_state(odo, ts);
 
-    shm_enc->ts = ts;
-    shm_enc->x = odo.rx;
-    shm_enc->y = odo.ry;
-    shm_enc->a = odo.ra;
+    enc->ts = ts;
+    enc->x = odo.rx;
+    enc->y = odo.ry;
+    enc->a = odo.ra;
 
-    shm_disp->enc_x = odo.rx;
-    shm_disp->enc_y = odo.ry;
-    shm_disp->enc_a = odo.ra;
-    shm_disp->loc_x = shm_loc->x;
-    shm_disp->loc_y = shm_loc->y;
-    shm_disp->loc_a = shm_loc->a;
-    shm_disp->total_travel = shm_enc->total_travel;
-    shm_disp->current_wp_index = shm_enc->current_wp_index;
-    shm_disp->current_map_path_index = shm_loc->CURRENT_MAP_PATH_INDEX;
-    shm_disp->v = v;
-    shm_disp->w = w;
+    disp->v = v;
+    disp->w = w;
 
-    std::string path = shm_logdir->path;
-    path += "/enclog";
+    std::string path = log_path->path + "/enclog";
     enc_log.open(path, std::ios_base::app);
     enc_log
       << ts << " "
@@ -992,114 +629,48 @@ int main(int argc, char *argv[]) {
   }
   //=====<<MAIN LOOP : END>>=====
 
-CLEANUP:
-  endwin();   // ncurses end
-  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
-  // turn off exitation on RL motor
+  //CLEANUP:
+  // safe stop
+  v = 0.0;
+  w = 0.0;
+  calc_vw2hex(Query_NET_ID_WRITE, v, w);
+  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+  sleep_for(seconds(1));
   turn_off_motors();
-
+  std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
   close(fd_motor);
+
   SDL_JoystickClose(joystick);
   SDL_Quit();
 
   enc_log.close();
   fout_urg2d.close();
-  bat_log.close();
   mcl_log.close();
+  de_log.close();
 
-  for (auto pid: p_list) {
-    kill(pid, SIGTERM);
-  }
-  pid_t wait_pid;
-  while ((wait_pid = wait(nullptr)) > 0)
-    std::cout << "wait:" << wait_pid << "\n";
+  double message_travel = enc->total_travel;
+  double message_voltage = bat->voltage;
 
-  // 共有メモリのクリア
-  std::ofstream shmid(std::string(shm_logdir->path) + "/shmID.txt");
-  shmdt(shm_urg2d);
-  shmdt(shm_bat);
-  shmdt(shm_loc);
-  shmdt(shm_logdir);
-  shmdt(shm_disp);
-  shmdt(shm_wp_list);
-  int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT); shmid << "LOGDIR " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
+  running.store(false);
+  th_display.join();
+  th_battery_logger.join();
+  th_sound_logger.join();
+  th_3D_Lidar.join();
+  th_2D_Lidar_b.join();
+  th_2D_Lidar_t.join();
+  th_localization.join();
+
+  std::cerr << "===========" << std::endl;
+  std::cerr << "Total travel: " << message_travel << "[m]" << std::endl;
+  std::cerr << "Battery voltage: " << message_voltage << "[V]" << std::endl;
 
   return 0;
 }
 
 void sigcatch(int sig) {
-  endwin();   // ncurses end
-
-  std::cerr << "Total travel: " << shm_enc->total_travel << "[m]\n";
-  std::cerr << "Battery voltage: " << shm_bat->voltage << "[V]\n";
+  gotoEnd.store(true);
 
   std::cerr << TEXT_RED;
   std::printf("Catch signal %d\n", sig);
   std::cerr << TEXT_COLOR_RESET;
-
-  for (auto pid: p_list) {
-    kill(pid, SIGTERM);
-  }
-  pid_t wait_pid;
-  while ((wait_pid = wait(nullptr)) > 0) {
-    // std::cout << "wait:" << wait_pid << "\n";
-  }
-
-  pid_t pid = getpid();
-  std::cout << "If main can't stop, execute next command " << TEXT_GREEN << "**kill " << pid << "** "
-    << TEXT_COLOR_RESET << "in terminal.\n";
-  // safe stop
-  double v = 0.0;
-  double w = 0.0;
-  calc_vw2hex(Query_NET_ID_WRITE, v, w);
-  simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
-  usleep(1500000);
-  turn_off_motors();
-  std::cerr << TEXT_BLUE << "Motors safe stop\n" << TEXT_COLOR_RESET;
-
-  SDL_JoystickClose(joystick);
-  SDL_Quit();
-  close(fd_motor);
-
-  enc_log.close();
-  fout_urg2d.close();
-  bat_log.close();
-  mcl_log.close();
-
-  // 共有メモリのクリア
-  std::ofstream shmid(std::string(shm_logdir->path) + "/shmID.txt");
-  shmdt(shm_urg2d);
-  shmdt(shm_bat);
-  shmdt(shm_loc);
-  shmdt(shm_logdir);
-  shmdt(shm_disp);
-  shmdt(shm_wp_list);
-  int keyID = shmget(KEY_URG2D, sizeof(URG2D), 0666 | IPC_CREAT); shmid << "URG2D " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_BAT, sizeof(BAT), 0666 | IPC_CREAT); shmid << "BAT " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOC, sizeof(LOC), 0666 | IPC_CREAT); shmid << "LOC " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_LOGDIR, sizeof(LOGDIR), 0666 | IPC_CREAT); shmid << "LOGDIR " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_DISPLAY, sizeof(DISPLAY), 0666 | IPC_CREAT); shmid << "DISPLAY " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-  keyID = shmget(KEY_WP_LIST, sizeof(WP_LIST), 0666 | IPC_CREAT); shmid << "WP_LIST " << keyID << "\n";
-  shmctl(keyID, IPC_RMID, nullptr);
-
-  std::cerr << TEXT_BLUE << "shm all clear, Bye!\n" << TEXT_COLOR_RESET;
-
-  exit(1);
 }
