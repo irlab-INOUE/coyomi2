@@ -4,7 +4,7 @@
  * author: Kazumichi INOUE <kazumichiinoue@mail.saitama-u.ac.jp>
  * Github: https://github.com/irlab-INOUE/coyomi2
  * date:   2023/6/20
- * update: 2025/4/19
+ * update: 2025/5/23
  ****************************************************************************/
 #include <chrono>
 #include <cstdlib>
