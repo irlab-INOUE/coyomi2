@@ -333,7 +333,7 @@ int main(int argc, char *argv[]) {
   th_localization   = std::thread(thread_localization, log_path, log_data, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
-   * Connect check & open serial port for MotoDriver
+   * Connect check & open serial port for MotorDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
     add_log(log_data, "Can't open serial port");
