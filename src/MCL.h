@@ -45,7 +45,7 @@ class MCL {
     void KLD_sampling(const std::vector<LSP> &lsp,
         const Pose2d &curX, const Pose2d &prevX);
 
-    Pose2d get_best_pose();
+    std::tuple<Pose2d, double> get_best_pose();
     std::tuple<double, double> get_w();
 };
 #endif

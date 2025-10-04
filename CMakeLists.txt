@@ -53,6 +53,7 @@ add_executable (main main.cpp
   ${SRC_DIR}/DWA.cpp
   ${SRC_DIR}/CreateCostMap.cpp
   ${SRC_DIR}/DELFM.cpp
+  ${SRC_DIR}/MCL.cpp
   ${URG2D_FILES}
   ${URG3D_FILES}
   )

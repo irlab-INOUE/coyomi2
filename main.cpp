@@ -42,6 +42,7 @@ std::mutex mtx;
 #include "wave_front_planner.h"
 #include "time_utility.h"
 #include "DELFM.h"
+#include "MCL.h"
 #include "GetUrg3d.h"
 #include "shared_struct.h"
 #include "thread_battery_logger.h"

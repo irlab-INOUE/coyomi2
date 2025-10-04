@@ -355,7 +355,7 @@ Pose2d MCL::sample_motion_model(const Pose2d& particle,
   return new_particle;
 }
 
-Pose2d MCL::get_best_pose() {
+std::tuple<Pose2d, double> MCL::get_best_pose() {
   double best = -999999;
   Pose2d result;
   for (auto p: particle) {
@@ -364,7 +364,7 @@ Pose2d MCL::get_best_pose() {
       result = p;
     }
   }
-  return result;
+  return std::make_tuple(result, best);
 }
 
 std::tuple<double, double> MCL::get_w() {

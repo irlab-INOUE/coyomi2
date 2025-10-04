@@ -46,6 +46,7 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     wp.emplace_back(wp_list->wp_list[i].x, wp_list->wp_list[i].y, wp_list->wp_list[i].a, wp_list->wp_list[i].stop_check);
   }
 
+#if 1
   // DE with LFM
   const double Window_xy = 0.2;            // 探索範囲[m]
   const double Window_a  = 10*M_PI/180;    // 角度[rad]
@@ -110,6 +111,7 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     previousPose = currentPose;
     usleep(10000);
   }
+#endif
 #if 0
   // パーティクル初期配置
   MCL mcl(Pose2d(loc->x, loc->y, loc->a));
@@ -134,7 +136,9 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
       }
       mcl.KLD_sampling(lsp, currentPose, previousPose);
     }
-    Pose2d estimatedPose = mcl.get_best_pose();
+    double best_eval = 0;
+    Pose2d estimatedPose;
+    std::tie(estimatedPose, best_eval) = mcl.get_best_pose();
     std::vector<Pose2d> particle = mcl.get_particle_set();
 
     view.reset();
@@ -146,13 +150,14 @@ void thread_localization(std::shared_ptr<LOGDIR_PATH> log_path, std::shared_ptr<
     loc->y = estimatedPose.y;
     loc->a = estimatedPose.a;
 
-    std::string path = log_path + "/mcllog";
-    mcl_log.open(path, std::ios_base::app);
+    std::string mcl_logfile_path = log_path->path + "/mcllog";
+    //std::string path = log_path + "/mcllog";
+    mcl_log.open(mcl_logfile_path, std::ios_base::app);
     long long ts = get_current_time();
     mcl_log
       << ts << " "
       << estimatedPose.x << " " << estimatedPose.y << " " << estimatedPose.a << " "
-      << particle.size() << " "
+      << best_eval << " " << particle.size() << " "
       << "end" << "\n";
     mcl_log.close();
 
