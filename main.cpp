@@ -325,6 +325,9 @@ int main(int argc, char *argv[]) {
 
   std::cerr << "path: " << log_path->path << "にログを保存します" << std::endl;
 
+  /**************************************************************************
+   * Start multi threads
+   ***************************************************************************/
   th_battery_logger = std::thread(thread_battery_logger, log_path, log_data, bat);
   th_sound_logger   = std::thread(thread_sound, log_path, log_data, enc);
   th_3D_Lidar       = std::thread(thread_3D_Lidar, log_path, log_data);
@@ -334,7 +337,7 @@ int main(int argc, char *argv[]) {
   th_localization   = std::thread(thread_localization, log_path, log_data, loc, enc, urg2d, wp_list);
 
   /**************************************************************************
-   * Connect check & open serial port for MotoDriver
+   * Connect check & open serial port for MotorDriver
    ***************************************************************************/
   if((fd_motor = open(SERIAL_PORT_MOTOR, O_RDWR | O_NOCTTY)) == -1) {
     add_log(log_data, "Can't open serial port");
