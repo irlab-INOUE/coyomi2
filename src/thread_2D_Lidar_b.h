@@ -7,7 +7,7 @@ void thread_2D_Lidar_b(const std::string lidar_select, std::shared_ptr<LOGDIR_PA
   // coyomi_yamlをこのスレッド内で新しく取得する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
   YAML::Node coyomi_yaml = yamlRead(path_to_yaml);
-  add_log(log_data, "coyomi.yaml is open in thread_2D_Lidar_b.");
+  add_log(log_data, "coyomi.yaml is open in thread_2D_Lidar_" + lidar_select + ".");
 
   urg2d->start_angle   = coyomi_yaml["2DLIDAR"]["start_angle"].as<double>();
   urg2d->end_angle     = coyomi_yaml["2DLIDAR"]["end_angle"].as<double>();
@@ -24,7 +24,7 @@ void thread_2D_Lidar_b(const std::string lidar_select, std::shared_ptr<LOGDIR_PA
     urg2d->cs[i] = cos(ang);
     urg2d->sn[i] = sin(ang);
   }
-  std::string path = log_path->path + "/urglog";
+  std::string path = log_path->path + "/urglog_" + lidar_select;
 
   Urg2d urg2d_b(lidar_select, urg2d->start_angle, urg2d->end_angle, urg2d->step_angle);
   // urgのopen可否を受け取る
@@ -58,7 +58,7 @@ void thread_2D_Lidar_b(const std::string lidar_select, std::shared_ptr<LOGDIR_PA
       for (int k = 0; k < result.size(); k++) {
         urg2d->r[k] = result[k].data;
       }
-      sleep_for(milliseconds(10));
+      sleep_for(milliseconds(100));
     }
     urg2d_b.close();
   }

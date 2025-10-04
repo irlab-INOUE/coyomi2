@@ -59,3 +59,17 @@ add_executable (main main.cpp
   )
 
 target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d ncurses ${SDL2_LIBRARIES} ${CURSES_LIBRARIES})
+
+add_executable (data_collect data_collect.cpp
+  ${SRC_DIR}/Urg2d.cpp
+  ${SRC_DIR}/MCL.cpp
+  ${SRC_DIR}/Viewer.cpp
+  ${SRC_DIR}/DWA.cpp
+  ${SRC_DIR}/CreateCostMap.cpp
+  ${SRC_DIR}/DELFM.cpp
+  ${SRC_DIR}/MCL.cpp
+  ${URG2D_FILES}
+  ${URG3D_FILES}
+  )
+
+target_link_libraries(data_collect yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d ncurses ${SDL2_LIBRARIES} ${CURSES_LIBRARIES})
