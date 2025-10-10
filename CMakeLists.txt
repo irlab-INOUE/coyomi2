@@ -10,6 +10,7 @@ include_directories(
   ${PROJECT_SOURCE_DIR}/src/GetDistance2D/inc
   ${PROJECT_SOURCE_DIR}/src/GetDistance3D
   ${PROJECT_BINARY_DIR}
+  /opt/homebrew/opt/lua@5.4/include/lua
   /usr/local/include/urg_cpp
   /usr/local/include)
 
@@ -57,7 +58,6 @@ add_executable (main main.cpp
   ${URG2D_FILES}
   ${URG3D_FILES}
   )
-
 target_link_libraries(main yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d ncurses ${SDL2_LIBRARIES} ${CURSES_LIBRARIES})
 
 add_executable (data_collect data_collect.cpp
@@ -71,5 +71,7 @@ add_executable (data_collect data_collect.cpp
   ${URG2D_FILES}
   ${URG3D_FILES}
   )
-
 target_link_libraries(data_collect yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d ncurses ${SDL2_LIBRARIES} ${CURSES_LIBRARIES})
+
+add_executable (slam slam.cpp)
+target_link_libraries(slam ${OpenCV_LIBRARIES})
