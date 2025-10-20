@@ -820,21 +820,7 @@ std::tuple<double, double, double, double> optimize_de(
       }
     }
 
-    //exit(0);
     return std::make_tuple(best_x, best_y, best_a, best_eval);
-    /*
-    if (fabs(prev_a - best_a) < 0.5 && (fabs(prev_x - best_x) < 2.0) && (fabs(prev_y - best_y) < 2.0)) {
-      return std::make_tuple(best_x, best_y, best_a, best_eval);
-    }
-    std::cout << "やり直します" 
-      << "(" << prev_x << ", " << prev_y << "," << prev_a << ")"
-      << "(" << current_x << ", " << current_y << "," << current_a << ")"
-      << "(" << best_x << ", " << best_y << "," << best_a << ")"
-      << std::endl;
-    current_x = prev_x;
-    current_y = prev_y;
-    current_a = prev_a;
-    */
   }
 }
 
