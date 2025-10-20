@@ -1650,12 +1650,24 @@ int main (int argc, char *argv[]) {
     // 現在の部分地図に常にデータを蓄積
     current_submap.laser_data_sequence.push_back(current_data);
     
-    // 相対座標での姿勢を計算
+    // 相対座標での姿勢を計算（回転を考慮した座標変換）
     Pose relative_pose;
     relative_pose.ts = timestamp;
-    relative_pose.x = current_x - current_submap.start_pose.x;
-    relative_pose.y = current_y - current_submap.start_pose.y;
+    
+    // 修正前の単純差分計算（コメントアウト）
+    // relative_pose.x = current_x - current_submap.start_pose.x;
+    // relative_pose.y = current_y - current_submap.start_pose.y;
+    
+    // 修正後：start_poseの回転を考慮した相対座標変換
+    double dx = current_x - current_submap.start_pose.x;
+    double dy = current_y - current_submap.start_pose.y;
+    double cos_start = cos(-current_submap.start_pose.a);  // 逆回転
+    double sin_start = sin(-current_submap.start_pose.a);
+    
+    relative_pose.x = dx * cos_start - dy * sin_start;
+    relative_pose.y = dx * sin_start + dy * cos_start;
     relative_pose.a = current_a - current_submap.start_pose.a;
+    relative_pose.a = atan2(sin(relative_pose.a), cos(relative_pose.a));
     current_submap.trajectory.push_back(relative_pose);
 
     // 5m境界チェック：新しい部分地図への切り替え
