@@ -64,10 +64,10 @@ std::thread th_2D_Lidar_b;
 std::thread th_2D_Lidar_t;
 std::thread th_localization;
 
-// ジョイスティック
+// ジョイスティックを利用
 SDL_Joystick* joystick;
 
-// 共有オブジェクト
+// 共有オブジェクトを定義
 auto log_path = std::make_shared<LOGDIR_PATH>();
 auto log_data = std::make_shared<LOG_DATA>();
 auto disp     = std::make_shared<DisplayContents>();
