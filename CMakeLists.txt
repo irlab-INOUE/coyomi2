@@ -28,6 +28,7 @@ configure_file (
     )
 
 find_package (OpenCV REQUIRED)
+find_package (Eigen3 REQUIRED)
 
 FILE(GLOB URG2D_FILES ${PROJECT_SOURCE_DIR}/src/GetDistance2D/src/*.cpp)
 set(URG3D_FILES
@@ -74,4 +75,4 @@ add_executable (data_collect data_collect.cpp
 target_link_libraries(data_collect yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d ncurses ${SDL2_LIBRARIES} ${CURSES_LIBRARIES})
 
 add_executable (slam slam.cpp)
-target_link_libraries(slam ${OpenCV_LIBRARIES})
+target_link_libraries(slam ${OpenCV_LIBRARIES} Eigen3::Eigen)
