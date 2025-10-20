@@ -1354,9 +1354,16 @@ int main (int argc, char *argv[]) {
   // LiDAR角度テーブルを初期化
   initialize_lidar_tables();
 
+  #if 1
   const std::string PATH_TO_URGLOG_T = "./2025/10/05/184420/urglog_t";
   const std::string PATH_TO_URGLOG_B = "./2025/10/05/184420/urglog_b";
-  
+  #endif
+
+  #if 0
+  const std::string PATH_TO_URGLOG_T = "./2025/10/20/162619/urglog_t";
+  const std::string PATH_TO_URGLOG_B = "./2025/10/20/162619/urglog_b";
+  #endif
+
   // LASERSCANRTの総数を事前に取得
   int total_data_count = count_laserscanrt_lines(PATH_TO_URGLOG_T) + 
                          count_laserscanrt_lines(PATH_TO_URGLOG_B);
