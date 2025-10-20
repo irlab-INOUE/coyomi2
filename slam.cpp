@@ -778,7 +778,14 @@ std::tuple<double, double, double, double> optimize_de(
         // Mutation: v = x_r1 + F * (x_r2 - x_r3)
         double vx = x1 + F * (x2 - x3);
         double vy = y1 + F * (y2 - y3);
-        double va = a1 + F * (a2 - a3);
+        //double va = a1 + F * (a2 - a3);
+
+        double ax1 = cos(a1), ay1 = sin(a1);
+        double ax2 = cos(a2), ay2 = sin(a2);
+        double ax3 = cos(a3), ay3 = sin(a3);
+        double vax = ax1 + F * (ax2 - ax3);
+        double vay = ay1 + F * (ay2 - ay3);
+        double va = atan2(vay, vax);
 
         // Crossover: generate trial vector u by mixing the mutant vector with the target vector
         double trial_x = vx;
