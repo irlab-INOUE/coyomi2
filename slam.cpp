@@ -849,7 +849,7 @@ void update_status_display(int loop, const std::string& sensor_type,
                           long long timestamp, double eval, 
                           double x, double y, double angle_deg, int total_count, double distance = 0.0) {
   static std::vector<std::string> recent_lines;
-  const int MAX_LINES = 10;
+  const int MAX_LINES = 20;
   
   // 色分け設定
   std::string color_code;
