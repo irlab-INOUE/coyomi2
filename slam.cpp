@@ -994,8 +994,8 @@ void SubMap::build_submap() {
         LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y,
         LOCAL_CSIZE, 0.0175,  // dth = 1 degree
         LOCAL_WIDTH, LOCAL_HEIGHT,
-        0.35, 0.087,  // Wxy, Wa (調整可能)
-        100, 50,      // population_size, generations (メインループと同じ)
+        0.8, M_PI/8,  // Wxy, Wa (調整可能)
+        200, 100,      // population_size, generations (メインループと同じ)
         0.5, 0.2,     // F, CR (メインループと同じ)
         nullptr       // kernel
       );
