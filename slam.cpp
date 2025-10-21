@@ -16,7 +16,7 @@
 #include <random>
 #include <sstream>  // std::stringstream
 #include <cstdlib>  // popen, pclose
-#include <lua.hpp>  // Luaヘッダ
+#include <lua.hpp>  // Lua
 
 namespace fs = std::filesystem;
 
@@ -28,10 +28,10 @@ namespace fs = std::filesystem;
 #define WHITE cv::Scalar(198,204,203)
 #define RED cv::Scalar(0,31,245)
 
-// センサー設定定数
+// センサー配置の座標
 const double SENSOR_OFFSET_X = 0.19; // urglog_bのX軸オフセット [m]
 
-// LiDAR角度テーブル（グローバル変数）
+// LiDAR照射方向テーブル（グローバル変数）
 std::vector<double> lidar_cos_table;
 std::vector<double> lidar_sin_table;
 std::vector<double> lidar_angle_table;
@@ -47,6 +47,7 @@ struct Point {
   }
 };
 
+// ロボット姿勢
 struct Pose {
   long long ts;
   double x, y, a;
@@ -59,6 +60,7 @@ struct Pose {
   }
 };
 
+// LiDARのレイキャストの逆引きのための曲座標情報
 struct PolarInfo {
   double angle;
   double distance;
@@ -66,6 +68,7 @@ struct PolarInfo {
   PolarInfo(double a, double d) : angle(a), distance(d) {}
 };
 
+// LiDARの1スキャンデータ
 struct LaserData {
   long long timestamp;
   std::vector<Point> points;
@@ -74,9 +77,10 @@ struct LaserData {
   long max_r;
   bool valid;
   char sensor_type; // 't' for urglog_t, 'b' for urglog_b
-  double start_angle, end_angle, delta_th; // 角度情報
+  double start_angle, end_angle, delta_th; // 照射角情報
 };
 
+// 部分地図の構造体
 struct SubMap {
   int submap_id;
   double start_distance;
@@ -84,7 +88,7 @@ struct SubMap {
   Pose start_pose;  // 物理座標の原点（基準点）
   
   std::vector<LaserData> laser_data_sequence;
-  std::vector<Pose> trajectory;
+  std::vector<Pose> trajectory; // Trajectory from main loop
   std::vector<std::vector<double>> local_gmap;
   
   // 点群の実際の範囲（部分地図相対座標）
@@ -97,7 +101,7 @@ struct SubMap {
   static const int LOCAL_HEIGHT = 2000;  // 100m / 0.05m
   static const int LOCAL_ORIGIN_X = 1000; // 中央
   static const int LOCAL_ORIGIN_Y = 1000; // 中央
-  static constexpr double LOCAL_CSIZE = 0.05;
+  static constexpr double LOCAL_CSIZE = 0.05;   // 元の全体地図のcsizeに相当する
   
   SubMap() : submap_id(-1), start_distance(0.0), end_distance(0.0),
              min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false) {
@@ -124,14 +128,14 @@ struct SubMap {
     }
   }
   
-  // 部分地図での姿勢推定と地図構築（宣言のみ）
+  // 部分地図での姿勢推定と地図構築
   void build_submap();
   
-  // 部分地図構築進捗の可視化（宣言のみ）
+  // 部分地図構築進捗の可視化
   void show_submap_progress(size_t current_frame);
   
   // 部分地図データの保存
-  void save_submap_data(const std::string& base_dir);
+  void save_submap_data(const std::string& base_dir, double current_total_run_distance);
 };
 
 // 極座標テーブル用のグローバル変数
@@ -142,15 +146,51 @@ int table_origin = 0;
 double table_csize = 0.0;
 
 // 対数オッズ値の定数（CreateOccMap.cppより）
-const double log04  = log(0.4/(1.0 - 0.4));   // 約-0.4055 (低い占有確率)
+const double log04  = log(0.40/(1.0 - 0.40));   // 約-0.4055 (低い占有確率)
 const double log045 = log(0.45/(1.0 - 0.45)); // 約-0.2007 (わずかに低い確率)  
-const double log06  = log(0.6/(1.0 - 0.6));   // 約+0.4055 (高い占有確率)
+const double log06  = log(0.60/(1.0 - 0.60));   // 約+0.4055 (高い占有確率)
 
-// クラスの前方宣言
-class GaussianKernel;
+// ガウシアンカーネルクラス
+class GaussianKernel {
+private:
+  std::vector<std::vector<double>> kernel;
+  int radius;
+  
+public:
+  GaussianKernel(double sigma, int kernel_radius) : radius(kernel_radius) {
+    int size = 2 * radius + 1;
+    kernel.resize(size, std::vector<double>(size));
+    
+    double sum = 0.0;
+    double sigma2 = sigma * sigma;
+    for (int y = -radius; y <= radius; y++) {
+      for (int x = -radius; x <= radius; x++) {
+        double distance_sq = x*x + y*y;
+        double weight = exp(-distance_sq / (2.0 * sigma2));
+        kernel[y + radius][x + radius] = weight;
+        sum += weight;
+      }
+    }
+    
+    // 正規化
+    for (int y = 0; y < size; y++) {
+      for (int x = 0; x < size; x++) {
+        kernel[y][x] /= sum;
+      }
+    }
+  }
+  
+  double getWeight(int dx, int dy) const {
+    if (abs(dx) > radius || abs(dy) > radius) return 0.0;
+    return kernel[dy + radius][dx + radius];
+  }
+  
+  int getRadius() const { return radius; }
+};
+
 
 // 統合地図作成・表示関数の前方宣言
-void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps);
+std::vector<std::vector<double>> create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps);
 
 // 関数の前方宣言
 std::vector<std::vector<double>> update_map(std::vector<std::vector<double>> &gmap, 
@@ -588,43 +628,6 @@ double match_simple_count(std::vector<std::vector<double>> &gmap,
   return eval;
 }
 
-// ガウシアンカーネルクラス
-class GaussianKernel {
-private:
-  std::vector<std::vector<double>> kernel;
-  int radius;
-  
-public:
-  GaussianKernel(double sigma, int kernel_radius) : radius(kernel_radius) {
-    int size = 2 * radius + 1;
-    kernel.resize(size, std::vector<double>(size));
-    
-    double sum = 0.0;
-    for (int y = -radius; y <= radius; y++) {
-      for (int x = -radius; x <= radius; x++) {
-        double distance_sq = x*x + y*y;
-        double weight = exp(-distance_sq / (2.0 * sigma * sigma));
-        kernel[y + radius][x + radius] = weight;
-        sum += weight;
-      }
-    }
-    
-    // 正規化
-    for (int y = 0; y < size; y++) {
-      for (int x = 0; x < size; x++) {
-        kernel[y][x] /= sum;
-      }
-    }
-  }
-  
-  double getWeight(int dx, int dy) const {
-    if (abs(dx) > radius || abs(dy) > radius) return 0.0;
-    return kernel[dy + radius][dx + radius];
-  }
-  
-  int getRadius() const { return radius; }
-};
-
 double match_count(std::vector<std::vector<double>> &gmap,
                    std::vector<Point> &pt,
                    double cx, double cy, double ca,
@@ -946,99 +949,31 @@ void initialize_lidar_tables() {
 
 // SubMapクラスのbuild_submap()メソッドの実装
 void SubMap::build_submap() {
-  std::cout << "SubMap " << submap_id << " の構築開始 (データ数: " 
-            << laser_data_sequence.size() << ")" << std::endl;
+  std::cout << "SubMap " << submap_id << " の構築完了 (メインループの結果を使用)" << std::endl;
   
-  // local_gmapを初期化
-  for (int i = 0; i < LOCAL_HEIGHT; i++) {
-    for (int j = 0; j < LOCAL_WIDTH; j++) {
-      local_gmap[i][j] = 0.0;
-    }
-  }
+  // local_gmapとtrajectoryはメインループで既に構築済みなので、ここでは再構築しない。
+  // 代わりに、最終的なboundsを計算する。
   
-  // 初期姿勢：最初のフレームは原点(0,0,0)
-  if (!trajectory.empty()) {
-    trajectory[0] = Pose(trajectory[0].ts, 0.0, 0.0, 0.0);
-  }
-  
-  // 逐次的にlocal_gmap構築とoptimize_de実行
+  // LiDAR点群の範囲を更新（部分地図相対座標で）
   for (size_t i = 0; i < laser_data_sequence.size(); i++) {
     const LaserData& laser_data = laser_data_sequence[i];
+    const Pose& pose = trajectory[i]; // メインループで推定された姿勢を使用
     
     if (!laser_data.valid || laser_data.points.empty()) continue;
-    
-    // 部分地図でのLiDAR点数をデバッグ出力（最初のフレームのみ）
-    if (i == 0) {
-      std::cout << "[デバッグ] 部分地図" << submap_id << "最初のフレーム:" << std::endl;
-      std::cout << "  LiDAR点数: " << laser_data.points.size() << std::endl;
-      std::cout << "  センサータイプ: " << laser_data.sensor_type << std::endl;
-      std::cout << "  タイムスタンプ: " << laser_data.timestamp << std::endl;
-    }
-    
-    // 進捗表示
-    std::cout << "\rSubMap " << submap_id << ": フレーム " << (i+1) << "/" 
-              << laser_data_sequence.size() << " 処理中" << std::flush;
-    
-    // i番目のフレームまでの地図で姿勢推定
-    if (i > 0) {
-      // 前フレームの姿勢から開始
-      double prev_x = trajectory[i-1].x;
-      double prev_y = trajectory[i-1].y;
-      double prev_a = trajectory[i-1].a;
-      
-      // local_gmapを参照してoptimize_de実行
-      std::vector<Point> points = laser_data.points;  // コピーを作成
-      auto [best_x, best_y, best_a, best_eval] = optimize_de(
-        local_gmap, points, 
-        prev_x, prev_y, prev_a,
-        LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y,
-        LOCAL_CSIZE, 0.0175,  // dth = 1 degree
-        LOCAL_WIDTH, LOCAL_HEIGHT,
-        0.8, M_PI/8,  // Wxy, Wa (調整可能)
-        200, 100,      // population_size, generations (メインループと同じ)
-        0.5, 0.2,     // F, CR (メインループと同じ)
-        nullptr       // kernel
-      );
-      
-      // 推定結果を更新
-      trajectory[i] = Pose(trajectory[i].ts, best_x, best_y, best_a);
-    }
-    
-    // 推定姿勢でlocal_gmap更新
-    std::vector<Point> points = laser_data.points;
-    local_gmap = update_map(local_gmap, points, 
-                           trajectory[i].x, trajectory[i].y, trajectory[i].a,
-                           LOCAL_WIDTH, LOCAL_HEIGHT, 
-                           LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y, LOCAL_CSIZE);
-    
-    // bottom sensorデータの場合は移動体除去
-    if (laser_data.sensor_type == 'b') {
-      local_gmap = remove_moving_objects(local_gmap, laser_data,
-                                       trajectory[i].x, trajectory[i].y, trajectory[i].a,
-                                       LOCAL_WIDTH, LOCAL_HEIGHT,
-                                       LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y, LOCAL_CSIZE);
-    }
-    
-    // LiDAR点群の範囲を更新（部分地図相対座標で）
-    double cos_a = cos(trajectory[i].a);
-    double sin_a = sin(trajectory[i].a);
+
+    double cos_a = cos(pose.a);
+    double sin_a = sin(pose.a);
     for (const Point& pt : laser_data.points) {
       // LiDAR点をロボット座標系から部分地図座標系に変換
-      double global_x = pt.x * cos_a - pt.y * sin_a + trajectory[i].x;
-      double global_y = pt.x * sin_a + pt.y * cos_a + trajectory[i].y;
+      double global_x = pt.x * cos_a - pt.y * sin_a + pose.x;
+      double global_y = pt.x * sin_a + pt.y * cos_a + pose.y;
       update_bounds_point(global_x, global_y);
     }
     
     // ロボット位置自体も範囲に含める
-    update_bounds_point(trajectory[i].x, trajectory[i].y);
-    
-    // 構築途中の可視化（5フレームごと、または最後のフレーム）
-    if (i % 5 == 0 || i == laser_data_sequence.size() - 1) {
-      show_submap_progress(i);
-    }
+    update_bounds_point(pose.x, pose.y);
   }
   
-  std::cout << "\nSubMap " << submap_id << " の構築完了" << std::endl;
   std::cout << "SubMap " << submap_id << " bounds: X[" << min_x << "," << max_x 
             << "] Y[" << min_y << "," << max_y << "]" << std::endl;
 }
@@ -1122,8 +1057,8 @@ void SubMap::show_submap_progress(size_t current_frame) {
 }
 
 // 統合地図作成・表示関数の実装
-void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps) {
-  if (completed_submaps.empty()) return;
+std::vector<std::vector<double>> create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps) {
+  if (completed_submaps.empty()) return {};
   
   // 統合地図の範囲を計算
   double global_min_x = std::numeric_limits<double>::max();
@@ -1314,6 +1249,8 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
   cv::waitKey(1000);  // 1秒間表示
   
   std::cout << "統合地図表示完了 (部分地図数: " << completed_submaps.size() << ")" << std::endl;
+
+  return integrated_map;
 }
 
 int main (int argc, char *argv[]) {
@@ -1335,7 +1272,7 @@ int main (int argc, char *argv[]) {
   // ガウシアンカーネル初期化（軽量版：σ=0.8, 半径=2, 5×5カーネル）
   GaussianKernel gaussian_kernel(0.8, 2);
 
-  const std::string STORE_ROOT_DIR_NAME = "slam_result_251017-2";
+  const std::string STORE_ROOT_DIR_NAME = "slam_result_251021-3";
   // ディレクトリが存在しない場合は作成
   if (!fs::exists(STORE_ROOT_DIR_NAME)) {
     fs::create_directories(STORE_ROOT_DIR_NAME);
@@ -1361,12 +1298,13 @@ int main (int argc, char *argv[]) {
   // LiDAR角度テーブルを初期化
   initialize_lidar_tables();
 
-  #if 1
+  // 読み込むLiDARデータのパス
+  #if 0
   const std::string PATH_TO_URGLOG_T = "./2025/10/05/184420/urglog_t";
   const std::string PATH_TO_URGLOG_B = "./2025/10/05/184420/urglog_b";
   #endif
 
-  #if 0
+  #if 1
   const std::string PATH_TO_URGLOG_T = "./2025/10/20/162619/urglog_t";
   const std::string PATH_TO_URGLOG_B = "./2025/10/20/162619/urglog_b";
   #endif
@@ -1391,10 +1329,7 @@ int main (int argc, char *argv[]) {
   }
 */
 
-  // 確率的占有地図：対数オッズ値で管理（0.0は中立状態）
-  std::vector<std::vector<double>> gmap(height, std::vector<double>(width, 0.0));
-
-  std::vector<Point> pt1;
+  // 確率的占有地図はSubMap内で管理
   std::vector<Pose> robot_poses;
 
   double current_x = 0;
@@ -1412,15 +1347,16 @@ int main (int argc, char *argv[]) {
   bool first_pose = true;
   
   // 部分地図管理用変数
-  std::vector<SubMap> completed_submaps;  // 完成した部分地図
-  SubMap current_submap;                  // 現在構築中の部分地図
-  int next_submap_id = 0;                 // 次の部分地図ID
-  const double SUBMAP_DISTANCE = 5.0;    // 部分地図の区切り距離[m]
-  double next_submap_boundary = SUBMAP_DISTANCE; // 次の境界距離
-  bool submap_initialized = false;       // 最初の部分地図が初期化されたか
+  std::vector<SubMap> completed_submaps;         // 完成した部分地図
+  SubMap current_submap;                         // 現在構築中の部分地図
+  int next_submap_id = 0;                        // 次の部分地図ID
+  const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
+  double current_submap_local_distance = 0.0;    // 現在の部分地図内での累積走行距離
+  bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
+  // lidarデータの存在チェック
+  // なかったら終了する
   std::ifstream inFile_t, inFile_b;
-
   inFile_t.open(PATH_TO_URGLOG_T);
   inFile_b.open(PATH_TO_URGLOG_B);
   
@@ -1432,8 +1368,8 @@ int main (int argc, char *argv[]) {
     std::cerr << "urglog_b ファイルを開けませんでした: " << PATH_TO_URGLOG_B << std::endl;
     return 1;
   }
+
   // 各ファイルから次のLASERSCANRTデータを先読み
-  
   auto readNextLaserScan = [DATA_SKIP](std::ifstream& file, char sensor_type) -> LaserData {
     LaserData data;
     data.valid = false;
@@ -1567,6 +1503,7 @@ int main (int argc, char *argv[]) {
     LaserData current_data;
     
     // タイムスタンプが小さい方を選択（時系列順）
+    // 以下の処理によって，次のwhileループにおいて，適切なnextが選ばれる
     if (!next_t.valid) {
       current_data = next_b;
       next_b = readNextLaserScan(inFile_b, 'b');
@@ -1590,28 +1527,23 @@ int main (int argc, char *argv[]) {
     long max_r = current_data.max_r;
     
     // センサー種別を文字列として準備
+    // update_status_display の表示用
     std::string sensor_name = (current_data.sensor_type == 't') ? "Top" : "Bottom";
     
     // SLAM処理開始
     if(loop == 0) {
       // 最初の部分地図を初期化
-      Pose initial_pose;
-      initial_pose.ts = timestamp;
-      initial_pose.x = current_x;
-      initial_pose.y = current_y;
-      initial_pose.a = current_a;
+      Pose initial_pose(timestamp, current_x, current_y, current_a);
       current_submap = SubMap(next_submap_id++, total_distance, initial_pose);
-      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << total_distance << "m" << std::endl;
-      
-      // 初回は初期位置を表示
-      double angle_deg = current_a * 180.0 / M_PI;
-      update_status_display(loop, sensor_name + " [INIT]", timestamp, 0.0, current_x, current_y, angle_deg, total_data_count, total_distance);
-      
-      gmap = update_map(gmap, current_data.points, current_x, current_y, current_a, width, height, originX, originY, CSIZE);
-      
+      current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
+      Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
+      current_submap.trajectory.push_back(relative_pose_origin);
+      current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
+                                            SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
+                                            SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE);
+
       robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
       
-      gmap_show(gmap, width, height, &robot_poses, CSIZE, originX, originY, minX, minY);
       loop++;
       continue;
     }
@@ -1619,9 +1551,22 @@ int main (int argc, char *argv[]) {
     double dth = acos(1 - CSIZE*CSIZE/(2*(max_r/1000.0)*(max_r/1000.0)));
     double best_x, best_y, best_a, best_eval;
 
-    std::tie(best_x, best_y, best_a, best_eval) = optimize_de(gmap, current_data.points, current_x, current_y, current_a,
-                                                              originX, originY, CSIZE, dth, width, height, 
-                                                              Wxy, Wa, 100, 50, 0.5, 0.2, &gaussian_kernel); // 50→30世代で高速化 
+    // Localize within the current submap to get the new relative pose
+    Pose prev_relative_pose = current_submap.trajectory.back();
+    double rel_x, rel_y, rel_a;
+    std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points, 
+                                                          prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
+                                                          SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE, dth, 
+                                                          SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT,
+                                                          Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
+
+    // Convert the new relative pose to a global pose for logging and distance calculation
+    double cos_start = cos(current_submap.start_pose.a);
+    double sin_start = sin(current_submap.start_pose.a);
+    best_x = current_submap.start_pose.x + rel_x * cos_start - rel_y * sin_start;
+    best_y = current_submap.start_pose.y + rel_x * sin_start + rel_y * cos_start;
+    best_a = current_submap.start_pose.a + rel_a;
+    best_a = normalize_th(best_a);
     
     // 推定結果を固定表示関数で表示
     double angle_deg = best_a * 180.0 / M_PI;
@@ -1642,43 +1587,19 @@ int main (int argc, char *argv[]) {
     prev_x = current_x;
     prev_y = current_y;
 
-    // 最初の部分地図の初期化
-    if (!submap_initialized) {
-      Pose initial_pose;
-      initial_pose.ts = timestamp;
-      initial_pose.x = current_x;
-      initial_pose.y = current_y;
-      initial_pose.a = current_a;
-      current_submap = SubMap(next_submap_id++, 0.0, initial_pose);
-      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:0.0m（初期化）" << std::endl;
-      submap_initialized = true;
-    }
+    // 現在の部分地図内での累積走行距離を計算
+    double local_distance_increment = sqrt(pow(rel_x - prev_relative_pose.x, 2) + pow(rel_y - prev_relative_pose.y, 2));
+    current_submap_local_distance += local_distance_increment;
+
+    // The submap initialization is now handled in the loop==0 block.
+    // This block is replaced by simply adding the new data to the current submap.
     
     // 現在の部分地図に常にデータを蓄積
     current_submap.laser_data_sequence.push_back(current_data);
-    
-    // 相対座標での姿勢を計算（回転を考慮した座標変換）
-    Pose relative_pose;
-    relative_pose.ts = timestamp;
-    
-    // 修正前の単純差分計算（コメントアウト）
-    // relative_pose.x = current_x - current_submap.start_pose.x;
-    // relative_pose.y = current_y - current_submap.start_pose.y;
-    
-    // 修正後：start_poseの回転を考慮した相対座標変換
-    double dx = current_x - current_submap.start_pose.x;
-    double dy = current_y - current_submap.start_pose.y;
-    double cos_start = cos(-current_submap.start_pose.a);  // 逆回転
-    double sin_start = sin(-current_submap.start_pose.a);
-    
-    relative_pose.x = dx * cos_start - dy * sin_start;
-    relative_pose.y = dx * sin_start + dy * cos_start;
-    relative_pose.a = current_a - current_submap.start_pose.a;
-    relative_pose.a = atan2(sin(relative_pose.a), cos(relative_pose.a));
-    current_submap.trajectory.push_back(relative_pose);
+    current_submap.trajectory.emplace_back(timestamp, rel_x, rel_y, rel_a);
 
-    // 5m境界チェック：新しい部分地図への切り替え
-    if (total_distance >= next_submap_boundary) {
+    // 部分地図内での走行距離チェック：新しい部分地図への切り替え
+    if (current_submap_local_distance >= SUBMAP_DISTANCE) {
       // 現在の部分地図を完了（境界フレームは最後のデータとして既に追加済み）
       current_submap.end_distance = total_distance;
       
@@ -1689,13 +1610,13 @@ int main (int argc, char *argv[]) {
       save_submap(current_submap);
       
       // 完成した部分地図をファイルに保存
-      current_submap.save_submap_data(STORE_ROOT_DIR_NAME);
+      current_submap.save_submap_data(STORE_ROOT_DIR_NAME, total_distance);
       
       // 完成した部分地図を保存
       completed_submaps.push_back(current_submap);
       
       // 統合地図を表示
-      create_and_show_integrated_map(completed_submaps);
+      // create_and_show_integrated_map(completed_submaps); // 中間表示は最終出力時に統合するため一旦コメントアウト
       
       // 新しい部分地図を開始（境界フレームの姿勢を開始点とする）
       Pose new_start_pose;
@@ -1704,6 +1625,7 @@ int main (int argc, char *argv[]) {
       new_start_pose.y = current_y;
       new_start_pose.a = current_a;
       current_submap = SubMap(next_submap_id++, total_distance, new_start_pose);
+      current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
       
       // 境界フレームを新部分地図の最初のデータとして追加（境界データ重複）
       current_submap.laser_data_sequence.push_back(current_data);
@@ -1714,7 +1636,7 @@ int main (int argc, char *argv[]) {
       relative_pose_origin.a = 0.0;
       current_submap.trajectory.push_back(relative_pose_origin);
       
-      next_submap_boundary += SUBMAP_DISTANCE;
+
       
       std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << total_distance << "m（境界データ重複）" << std::endl;
     }
@@ -1730,16 +1652,23 @@ int main (int argc, char *argv[]) {
       std::cout << "  タイムスタンプ: " << current_data.timestamp << std::endl;
     }
     
-    gmap = update_map(gmap, current_data.points, current_x, current_y, current_a, width, height, originX, originY, CSIZE);
+    // Update the current submap's local map with the new relative pose
+    const auto& latest_relative_pose = current_submap.trajectory.back();
+    current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 
+                                           latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                           SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
+                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE);
     
     // 移動体除去処理（Bottomセンサーデータのみ使用）
     if (current_data.sensor_type == 'b') {
-      gmap = remove_moving_objects(gmap, current_data, current_x, current_y, current_a, width, height, originX, originY, CSIZE);
+      current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data, 
+                                                        latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                                        SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
+                                                        SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE);
     }
     
-    if (loop % 50 == 0) {
-      cv::Mat img = gmap_show(gmap, width, height, &robot_poses, CSIZE, originX, originY, minX, minY);
-      int key = cv::waitKey(10);
+    if (loop % 1 == 0) {
+      current_submap.show_submap_progress(current_submap.trajectory.size() - 1);
     }
     loop++;
   }
@@ -1751,7 +1680,7 @@ int main (int argc, char *argv[]) {
     save_submap(current_submap);
     
     // 最後の部分地図をファイルに保存
-    current_submap.save_submap_data(STORE_ROOT_DIR_NAME);
+    current_submap.save_submap_data(STORE_ROOT_DIR_NAME, total_distance);
     
     completed_submaps.push_back(current_submap);
     std::cout << "最後のSubMap " << current_submap.submap_id << " を処理完了" << std::endl;
@@ -1767,16 +1696,35 @@ int main (int argc, char *argv[]) {
     fout << robot_poses[i].ts << " " << robot_poses[i].x << " " << robot_poses[i].y << " " << robot_poses[i].a << "\n";
   }
 
-  cv::Mat img = gmap_show(gmap, width, height, &robot_poses, CSIZE, originX, originY, minX, minY);
-  cv::imwrite(STORE_ROOT_DIR_NAME + "/map.png", img);
+  // 最終的な統合地図を生成
+  std::cout << "最終的な統合地図を生成・保存します..." << std::endl;
+  std::vector<std::vector<double>> final_map_data = create_and_show_integrated_map(completed_submaps);
 
-  // 尤度場地図生成
-  create_likelihood_field_map(gmap, width, height, CSIZE, STORE_ROOT_DIR_NAME);
-
-  // ロボット軌跡を含まない占有地図を保存
-  cv::Mat final_map = gmap_show(gmap, width, height, nullptr, CSIZE, originX, originY, minX, minY);
-  cv::imwrite(STORE_ROOT_DIR_NAME + "/occMap.png", final_map);
-  std::cout << "占有地図を保存しました: " << STORE_ROOT_DIR_NAME + "/occMap.png" << std::endl;
+  if (final_map_data.empty()) {
+    std::cerr << "エラー: 最終地図が空です。保存処理を中断します。" << std::endl;
+  } else {
+    // 統合地図データを可視化用のcv::Matに変換
+    int map_h = final_map_data.size();
+    int map_w = final_map_data[0].size();
+    cv::Mat integrated_map_img(map_h, map_w, CV_8UC3, cv::Scalar(50, 50, 50));
+    
+    const double HIGH_THRESHOLD = 0.405; // 60%
+    for (int y = 0; y < map_h; y++) {
+      for (int x = 0; x < map_w; x++) {
+        double log_odds = final_map_data[y][x];
+        if (log_odds > HIGH_THRESHOLD) {
+          integrated_map_img.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255); // Obstacle
+        } else if (log_odds < -HIGH_THRESHOLD) {
+          integrated_map_img.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // Free space
+        }
+      }
+    }
+    
+    // 統合地図を保存
+    std::string final_map_path = STORE_ROOT_DIR_NAME + "/integrated_occMap.png";
+    cv::imwrite(final_map_path, integrated_map_img);
+    std::cout << "統合占有地図を保存しました: " << final_map_path << std::endl;
+  }
 
   std::cout << "Done." << std::endl;
   int key = cv::waitKey(0);
@@ -1784,7 +1732,7 @@ int main (int argc, char *argv[]) {
 }
 
 // SubMapクラスのsave_submap_data()メソッドの実装
-void SubMap::save_submap_data(const std::string& base_dir) {
+void SubMap::save_submap_data(const std::string& base_dir, double current_total_run_distance) {
   // サブディレクトリ作成
   std::string submap_dir = base_dir + "/submaps/submap_" + 
                           std::string(3 - std::to_string(submap_id).length(), '0') + 
@@ -1828,10 +1776,29 @@ void SubMap::save_submap_data(const std::string& base_dir) {
   fs << "cell_size" << LOCAL_CSIZE;
   fs.release();
   
-  // 3. 軌跡データ保存 (trajectory.txt)
+  // 3. 軌跡データ保存 (trajectory.txt) - メインループで推定された軌跡
   std::ofstream traj_file(submap_dir + "/trajectory.txt");
-  for (const auto& pose : trajectory) {
-    traj_file << pose.ts << " " << pose.x << " " << pose.y << " " << pose.a << std::endl;
+  double cumulative_submap_distance = 0.0;
+  double prev_x_submap = 0.0; // trajectory[0].x is 0.0
+  double prev_y_submap = 0.0; // trajectory[0].y is 0.0
+
+  for (size_t i = 0; i < trajectory.size(); ++i) {
+    const auto& pose = trajectory[i];
+    if (i > 0) {
+      double segment_length = sqrt(pow(pose.x - prev_x_submap, 2) + pow(pose.y - prev_y_submap, 2));
+      cumulative_submap_distance += segment_length;
+    }
+    
+    // "スタート時点からの累積走行距離" = この部分地図の開始時点からの累積距離 + 部分地図内での累積距離
+    // start_distance is the total distance when this submap started.
+    double total_run_distance_at_pose = start_distance + cumulative_submap_distance;
+
+    traj_file << pose.ts << " " << pose.x << " " << pose.y << " " << pose.a << " "
+              << std::fixed << std::setprecision(3) << cumulative_submap_distance << " "
+              << std::fixed << std::setprecision(3) << total_run_distance_at_pose << std::endl;
+
+    prev_x_submap = pose.x;
+    prev_y_submap = pose.y;
   }
   traj_file.close();
   
