@@ -97,20 +97,22 @@ struct SubMap {
   bool bounds_initialized;
   double LOCAL_CSIZE; // 元の全体地図のcsizeに相当する
 
-  // 地図パラメータ（定数）
-  static const int LOCAL_WIDTH = 2000;   // 100m / 0.05m
-  static const int LOCAL_HEIGHT = 2000;  // 100m / 0.05m
-  static const int LOCAL_ORIGIN_X = 1000; // 中央
-  static const int LOCAL_ORIGIN_Y = 1000; // 中央
+  // 地図パラメータ（インスタンス変数）
+  int LOCAL_WIDTH;
+  int LOCAL_HEIGHT;
+  int LOCAL_ORIGIN_X;
+  int LOCAL_ORIGIN_Y;
 
   SubMap() : submap_id(-1), global_start_distance(0.0), global_end_distance(0.0),
-    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(0.05) {
+    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(0.05),
+    LOCAL_WIDTH(2000), LOCAL_HEIGHT(2000), LOCAL_ORIGIN_X(1000), LOCAL_ORIGIN_Y(1000) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
 
   SubMap(int id, double start_dist, const Pose& start_p, double csize) 
     : submap_id(id), global_start_distance(start_dist), global_end_distance(start_dist), start_pose(start_p),
-    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(csize) {
+    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(csize),
+    LOCAL_WIDTH(2000), LOCAL_HEIGHT(2000), LOCAL_ORIGIN_X(1000), LOCAL_ORIGIN_Y(1000) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
 
@@ -1134,8 +1136,8 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
 
   // 各部分地図を統合地図に投影
   for (const auto& submap : completed_submaps) {
-    for (int local_y = 0; local_y < SubMap::LOCAL_HEIGHT; local_y++) {
-      for (int local_x = 0; local_x < SubMap::LOCAL_WIDTH; local_x++) {
+    for (int local_y = 0; local_y < submap.LOCAL_HEIGHT; local_y++) {
+      for (int local_x = 0; local_x < submap.LOCAL_WIDTH; local_x++) {
         double log_odds = submap.local_gmap[local_y][local_x];
 
         if (std::abs(log_odds) < 1e-6) continue; // 未観測グリッドはスキップ
@@ -1533,10 +1535,9 @@ int main (int argc, char *argv[]) {
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
       Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
       current_submap.trajectory.push_back(relative_pose_origin);
-      current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
-                                             SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
-                                             SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
-
+            current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
+                                                   current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                                   current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
       robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
 
       loop++;
@@ -1549,12 +1550,11 @@ int main (int argc, char *argv[]) {
     // Localize within the current submap to get the new relative pose
     Pose prev_relative_pose = current_submap.trajectory.back();
     double rel_x, rel_y, rel_a;
-    std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points, 
-                                                           prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
-                                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth, 
-                                                           SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT,
-                                                           Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
-
+        std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points,
+                                                             prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
+                                                             current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth,
+                                                             current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                                             Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
     // Convert the new relative pose to a global pose for logging and distance calculation
     double cos_start = cos(current_submap.start_pose.a);
     double sin_start = sin(current_submap.start_pose.a);
@@ -1643,18 +1643,16 @@ int main (int argc, char *argv[]) {
 
     // Update the current submap's local map with the new relative pose
     const auto& latest_relative_pose = current_submap.trajectory.back();
-    current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 
-                                           latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
-                                           SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
-                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
-
+        current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points,
+                                               latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                               current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                               current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
     // 移動体除去処理（Bottomセンサーデータのみ使用）
     if (current_data.sensor_type == 'b') {
-      current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data, 
-                                                        latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
-                                                        SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
-                                                        SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
-    }
+          current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data,
+                                                            latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                                            current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                                            current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);    }
 
     if (loop % 1 == 0) {
       current_submap.show_submap_progress(current_submap.trajectory.size() - 1);
