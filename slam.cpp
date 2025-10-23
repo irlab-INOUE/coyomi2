@@ -1246,6 +1246,186 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
   return integrated_map;
 }
 
+class LaserLogReader {
+public:
+  LaserLogReader(const std::string& filepath, char sensor_type, int lidar_skip)
+    : sensor_type(sensor_type), lidar_direction_skip(lidar_skip), line_count(0) {
+    file.open(filepath);
+  }
+
+  ~LaserLogReader() {
+    if (file.is_open()) {
+      file.close();
+    }
+  }
+
+  bool is_open() const {
+    return file.is_open();
+  }
+
+  LaserData readNextScan() {
+    LaserData data;
+    data.valid = false;
+    data.sensor_type = this->sensor_type;
+
+    line_count++;
+
+    std::string type;
+    while (file >> type && !file.eof()) {
+      if (type == "LASERSCANRT") {
+        long long timestamp_end;
+        int count;
+        double START_ANGLE, END_ANGLE, deltaTH;
+        int max_echo_size;
+        long intensity;
+
+        file >> data.timestamp >> count >> START_ANGLE >> END_ANGLE >> deltaTH >> max_echo_size;
+
+        if (file.fail()) {
+          std::cout << "[デバッグ] センサ" << this->sensor_type << "のヘッダー読み込み失敗" << std::endl;
+          data.valid = false;
+          break;
+        }
+
+        data.start_angle = START_ANGLE;
+        data.end_angle = END_ANGLE;
+        data.delta_th = deltaTH;
+
+        data.max_r = 0;
+        long r;
+
+        int loop_count = count / max_echo_size;
+        if (this->sensor_type == 'b') {
+          std::cout << "[デバッグ] センサb (行" << this->line_count << "): count=" << count << ", max_echo_size=" << max_echo_size << ", loop_count=" << loop_count << std::endl;
+        }
+
+        for (int i = 0; i < loop_count; i += this->lidar_direction_skip) {
+          file >> r;
+
+          if (file.fail()) {
+            std::cout << "[デバッグ] センサ" << this->sensor_type << " (行" << this->line_count << ") 距離データ読み込み失敗 at i=" << i << " (部分的に有効として継続)" << std::endl;
+            file.clear();
+            break;
+          }
+
+          if (data.max_r < r) {
+            data.max_r = r;
+          }
+          if (r > 200) {
+            double x = (double)r * lidar_cos_table[i] / 1000.0;
+            double y = (double)r * lidar_sin_table[i] / 1000.0;
+            if (this->sensor_type == 't') {
+              y = -y;
+            } else if (this->sensor_type == 'b') {
+              x += SENSOR_OFFSET_X;
+            }
+            data.points.emplace_back(x, y);
+            data.angles.push_back(lidar_angle_table[i]);
+            data.ranges.push_back(r / 1000.0);
+          }
+          file >> r >> r;
+
+          if (file.fail()) {
+            std::cout << "[デバッグ] センサ" << this->sensor_type << " マルチエコー読み込み失敗 at i=" << i << " (部分的に有効として継続)" << std::endl;
+            file.clear();
+            break;
+          }
+        }
+        file >> timestamp_end;
+
+        if (file.fail()) {
+          std::cout << "[デバッグ] センサ" << this->sensor_type << " 最終タイムスタンプ読み込み失敗" << std::endl;
+          data.valid = false;
+          return data;
+        }
+
+        data.valid = true;
+        break;
+      }
+    }
+
+    if (!data.valid) {
+      std::cout << "[デバッグ] センサ" << this->sensor_type << "のファイル読み込み失敗" << std::endl;
+      std::cout << "  ファイル状態: eof=" << file.eof() << ", fail=" << file.fail() << ", bad=" << file.bad() << std::endl;
+      std::cout << "  ファイル位置: " << file.tellg() << std::endl;
+
+      file.clear();
+      std::string debug_line;
+      if (std::getline(file, debug_line)) {
+        std::cout << "  次の行内容(先頭50文字): " << debug_line.substr(0, 50) << std::endl;
+      } else {
+        std::cout << "  次の行の読み取りも失敗" << std::endl;
+      }
+    }
+
+    return data;
+  }
+
+private:
+  std::ifstream file;
+  char sensor_type;
+  int lidar_direction_skip;
+  int line_count;
+};
+
+class MergedLaserStream {
+public:
+  MergedLaserStream(const std::string& path_t, const std::string& path_b, int lidar_skip)
+    : reader_t(path_t, 't', lidar_skip), reader_b(path_b, 'b', lidar_skip) {
+    if (!reader_t.is_open()) {
+      std::cerr << "urglog_t ファイルを開けませんでした: " << path_t << std::endl;
+      next_scan_t.valid = false;
+    } else {
+      next_scan_t = reader_t.readNextScan();
+    }
+
+    if (!reader_b.is_open()) {
+      std::cerr << "urglog_b ファイルを開けませんでした: " << path_b << std::endl;
+      next_scan_b.valid = false;
+    } else {
+      next_scan_b = reader_b.readNextScan();
+    }
+  }
+
+  bool is_finished() const {
+    return !next_scan_t.valid && !next_scan_b.valid;
+  }
+
+  LaserData getNextScan() {
+    if (is_finished()) {
+      LaserData invalid_data; invalid_data.valid = false; return invalid_data;
+    }
+
+    LaserData current_data;
+    bool t_chosen = false;
+
+    if (!next_scan_t.valid) {
+      t_chosen = false;
+    } else if (!next_scan_b.valid) {
+      t_chosen = true;
+    } else if (next_scan_t.timestamp <= next_scan_b.timestamp) {
+      t_chosen = true;
+    } else {
+      t_chosen = false;
+    }
+
+    if (t_chosen) {
+      current_data = next_scan_t;
+      next_scan_t = reader_t.readNextScan();
+    } else {
+      current_data = next_scan_b;
+      next_scan_b = reader_b.readNextScan();
+    }
+    return current_data;
+  }
+
+private:
+  LaserLogReader reader_t;
+  LaserLogReader reader_b;
+  LaserData next_scan_t;
+  LaserData next_scan_b;
+};
+
 int main (int argc, char *argv[]) {
   int LIDAR_DIRECTION_SKIP = 1;   // LIDARデータの角度方向の読み飛ばし
   double CSIZE = 0.05;     // [m] 格子の解像度 0.025よりうまくいく
@@ -1299,6 +1479,8 @@ int main (int argc, char *argv[]) {
   std::cout << "総データ数: " << total_data_count << " (t:" << count_laserscanrt_lines(PATH_TO_URGLOG_T) 
     << ", b:" << count_laserscanrt_lines(PATH_TO_URGLOG_B) << ")" << std::endl;
 
+  MergedLaserStream stream(PATH_TO_URGLOG_T, PATH_TO_URGLOG_B, LIDAR_DIRECTION_SKIP);
+
   // 確率的占有地図はSubMap内で管理
   std::vector<Pose> robot_poses;
 
@@ -1325,171 +1507,11 @@ int main (int argc, char *argv[]) {
   double current_submap_local_distance = 0.0;    // 現在の部分地図内での累積走行距離
   bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
-  // lidarデータの存在チェック
-  // なかったら終了する
-  std::ifstream inFile_t, inFile_b;
-  inFile_t.open(PATH_TO_URGLOG_T);
-  inFile_b.open(PATH_TO_URGLOG_B);
-
-  if (!inFile_t.is_open()) {
-    std::cerr << "urglog_t ファイルを開けませんでした: " << PATH_TO_URGLOG_T << std::endl;
-    return 1;
-  }
-  if (!inFile_b.is_open()) {
-    std::cerr << "urglog_b ファイルを開けませんでした: " << PATH_TO_URGLOG_B << std::endl;
-    return 1;
-  }
-
-  // 各ファイルから次のLASERSCANRTデータを先読み
-  auto readNextLaserScan = [LIDAR_DIRECTION_SKIP](std::ifstream& file, char sensor_type) -> LaserData {
-    LaserData data;
-    data.valid = false;
-    data.sensor_type = sensor_type;
-
-    // 行番号カウント用（デバッグ用）
-    static int line_count_b = 0;
-    static int line_count_t = 0;
-    if (sensor_type == 'b') {
-      line_count_b++;
-    } else {
-      line_count_t++;
-    }
-
-    std::string type;
-    while (file >> type && !file.eof()) {
-      if (type == "LASERSCANRT") {
-        long long timestamp_end;
-        int count;
-        double START_ANGLE, END_ANGLE, deltaTH;
-        int max_echo_size;
-        long intensity;
-
-        file >> data.timestamp >> count >> START_ANGLE >> END_ANGLE >> deltaTH >> max_echo_size;
-
-        // 読み込みエラーチェック
-        if (file.fail()) {
-          std::cout << "[デバッグ] センサ" << sensor_type << "のヘッダー読み込み失敗" << std::endl;
-          data.valid = false;
-          break;
-        }
-
-        // 角度情報を構造体に保存
-        data.start_angle = START_ANGLE;
-        data.end_angle = END_ANGLE;
-        data.delta_th = deltaTH;
-
-
-        data.max_r = 0;
-        long r;
-
-        // カウント計算とループ範囲のデバッグ
-        int loop_count = count/max_echo_size;
-        if (sensor_type == 'b') {
-          std::cout << "[デバッグ] センサb (行" << line_count_b << "): count=" << count << ", max_echo_size=" << max_echo_size << ", loop_count=" << loop_count << std::endl;
-        }
-
-        for (int i = 0; i < loop_count; i+=LIDAR_DIRECTION_SKIP) {
-          file >> r;
-
-          // ファイル読み込み状態チェック
-          if (file.fail()) {
-            int current_line = (sensor_type == 'b') ? line_count_b : line_count_t;
-            std::cout << "[デバッグ] センサ" << sensor_type << " (行" << current_line << ") 距離データ読み込み失敗 at i=" << i << " (部分的に有効として継続)" << std::endl;
-            // ファイルストリームの状態をクリアして続行
-            file.clear();
-            break; // このLASERSCANRTエントリの処理を終了
-          }
-
-          if(data.max_r < r) {
-            data.max_r = r;
-          }
-          if (r > 200) {
-            double x = (double)r * lidar_cos_table[i] / 1000.0;
-            double y = (double)r * lidar_sin_table[i] / 1000.0;
-            // urglog_tの場合はy座標を反転し、車両前方に0.2mオフセット
-            if (sensor_type == 't') {
-              y = -y;     // 上LiDARは逆さまに装着している
-            } else if (sensor_type == 'b') {
-              x += SENSOR_OFFSET_X; // 下LiDARは車両前方方向(x軸)にオフセット
-            }
-            data.points.emplace_back(x, y);
-            data.angles.push_back(lidar_angle_table[i]); // 事前計算済み角度を使用
-            data.ranges.push_back(r / 1000.0); // 距離情報を保存（m単位）
-          }
-          // マルチエコーを読み飛ばす
-          file >> r >> r;
-
-          // マルチエコー読み込み状態チェック
-          if (file.fail()) {
-            std::cout << "[デバッグ] センサ" << sensor_type << " マルチエコー読み込み失敗 at i=" << i << " (部分的に有効として継続)" << std::endl;
-            // ファイルストリームの状態をクリアして続行
-            file.clear();
-            break; // このLASERSCANRTエントリの処理を終了
-          }
-        }
-        file >> timestamp_end;
-
-        // 最終タイムスタンプ読み込み状態チェック
-        if (file.fail()) {
-          std::cout << "[デバッグ] センサ" << sensor_type << " 最終タイムスタンプ読み込み失敗" << std::endl;
-          data.valid = false;
-          return data;
-        }
-
-        data.valid = true;
-        break;
-      }
-    }
-
-    // ファイル読み込み失敗時のデバッグ情報
-    if (!data.valid) {
-      std::cout << "[デバッグ] センサ" << sensor_type << "のファイル読み込み失敗" << std::endl;
-      std::cout << "  ファイル状態: eof=" << file.eof() << ", fail=" << file.fail() << ", bad=" << file.bad() << std::endl;
-      std::cout << "  ファイル位置: " << file.tellg() << std::endl;
-
-      // ファイルストリームの状態をリセットして次の行を読み取り試行
-      file.clear();
-      std::string debug_line;
-      if (std::getline(file, debug_line)) {
-        std::cout << "  次の行内容(先頭50文字): " << debug_line.substr(0, 50) << std::endl;
-      } else {
-        std::cout << "  次の行の読み取りも失敗" << std::endl;
-      }
-    }
-
-    return data;
-  };
-
   int loop = 0;
-  LaserData next_t = readNextLaserScan(inFile_t, 't');
-  LaserData next_b = readNextLaserScan(inFile_b, 'b');
-
-  // 初期データ読み込み確認
-  std::cout << "[デバッグ] 初期データ読み込み結果:" << std::endl;
-  std::cout << "  next_t.valid: " << (next_t.valid ? "true" : "false") << ", timestamp: " << next_t.timestamp << std::endl;
-  std::cout << "  next_b.valid: " << (next_b.valid ? "true" : "false") << ", timestamp: " << next_b.timestamp << std::endl;
-
-  while (next_t.valid || next_b.valid) {
-    LaserData current_data;
-
-    // タイムスタンプが小さい方を選択（時系列順）
-    // 以下の処理によって，次のwhileループにおいて，適切なnextが選ばれる
-    if (!next_t.valid) {
-      current_data = next_b;
-      next_b = readNextLaserScan(inFile_b, 'b');
-      if (loop < 5) std::cout << "[フレーム" << loop << "] Bottomセンサ選択（Topは無効）" << std::endl;
-    } else if (!next_b.valid) {
-      current_data = next_t;
-      next_t = readNextLaserScan(inFile_t, 't');
-      if (loop < 5) std::cout << "[フレーム" << loop << "] Topセンサ選択（Bottomは無効）" << std::endl;
-    } else if (next_t.timestamp <= next_b.timestamp) {
-      current_data = next_t;
-      next_t = readNextLaserScan(inFile_t, 't');
-      if (loop < 5) std::cout << "[フレーム" << loop << "] Topセンサ選択（TS:" << current_data.timestamp << "）" << std::endl;
-    } else {
-      current_data = next_b;
-      next_b = readNextLaserScan(inFile_b, 'b');
-      if (loop < 5) std::cout << "[フレーム" << loop << "] Bottomセンサ選択（TS:" << current_data.timestamp << "）" << std::endl;
+  while (!stream.is_finished()) {
+    LaserData current_data = stream.getNextScan();
+    if (!current_data.valid) {
+      continue;
     }
 
     // 選択されたデータを処理（不要なコピーを削除）
