@@ -915,14 +915,6 @@ void update_status_display(int loop, const std::string& sensor_type,
   std::cout << std::flush;
 }
 
-// 部分地図保存用のダミー関数（将来実装予定）
-void save_submap(const SubMap& submap) {
-  std::cout << "SubMap " << submap.submap_id << " 保存完了（ダミー）" 
-    << " 距離: " << submap.start_distance << "-" << submap.end_distance << "m"
-    << " 範囲: (" << submap.min_x << "," << submap.min_y << ")-(" 
-    << submap.max_x << "," << submap.max_y << ")" << std::endl;
-}
-
 // LiDAR角度テーブルの初期化関数
 void initialize_lidar_tables() {
   // LiDAR設定（coyomi.yamlから読み込みも可能だが，ここでは固定値）
@@ -1596,9 +1588,6 @@ int main (int argc, char *argv[]) {
       // 部分地図の姿勢推定と地図構築を実行
       current_submap.build_submap();
 
-      // ダミー保存を実行
-      save_submap(current_submap);
-
       // 完成した部分地図をファイルに保存
       current_submap.save_submap_data(STORE_ROOT_DIR_NAME, total_distance);
 
@@ -1667,7 +1656,6 @@ int main (int argc, char *argv[]) {
   if (!current_submap.laser_data_sequence.empty()) {
     current_submap.end_distance = total_distance;
     current_submap.build_submap();
-    save_submap(current_submap);
 
     // 最後の部分地図をファイルに保存
     current_submap.save_submap_data(STORE_ROOT_DIR_NAME, total_distance);
