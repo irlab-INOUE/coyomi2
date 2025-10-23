@@ -190,18 +190,21 @@ public:
 
 
 // 統合地図作成・表示関数の前方宣言
-std::vector<std::vector<double>> create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps);
+std::vector<std::vector<double>> create_and_show_integrated_map(
+  const std::vector<SubMap>& completed_submaps);
 
 // 関数の前方宣言
-std::vector<std::vector<double>> update_map(std::vector<std::vector<double>> &gmap, 
-                                            std::vector<Point> &pt1, 
-                                            double current_x, double current_y, double current_a, 
-                                            int width, int height, int ox, int oy, double CSIZE);
+std::vector<std::vector<double>> update_map(
+  std::vector<std::vector<double>> &gmap, 
+  std::vector<Point> &pt1, 
+  double current_x, double current_y, double current_a, 
+  int width, int height, int ox, int oy, double CSIZE);
 
-std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<double>> &gmap,
-                                                       const LaserData &scan_data,
-                                                       double current_x, double current_y, double current_a,
-                                                       int width, int height, int ox, int oy, double CSIZE);
+std::vector<std::vector<double>> remove_moving_objects(
+  std::vector<std::vector<double>> &gmap,
+  const LaserData &scan_data,
+  double current_x, double current_y, double current_a,
+  int width, int height, int ox, int oy, double CSIZE);
 
 std::tuple<double, double, double, double> optimize_de(
   std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
