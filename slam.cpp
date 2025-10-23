@@ -1583,9 +1583,6 @@ int main (int argc, char *argv[]) {
     double local_distance_increment = sqrt(pow(rel_x - prev_relative_pose.x, 2) + pow(rel_y - prev_relative_pose.y, 2));
     current_submap_local_distance += local_distance_increment;
 
-    // The submap initialization is now handled in the loop==0 block.
-    // This block is replaced by simply adding the new data to the current submap.
-
     // 現在の部分地図に常にデータを蓄積
     current_submap.laser_data_sequence.push_back(current_data);
     current_submap.trajectory.emplace_back(timestamp, rel_x, rel_y, rel_a);
