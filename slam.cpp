@@ -1254,7 +1254,7 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
 }
 
 int main (int argc, char *argv[]) {
-  int LIDAR_DIRECTION_SKIP = 1;
+  int LIDAR_DIRECTION_SKIP = 1;   // LIDARデータの角度方向の読み飛ばし
   double CSIZE = 0.05;     // [m] 格子の解像度 0.025よりうまくいく
 
   double Wxy = 0.8;      // 探索範囲[m] (拡大: 0.6 → 0.8)
