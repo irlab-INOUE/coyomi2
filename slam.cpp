@@ -88,7 +88,7 @@ struct SubMap {
   Pose start_pose;  // 物理座標の原点（基準点）
 
   std::vector<LaserData> laser_data_sequence;
-  std::vector<Pose> trajectory; // Trajectory from main loop
+  std::vector<Pose> trajectory; // Trajectory in submap 
   std::vector<std::vector<double>> local_gmap;
 
   // 点群の実際の範囲（部分地図相対座標）
@@ -1732,8 +1732,8 @@ void SubMap::save_submap_data(const std::string& base_dir, double current_total_
   std::string mkdir_cmd = "mkdir -p " + submap_dir;
   system(mkdir_cmd.c_str());
 
-  // 1. メタデータ保存 (metadata.yaml)
-  std::ofstream metadata_file(submap_dir + "/metadata.yaml");
+  // 1. メタデータ保存 (mapInfo.yaml)
+  std::ofstream metadata_file(submap_dir + "/mapInfo.yaml");
   metadata_file << "submap_id: " << submap_id << std::endl;
   metadata_file << "start_distance: " << start_distance << std::endl;
   metadata_file << "end_distance: " << end_distance << std::endl;
