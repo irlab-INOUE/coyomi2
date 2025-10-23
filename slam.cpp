@@ -1320,7 +1320,8 @@ int main (int argc, char *argv[]) {
   std::vector<SubMap> completed_submaps;         // 完成した部分地図
   SubMap current_submap;                         // 現在構築中の部分地図
   int next_submap_id = 0;                        // 次の部分地図ID
-  const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
+  //const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
+  const double SUBMAP_DISTANCE = std::numeric_limits<double>::infinity(); // 部分地図で分割したくないときは，正の無限大を使う
   double current_submap_local_distance = 0.0;    // 現在の部分地図内での累積走行距離
   bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
