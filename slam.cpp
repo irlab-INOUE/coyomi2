@@ -963,6 +963,7 @@ void SubMap::build_submap() {
     }
 
     // ロボット位置自体も範囲に含める
+    // 例えば，視野が前方しかない場合に後退すると，点群は範囲でも自身が領域をはみ出すことがある
     update_bounds_point(pose.x, pose.y);
   }
 
@@ -1297,20 +1298,6 @@ int main (int argc, char *argv[]) {
     count_laserscanrt_lines(PATH_TO_URGLOG_B);
   std::cout << "総データ数: " << total_data_count << " (t:" << count_laserscanrt_lines(PATH_TO_URGLOG_T) 
     << ", b:" << count_laserscanrt_lines(PATH_TO_URGLOG_B) << ")" << std::endl;
-
-  /* ファイルコピーは一旦停止
-  try {
-    // ファイルコピー（urglog_t）
-    fs::copy_file(PATH_TO_URGLOG_T, STORE_ROOT_DIR_NAME + "/urglog_t", fs::copy_options::overwrite_existing);
-    std::cout << PATH_TO_URGLOG_T + " コピー成功\n";
-
-    // ファイルコピー（urglog_b）
-    fs::copy_file(PATH_TO_URGLOG_B, STORE_ROOT_DIR_NAME + "/urglog_b", fs::copy_options::overwrite_existing);
-    std::cout << PATH_TO_URGLOG_B + " コピー成功\n";
-  } catch (const fs::filesystem_error& e) {
-    std::cerr << "ファイルコピーに失敗しました: " << e.what() << '\n';
-  }
-*/
 
   // 確率的占有地図はSubMap内で管理
   std::vector<Pose> robot_poses;
