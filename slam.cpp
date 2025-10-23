@@ -195,6 +195,12 @@ public:
 std::vector<std::vector<double>> create_and_show_integrated_map(
   const std::vector<SubMap>& completed_submaps);
 
+// 地図の境界をチェックし、必要であれば再構築する関数の前方宣言
+void check_and_rebuild_map_if_needed(
+  SubMap& submap,
+  const Pose& robot_pose,
+  const LaserData& laser_data);
+
 // 関数の前方宣言
 std::vector<std::vector<double>> update_map(
   std::vector<std::vector<double>> &gmap, 
@@ -1254,7 +1260,7 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
 class LaserLogReader {
 public:
   LaserLogReader(const std::string& filepath, char sensor_type, int lidar_skip)
-    : sensor_type(sensor_type), lidar_direction_skip(lidar_skip), line_count(0) {
+  : sensor_type(sensor_type), lidar_direction_skip(lidar_skip), line_count(0) {
     file.open(filepath);
   }
 
@@ -1376,7 +1382,7 @@ private:
 class MergedLaserStream {
 public:
   MergedLaserStream(const std::string& path_t, const std::string& path_b, int lidar_skip)
-    : reader_t(path_t, 't', lidar_skip), reader_b(path_b, 'b', lidar_skip) {
+  : reader_t(path_t, 't', lidar_skip), reader_b(path_b, 'b', lidar_skip) {
     if (!reader_t.is_open()) {
       std::cerr << "urglog_t ファイルを開けませんでした: " << path_t << std::endl;
       next_scan_t.valid = false;
@@ -1535,9 +1541,9 @@ int main (int argc, char *argv[]) {
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
       Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
       current_submap.trajectory.push_back(relative_pose_origin);
-            current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
-                                                   current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
-                                                   current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
+      current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
+                                             current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                             current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
       robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
 
       loop++;
@@ -1547,14 +1553,17 @@ int main (int argc, char *argv[]) {
     double dth = acos(1 - CSIZE*CSIZE/(2*(max_r/1000.0)*(max_r/1000.0)));
     double best_x, best_y, best_a, best_eval;
 
+    // Check if the map needs to be rebuilt before localization and update
+    check_and_rebuild_map_if_needed(current_submap, Pose(current_data.timestamp, current_x, current_y, current_a), current_data);
+
     // Localize within the current submap to get the new relative pose
     Pose prev_relative_pose = current_submap.trajectory.back();
     double rel_x, rel_y, rel_a;
-        std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points,
-                                                             prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
-                                                             current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth,
-                                                             current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
-                                                             Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
+    std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points,
+                                                           prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
+                                                           current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth,
+                                                           current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                                           Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
     // Convert the new relative pose to a global pose for logging and distance calculation
     double cos_start = cos(current_submap.start_pose.a);
     double sin_start = sin(current_submap.start_pose.a);
@@ -1643,16 +1652,16 @@ int main (int argc, char *argv[]) {
 
     // Update the current submap's local map with the new relative pose
     const auto& latest_relative_pose = current_submap.trajectory.back();
-        current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points,
-                                               latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
-                                               current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
-                                               current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
+    current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points,
+                                           latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                           current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                           current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
     // 移動体除去処理（Bottomセンサーデータのみ使用）
     if (current_data.sensor_type == 'b') {
-          current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data,
-                                                            latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
-                                                            current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
-                                                            current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);    }
+      current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data,
+                                                        latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                                        current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                                        current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);    }
 
     if (loop % 1 == 0) {
       current_submap.show_submap_progress(current_submap.trajectory.size() - 1);
@@ -1817,4 +1826,126 @@ void SubMap::save_submap_data(const std::string& base_dir) {
   laser_t_file.close();
 
   std::cout << "部分地図 " << submap_id << " を保存しました: " << submap_dir << std::endl;
+}
+
+// 地図の境界をチェックし、必要であれば再構築する
+void check_and_rebuild_map_if_needed(
+  SubMap& submap,
+  const Pose& robot_pose,
+  const LaserData& laser_data)
+{
+  // 1. チェック対象となる点のグローバル座標リストを作成
+  std::vector<Point> global_points;
+  // ロボット自身の位置
+  global_points.emplace_back(robot_pose.x, robot_pose.y);
+  // LIDARの点群
+  double cos_robot = cos(robot_pose.a);
+  double sin_robot = sin(robot_pose.a);
+  for (const auto& p : laser_data.points) {
+    double global_x = robot_pose.x + p.x * cos_robot - p.y * sin_robot;
+    double global_y = robot_pose.y + p.x * sin_robot + p.y * cos_robot;
+    global_points.emplace_back(global_x, global_y);
+  }
+
+  // 2. 各点が現在のsubmapの境界内に収まるかチェック
+  bool needs_rebuild = false;
+  double cos_submap = cos(-submap.start_pose.a);
+  double sin_submap = sin(-submap.start_pose.a);
+
+  for (const auto& gp : global_points) {
+    // submapのローカル座標系に変換
+    double rel_x = gp.x - submap.start_pose.x;
+    double rel_y = gp.y - submap.start_pose.y;
+    double rotated_x = rel_x * cos_submap - rel_y * sin_submap;
+    double rotated_y = rel_x * sin_submap + rel_y * cos_submap;
+
+    // ピクセル座標に変換
+    int px = static_cast<int>(round(rotated_x / submap.LOCAL_CSIZE)) + submap.LOCAL_ORIGIN_X;
+    int py = static_cast<int>(round(-rotated_y / submap.LOCAL_CSIZE)) + submap.LOCAL_ORIGIN_Y;
+
+    // 境界チェック
+    if (px < 0 || px >= submap.LOCAL_WIDTH || py < 0 || py >= submap.LOCAL_HEIGHT) {
+      needs_rebuild = true;
+      break; // 1点でもはみ出たらチェック終了
+    }
+  }
+
+  // 3. 再構築が必要な場合はメッセージ表示（今回はここまで）
+  if (needs_rebuild) {
+    std::cout << "!!! Map boundary exceeded. Rebuilding required. !!!" << std::endl;
+
+    // 1. 新しい地図に必要なローカル座標範囲を計算
+    double min_req_x = std::numeric_limits<double>::max();
+    double max_req_x = std::numeric_limits<double>::lowest();
+    double min_req_y = std::numeric_limits<double>::max();
+    double max_req_y = std::numeric_limits<double>::lowest();
+
+    // 現在の地図がカバーするローカル座標範囲
+    min_req_x = std::min(min_req_x, -static_cast<double>(submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE);
+    max_req_x = std::max(max_req_x, static_cast<double>(submap.LOCAL_WIDTH - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE);
+    min_req_y = std::min(min_req_y, -static_cast<double>(submap.LOCAL_HEIGHT - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE);
+    max_req_y = std::max(max_req_y, static_cast<double>(submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE);
+
+    // 新しい点群が要求するローカル座標範囲
+    for (const auto& gp : global_points) {
+      double rel_x = gp.x - submap.start_pose.x;
+      double rel_y = gp.y - submap.start_pose.y;
+      double rotated_x = rel_x * cos_submap - rel_y * sin_submap;
+      double rotated_y = rel_x * sin_submap + rel_y * cos_submap;
+      min_req_x = std::min(min_req_x, rotated_x);
+      max_req_x = std::max(max_req_x, rotated_x);
+      min_req_y = std::min(min_req_y, rotated_y);
+      max_req_y = std::max(max_req_y, rotated_y);
+    }
+
+    // 2. マージンを加えて新しい地図のパラメータを決定
+    const double margin = 20.0; // 20mのマージン
+    min_req_x -= margin;
+    max_req_x += margin;
+    min_req_y -= margin;
+    max_req_y += margin;
+
+    int new_width = static_cast<int>(ceil((max_req_x - min_req_x) / submap.LOCAL_CSIZE));
+    int new_height = static_cast<int>(ceil((max_req_y - min_req_y) / submap.LOCAL_CSIZE));
+    int new_origin_x = static_cast<int>(round(-min_req_x / submap.LOCAL_CSIZE));
+    int new_origin_y = static_cast<int>(round(max_req_y / submap.LOCAL_CSIZE));
+
+    std::cout << "  New map parameters calculated:" << std::endl;
+    std::cout << "    Width: " << new_width << " (Old: " << submap.LOCAL_WIDTH << ")" << std::endl;
+    std::cout << "    Height: " << new_height << " (Old: " << submap.LOCAL_HEIGHT << ")" << std::endl;
+    std::cout << "    OriginX: " << new_origin_x << " (Old: " << submap.LOCAL_ORIGIN_X << ")" << std::endl;
+    std::cout << "    OriginY: " << new_origin_y << " (Old: " << submap.LOCAL_ORIGIN_Y << ")" << std::endl;
+
+    // 3. 新しい地図を作成し、データをコピー
+    std::cout << "  Rebuilding map..." << std::endl;
+    std::vector<std::vector<double>> new_gmap(new_height, std::vector<double>(new_width, 0.0));
+
+    for (int old_py = 0; old_py < submap.LOCAL_HEIGHT; ++old_py) {
+      for (int old_px = 0; old_px < submap.LOCAL_WIDTH; ++old_px) {
+        if (submap.local_gmap[old_py][old_px] != 0.0) { // 値があるセルのみコピー
+          // 古いピクセル座標からローカル物理座標を計算
+          double local_x = (static_cast<double>(old_px) - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+          double local_y = -(static_cast<double>(old_py) - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
+
+          // 新しい地図でのピクセル座標を計算
+          int new_px = static_cast<int>(round(local_x / submap.LOCAL_CSIZE)) + new_origin_x;
+          int new_py = static_cast<int>(round(-local_y / submap.LOCAL_CSIZE)) + new_origin_y;
+
+          // 新しい地図の範囲内であればコピー
+          if (new_px >= 0 && new_px < new_width && new_py >= 0 && new_py < new_height) {
+            new_gmap[new_py][new_px] = submap.local_gmap[old_py][old_px];
+          }
+        }
+      }
+    }
+
+    // 4. submapのメンバーを更新
+    submap.local_gmap = std::move(new_gmap);
+    submap.LOCAL_WIDTH = new_width;
+    submap.LOCAL_HEIGHT = new_height;
+    submap.LOCAL_ORIGIN_X = new_origin_x;
+    submap.LOCAL_ORIGIN_Y = new_origin_y;
+
+    std::cout << "  Map rebuilding complete." << std::endl;
+  }
 }
