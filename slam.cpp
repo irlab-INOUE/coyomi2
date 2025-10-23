@@ -60,7 +60,7 @@ struct Pose {
   }
 };
 
-// LiDARのレイキャストの逆引きのための曲座標情報
+// LiDARのレイキャストの逆引きのための曲座標情報;
 struct PolarInfo {
   double angle;
   double distance;
@@ -95,22 +95,22 @@ struct SubMap {
   double min_x, max_x;
   double min_y, max_y;
   bool bounds_initialized;
+  double LOCAL_CSIZE; // 元の全体地図のcsizeに相当する
 
   // 地図パラメータ（定数）
   static const int LOCAL_WIDTH = 2000;   // 100m / 0.05m
   static const int LOCAL_HEIGHT = 2000;  // 100m / 0.05m
   static const int LOCAL_ORIGIN_X = 1000; // 中央
   static const int LOCAL_ORIGIN_Y = 1000; // 中央
-  static constexpr double LOCAL_CSIZE = 0.05;   // 元の全体地図のcsizeに相当する
 
   SubMap() : submap_id(-1), start_distance(0.0), end_distance(0.0),
-    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false) {
+    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(0.05) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
 
-  SubMap(int id, double start_dist, const Pose& start_p) 
+  SubMap(int id, double start_dist, const Pose& start_p, double csize) 
     : submap_id(id), start_distance(start_dist), end_distance(start_dist), start_pose(start_p),
-    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false) {
+    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(csize) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
 
@@ -1145,8 +1145,8 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
         if (std::abs(log_odds) < 1e-6) continue; // 未観測グリッドはスキップ
 
         // 部分地図座標をグローバル座標に変換（回転考慮）
-        double local_world_x = (local_x - SubMap::LOCAL_ORIGIN_X) * SubMap::LOCAL_CSIZE;
-        double local_world_y = -(local_y - SubMap::LOCAL_ORIGIN_Y) * SubMap::LOCAL_CSIZE;
+        double local_world_x = (local_x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+        double local_world_y = -(local_y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
 
         // start_poseの回転を考慮した座標変換
         double cos_a = cos(submap.start_pose.a);
@@ -1524,13 +1524,13 @@ int main (int argc, char *argv[]) {
     if(loop == 0) {
       // 最初の部分地図を初期化
       Pose initial_pose(timestamp, current_x, current_y, current_a);
-      current_submap = SubMap(next_submap_id++, total_distance, initial_pose);
+      current_submap = SubMap(next_submap_id++, total_distance, initial_pose, CSIZE);
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
       Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
       current_submap.trajectory.push_back(relative_pose_origin);
       current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
                                              SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
-                                             SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE);
+                                             SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
 
       robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
 
@@ -1546,7 +1546,7 @@ int main (int argc, char *argv[]) {
     double rel_x, rel_y, rel_a;
     std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points, 
                                                            prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
-                                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE, dth, 
+                                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth, 
                                                            SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT,
                                                            Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
 
@@ -1614,7 +1614,7 @@ int main (int argc, char *argv[]) {
       new_start_pose.x = current_x;
       new_start_pose.y = current_y;
       new_start_pose.a = current_a;
-      current_submap = SubMap(next_submap_id++, total_distance, new_start_pose);
+      current_submap = SubMap(next_submap_id++, total_distance, new_start_pose, CSIZE);
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
 
       // 境界フレームを新部分地図の最初のデータとして追加（境界データ重複）
@@ -1647,14 +1647,14 @@ int main (int argc, char *argv[]) {
     current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 
                                            latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
                                            SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
-                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE);
+                                           SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
 
     // 移動体除去処理（Bottomセンサーデータのみ使用）
     if (current_data.sensor_type == 'b') {
       current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data, 
                                                         latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
                                                         SubMap::LOCAL_WIDTH, SubMap::LOCAL_HEIGHT, 
-                                                        SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, SubMap::LOCAL_CSIZE);
+                                                        SubMap::LOCAL_ORIGIN_X, SubMap::LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
     }
 
     if (loop % 1 == 0) {
