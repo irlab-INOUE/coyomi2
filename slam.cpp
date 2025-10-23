@@ -83,12 +83,12 @@ struct LaserData {
 // 部分地図の構造体
 struct SubMap {
   int submap_id;
-  double start_distance;
-  double end_distance;
+  double global_start_distance;
+  double global_end_distance;
   Pose start_pose;  // 物理座標の原点（基準点）
 
   std::vector<LaserData> laser_data_sequence;
-  std::vector<Pose> trajectory; // Trajectory in submap 
+  std::vector<Pose> trajectory; // 部分地図内での相対座標による軌跡
   std::vector<std::vector<double>> local_gmap;
 
   // 点群の実際の範囲（部分地図相対座標）
@@ -103,13 +103,13 @@ struct SubMap {
   static const int LOCAL_ORIGIN_X = 1000; // 中央
   static const int LOCAL_ORIGIN_Y = 1000; // 中央
 
-  SubMap() : submap_id(-1), start_distance(0.0), end_distance(0.0),
+  SubMap() : submap_id(-1), global_start_distance(0.0), global_end_distance(0.0),
     min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(0.05) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
 
   SubMap(int id, double start_dist, const Pose& start_p, double csize) 
-    : submap_id(id), start_distance(start_dist), end_distance(start_dist), start_pose(start_p),
+    : submap_id(id), global_start_distance(start_dist), global_end_distance(start_dist), start_pose(start_p),
     min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(csize) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
@@ -135,7 +135,7 @@ struct SubMap {
   void show_submap_progress(size_t current_frame);
 
   // 部分地図データの保存
-  void save_submap_data(const std::string& base_dir, double current_total_run_distance);
+  void save_submap_data(const std::string& base_dir);
 };
 
 // 極座標テーブル用のグローバル変数
@@ -1324,7 +1324,7 @@ int main (int argc, char *argv[]) {
   double p_odo_a = 0;
 
   // 累積走行距離計算用
-  double total_distance = 0.0;
+  double global_total_distance = 0.0;
   double prev_x = 0.0;
   double prev_y = 0.0;
   bool first_pose = true;
@@ -1516,7 +1516,7 @@ int main (int argc, char *argv[]) {
     if(loop == 0) {
       // 最初の部分地図を初期化
       Pose initial_pose(timestamp, current_x, current_y, current_a);
-      current_submap = SubMap(next_submap_id++, total_distance, initial_pose, CSIZE);
+      current_submap = SubMap(next_submap_id++, global_total_distance, initial_pose, CSIZE);
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
       Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
       current_submap.trajectory.push_back(relative_pose_origin);
@@ -1552,7 +1552,7 @@ int main (int argc, char *argv[]) {
 
     // 推定結果を固定表示関数で表示
     double angle_deg = best_a * 180.0 / M_PI;
-    update_status_display(loop, sensor_name, timestamp, best_eval, best_x, best_y, angle_deg, total_data_count, total_distance);
+    update_status_display(loop, sensor_name, timestamp, best_eval, best_x, best_y, angle_deg, total_data_count, global_total_distance);
 
     current_x = best_x;
     current_y = best_y;
@@ -1562,7 +1562,7 @@ int main (int argc, char *argv[]) {
     if (!first_pose) {
       double distance_increment = sqrt((current_x - prev_x) * (current_x - prev_x) + 
                                        (current_y - prev_y) * (current_y - prev_y));
-      total_distance += distance_increment;
+      global_total_distance += distance_increment;
     } else {
       first_pose = false;
     }
@@ -1583,13 +1583,13 @@ int main (int argc, char *argv[]) {
     // 部分地図内での走行距離チェック：新しい部分地図への切り替え
     if (current_submap_local_distance >= SUBMAP_DISTANCE) {
       // 現在の部分地図を完了（境界フレームは最後のデータとして既に追加済み）
-      current_submap.end_distance = total_distance;
+      current_submap.global_end_distance = global_total_distance;
 
       // 部分地図の姿勢推定と地図構築を実行
       current_submap.build_submap();
 
       // 完成した部分地図をファイルに保存
-      current_submap.save_submap_data(STORE_ROOT_DIR_NAME, total_distance);
+      current_submap.save_submap_data(STORE_ROOT_DIR_NAME);
 
       // 完成した部分地図を保存
       completed_submaps.push_back(current_submap);
@@ -1603,7 +1603,7 @@ int main (int argc, char *argv[]) {
       new_start_pose.x = current_x;
       new_start_pose.y = current_y;
       new_start_pose.a = current_a;
-      current_submap = SubMap(next_submap_id++, total_distance, new_start_pose, CSIZE);
+      current_submap = SubMap(next_submap_id++, global_total_distance, new_start_pose, CSIZE);
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
 
       // 境界フレームを新部分地図の最初のデータとして追加（境界データ重複）
@@ -1617,7 +1617,7 @@ int main (int argc, char *argv[]) {
 
 
 
-      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << total_distance << "m（境界データ重複）" << std::endl;
+      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << global_total_distance << "m（境界データ重複）" << std::endl;
     }
 
     // Save pose to robot_poses
@@ -1654,11 +1654,11 @@ int main (int argc, char *argv[]) {
 
   // 最後の部分地図を処理
   if (!current_submap.laser_data_sequence.empty()) {
-    current_submap.end_distance = total_distance;
+    current_submap.global_end_distance = global_total_distance;
     current_submap.build_submap();
 
     // 最後の部分地図をファイルに保存
-    current_submap.save_submap_data(STORE_ROOT_DIR_NAME, total_distance);
+    current_submap.save_submap_data(STORE_ROOT_DIR_NAME);
 
     completed_submaps.push_back(current_submap);
     std::cout << "最後のSubMap " << current_submap.submap_id << " を処理完了" << std::endl;
@@ -1710,7 +1710,7 @@ int main (int argc, char *argv[]) {
 }
 
 // SubMapクラスのsave_submap_data()メソッドの実装
-void SubMap::save_submap_data(const std::string& base_dir, double current_total_run_distance) {
+void SubMap::save_submap_data(const std::string& base_dir) {
   // サブディレクトリ作成
   std::string submap_dir = base_dir + "/submaps/submap_" + 
     std::string(3 - std::to_string(submap_id).length(), '0') + 
@@ -1723,8 +1723,8 @@ void SubMap::save_submap_data(const std::string& base_dir, double current_total_
   // 1. メタデータ保存 (mapInfo.yaml)
   std::ofstream metadata_file(submap_dir + "/mapInfo.yaml");
   metadata_file << "submap_id: " << submap_id << std::endl;
-  metadata_file << "start_distance: " << start_distance << std::endl;
-  metadata_file << "end_distance: " << end_distance << std::endl;
+  metadata_file << "global_start_distance: " << global_start_distance << std::endl;
+  metadata_file << "global_end_distance: " << global_end_distance << std::endl;
   metadata_file << "start_pose:" << std::endl;
   metadata_file << "  x: " << start_pose.x << std::endl;
   metadata_file << "  y: " << start_pose.y << std::endl;
@@ -1768,8 +1768,8 @@ void SubMap::save_submap_data(const std::string& base_dir, double current_total_
     }
 
     // "スタート時点からの累積走行距離" = この部分地図の開始時点からの累積距離 + 部分地図内での累積距離
-    // start_distance is the total distance when this submap started.
-    double total_run_distance_at_pose = start_distance + cumulative_submap_distance;
+    // global_start_distance is the total distance when this submap started.
+    double total_run_distance_at_pose = global_start_distance + cumulative_submap_distance;
 
     traj_file << pose.ts << " " << pose.x << " " << pose.y << " " << pose.a << " "
       << std::fixed << std::setprecision(3) << cumulative_submap_distance << " "
