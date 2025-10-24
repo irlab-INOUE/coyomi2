@@ -214,7 +214,7 @@ void check_and_rebuild_map_if_needed(
 // 関数の前方宣言
 OccupancyGrid update_map(OccupancyGrid &gmap, 
                          std::vector<Point> &pt1, 
-                         double current_x, double current_y, double current_a, 
+                         const Pose& pose, 
                          int width, int height, int ox, int oy, double CSIZE);
 
 OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, 
@@ -239,12 +239,13 @@ std::tuple<int, int> xy2index(double xd, double yd, double CSIZE, int ox, int oy
   return std::make_tuple(ix, iy);
 }
 
-OccupancyGrid update_map(OccupancyGrid &gmap, std::vector<Point> &pt1, 
-                         double current_x, double current_y, double current_a, 
+OccupancyGrid update_map(OccupancyGrid &gmap,
+                         std::vector<Point> &pt1, 
+                         const Pose& pose,
                          int width, int height, int ox, int oy, double CSIZE) {
   int ix, iy;
-  double cs = cos(current_a);
-  double sn = sin(current_a);
+  double cs = cos(pose.a);
+  double sn = sin(pose.a);
   for (size_t i = 0; i < pt1.size(); i++) {
     // ロボット中心からの距離を計算
     double distance = sqrt(pt1[i].x * pt1[i].x + pt1[i].y * pt1[i].y);
@@ -254,8 +255,8 @@ OccupancyGrid update_map(OccupancyGrid &gmap, std::vector<Point> &pt1,
       continue;
     }
 
-    double xd = pt1[i].x * cs - pt1[i].y * sn + current_x;
-    double yd = pt1[i].x * sn + pt1[i].y * cs + current_y;
+    double xd = pt1[i].x * cs - pt1[i].y * sn + pose.x;
+    double yd = pt1[i].x * sn + pt1[i].y * cs + pose.y;
     auto [ix, iy] = xy2index(xd, yd, CSIZE, ox, oy);
     if (0 <= ix && ix < width && 0 <= iy && iy < height) {
       // 観測された点は高い占有確率を与える（強化）
@@ -1561,9 +1562,11 @@ int main (int argc, char *argv[]) {
       current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
       Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
       current_submap.trajectory.push_back(relative_pose_origin);
-      current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 0.0, 0.0, 0.0,
+      current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 
+                                             Pose(timestamp, 0.0, 0.0, 0.0),
                                              current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
-                                             current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
+                                             current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y,
+                                             current_submap.LOCAL_CSIZE);
       robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
 
       loop++;
@@ -1636,9 +1639,6 @@ int main (int argc, char *argv[]) {
       // 完成した部分地図を保存
       completed_submaps.push_back(current_submap);
 
-      // 統合地図を表示
-      // create_and_show_integrated_map(completed_submaps, CSIZE); // 中間表示は最終出力時に統合するため一旦コメントアウト
-
       // 新しい部分地図を開始（境界フレームの姿勢を開始点とする）
       Pose new_start_pose;
       new_start_pose.ts = timestamp;
@@ -1676,7 +1676,7 @@ int main (int argc, char *argv[]) {
     // Update the current submap's local map with the new relative pose
     const auto& latest_relative_pose = current_submap.trajectory.back();
     current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points,
-                                           latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                           Pose(timestamp, latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a),
                                            current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
                                            current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
     // 移動体除去処理（Bottomセンサーデータのみ使用）
