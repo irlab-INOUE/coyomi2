@@ -1062,9 +1062,10 @@ void SubMap::show_submap_progress(size_t current_frame) {
 
 // 統合地図作成・表示関数の実装
 std::vector<std::vector<double>> create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps) {
-  if (completed_submaps.empty()) return {};
+  if (completed_submaps.empty()) return {};   // 空のvector が戻る
 
   // 統合地図の範囲を計算
+  // まず最大最小値で初期化
   double global_min_x = std::numeric_limits<double>::max();
   double global_max_x = std::numeric_limits<double>::lowest();
   double global_min_y = std::numeric_limits<double>::max();
@@ -1513,8 +1514,8 @@ int main (int argc, char *argv[]) {
   std::vector<SubMap> completed_submaps;         // 完成した部分地図
   SubMap current_submap;                         // 現在構築中の部分地図
   int next_submap_id = 0;                        // 次の部分地図ID
-  //const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
-  const double SUBMAP_DISTANCE = std::numeric_limits<double>::infinity(); // 部分地図で分割したくないときは，正の無限大を使う
+  const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
+  //const double SUBMAP_DISTANCE = std::numeric_limits<double>::infinity(); // 部分地図で分割したくないときは，正の無限大を使う
   double current_submap_local_distance = 0.0;    // 現在の部分地図内での累積走行距離
   bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
@@ -1801,25 +1802,40 @@ void SubMap::save_submap_data(const std::string& base_dir) {
   std::ofstream laser_b_file(submap_dir + "/laser_data_b.txt");
   std::ofstream laser_t_file(submap_dir + "/laser_data_t.txt");
 
-  for (const auto& laser_data : laser_data_sequence) {
-    if (!laser_data.valid) continue;
+  for (const auto& ldata : laser_data_sequence) {
+    if (!ldata.valid) continue;
 
-    std::ofstream* target_file = (laser_data.sensor_type == 'b') ? &laser_b_file : &laser_t_file;
+    std::ofstream* target_file = (ldata.sensor_type == 'b') ? &laser_b_file : &laser_t_file;
 
-    // urglog形式で出力
-    *target_file << "LASERSCANRT " << laser_data.timestamp << " ";
-    *target_file << laser_data.points.size() * 3 << " "; // count (3エコー分)
-    *target_file << laser_data.start_angle << " " << laser_data.end_angle << " ";
-    *target_file << laser_data.delta_th << " 3 "; // max_echo_size = 3
+    // 理論上のステップ数を計算
+    const int theoretical_steps = static_cast<int>((ldata.end_angle - ldata.start_angle) / ldata.delta_th) + 1;
 
-    // 距離データ（3エコー形式で出力）
-    for (const auto& point : laser_data.points) {
-      double range_mm = sqrt(point.x * point.x + point.y * point.y) * 1000.0;
-      long r = static_cast<long>(range_mm);
-      *target_file << r << " " << r << " " << r << " "; // 同じ値を3回（簡易版）
+    // ヘッダーを書き出す
+    *target_file << "LASERSCANRT " << ldata.timestamp << " "
+                 << theoretical_steps << " " // countは理論上のステップ数
+                 << ldata.start_angle << " " << ldata.end_angle << " "
+                 << ldata.delta_th << " 1" << " "; // max_echo_sizeは1
+
+    // 固定長の距離データ配列を作成
+    std::vector<long> full_ranges(theoretical_steps, 0L); // 無効値は0で初期化
+
+    // 実際の測定値を正しいインデックスに格納
+    for (size_t i = 0; i < ldata.ranges.size(); ++i) {
+      double angle_rad = ldata.angles[i];
+      double angle_deg = angle_rad * 180.0 / M_PI;
+      // 角度から理論上のインデックスを計算
+      int index = static_cast<int>(round((angle_deg - ldata.start_angle) / ldata.delta_th));
+
+      if (index >= 0 && index < theoretical_steps) {
+        full_ranges[index] = static_cast<long>(ldata.ranges[i] * 1000.0); // mm単位に変換
+      }
     }
 
-    *target_file << "0.0 0.0 0.0 " << laser_data.timestamp << std::endl;
+    // 固定長データをファイルに書き出し
+    for (size_t i = 0; i < full_ranges.size(); ++i) {
+      *target_file << full_ranges[i] << ((i == full_ranges.size() - 1) ? "" : " ");
+    }
+    *target_file << " " << ldata.timestamp << std::endl;
   }
 
   laser_b_file.close();
