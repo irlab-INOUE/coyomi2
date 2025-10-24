@@ -324,27 +324,6 @@ OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, const LaserData &scan_d
     }
   }
 
-  // cv::Matに変換して可視化
-  /*
-  cv::Mat local_img(local_size, local_size, CV_64F);
-  for (int y = 0; y < local_size; y++) {
-    for (int x = 0; x < local_size; x++) {
-      local_img.at<double>(y, x) = local_map[y][x];
-    }
-  }
-
-  // 可視化用に0-255に正規化
-  cv::Mat display_img;
-  local_img.convertTo(display_img, CV_8U, 255.0);
-
-  // 十字線を描画（原点表示）
-  cv::line(display_img, cv::Point(local_origin, 0), cv::Point(local_origin, local_size-1), cv::Scalar(128), 1);
-  cv::line(display_img, cv::Point(0, local_origin), cv::Point(local_size-1, local_origin), cv::Scalar(128), 1);
-
-  cv::imshow("Local Scan (Bottom)", display_img);
-  cv::waitKey(10);
-  */
-
   // 極座標テーブルの初期化（初回のみ）
   initialize_polar_table(local_size, local_origin, CSIZE);
 
@@ -386,30 +365,7 @@ OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, const LaserData &scan_d
     }
   }
 
-  // 自由空間マップをcv::Matに変換して可視化
-  /*
-  cv::Mat free_space_img(local_size, local_size, CV_8U);
-  for (int y = 0; y < local_size; y++) {
-    for (int x = 0; x < local_size; x++) {
-      if (free_space_map[y][x] == -1.0) {
-        free_space_img.at<uchar>(y, x) = 255; // -1の部分を白
-      } else {
-        free_space_img.at<uchar>(y, x) = 0;   // それ以外は黒
-      }
-    }
-  }
-
-  // 十字線を描画（原点表示）
-  cv::line(free_space_img, cv::Point(local_origin, 0), cv::Point(local_origin, local_size-1), cv::Scalar(128), 1);
-  cv::line(free_space_img, cv::Point(0, local_origin), cv::Point(local_size-1, local_origin), cv::Scalar(128), 1);
-
-  cv::imshow("Free Space Map", free_space_img);
-  cv::waitKey(10);
-  */
-
   // 自由空間ピクセルをgmapに対応付けて移動体除去
-  int removed_count = 0;
-
   double cs = cos(current_a);
   double sn = sin(current_a);
   for (int y = 0; y < local_size; y++) {
@@ -436,15 +392,10 @@ OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, const LaserData &scan_d
           if (gmap[gmap_iy][gmap_ix] > -0.8) {  // log(0.3/0.7) ≈ -0.847
             // より強い減算で確実に除去
             gmap[gmap_iy][gmap_ix] -= log06 * 2.0; // 2倍の減算で強力除去
-            removed_count++;
           }
         }
       }
     }
-  }
-
-  if (removed_count > 0) {
-    // std::cout << "  [移動体除去] 除去したグリッド数: " << removed_count << std::endl;
   }
 
   return gmap;
@@ -959,9 +910,6 @@ void initialize_lidar_tables() {
 // SubMapクラスのbuild_submap()メソッドの実装
 void SubMap::build_submap() {
   std::cout << "SubMap " << submap_id << " の構築完了 (メインループの結果を使用)" << std::endl;
-
-  // local_gmapとtrajectoryはメインループで既に構築済みなので、ここでは再構築しない。
-  // 代わりに、最終的なboundsを計算する。
 
   // LiDAR点群の範囲を更新（部分地図相対座標で）
   for (size_t i = 0; i < laser_data_sequence.size(); i++) {
@@ -1657,21 +1605,11 @@ int main (int argc, char *argv[]) {
       relative_pose_origin.a = 0.0;
       current_submap.trajectory.push_back(relative_pose_origin);
 
-
-
       std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << global_total_distance << "m（境界データ重複）" << std::endl;
     }
 
     // Save pose to robot_poses
     robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
-
-    // メインループでのLiDAR点数をデバッグ出力（最初のフレームのみ）
-    if (loop == 1) {
-      std::cout << "[デバッグ] メインループ最初のフレーム:" << std::endl;
-      std::cout << "  LiDAR点数: " << current_data.points.size() << std::endl;
-      std::cout << "  センサータイプ: " << current_data.sensor_type << std::endl;
-      std::cout << "  タイムスタンプ: " << current_data.timestamp << std::endl;
-    }
 
     // Update the current submap's local map with the new relative pose
     const auto& latest_relative_pose = current_submap.trajectory.back();
