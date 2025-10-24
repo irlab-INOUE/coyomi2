@@ -208,6 +208,11 @@ public:
 // 統合地図作成・表示関数の前方宣言
 OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps, double CSIZE);
 
+// 新しい統合地図生成・保存関数の前方宣言
+void create_and_save_integrated_map(const std::vector<SubMap>& completed_submaps, 
+                                             double CSIZE,
+                                             const std::string& output_dir);
+
 // 地図の境界をチェックし、必要であれば再構築する関数の前方宣言
 void check_and_rebuild_map_if_needed(
   SubMap& submap,
@@ -859,7 +864,7 @@ void update_status_display(int loop, const std::string& sensor_type,
   int progress = (total_count > 0) ? (loop * 100) / total_count : 0;
   progress = std::min(100, progress);  // 100%で上限
   std::cout << "\033[32mSLAM Progress: \033[33m" << std::setw(4) << loop 
-    << "\033[32m/" << total_count << " (\033[33m" << std::setw(3) << progress << "%\033[32m)\033[0m" 
+    << "\033[32m/" << total_count << " (\033[33m" << std::setw(3) << progress << "\033[32m%)\033[0m" 
     << std::endl;
   std::cout << "\033[36m" << std::string(50, '=') << "\033[0m" << std::endl;
 
@@ -1060,7 +1065,7 @@ OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& complete
   int integrated_height = static_cast<int>((global_max_y - global_min_y) / CSIZE);
 
   // デバッグ出力：統合地図の範囲とサイズ
-  std::cout << "=== 統合地図範囲デバッグ ===" << std::endl;
+  std::cout << "=== 統合地図範囲デバッグ ====" << std::endl;
   std::cout << "統合地図範囲: X[" << global_min_x << "," << global_max_x 
     << "] Y[" << global_min_y << "," << global_max_y << "]" << std::endl;
   std::cout << "統合地図サイズ: " << integrated_width << "x" << integrated_height << " (解像度:" << CSIZE << "m)" << std::endl;
@@ -1195,6 +1200,174 @@ OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& complete
   std::cout << "統合地図表示完了 (部分地図数: " << completed_submaps.size() << ")" << std::endl;
 
   return integrated_map;
+}
+
+// 新しい統合地図生成・保存関数の実装
+void create_and_save_integrated_map(const std::vector<SubMap>& completed_submaps, 
+                                      double CSIZE,
+                                      const std::string& output_dir) {
+  if (completed_submaps.empty()) {
+    std::cerr << "エラー: 部分地図がありません。統合地図の生成を中断します。" << std::endl;
+    return;
+  }
+
+  // 1. 統合地図の物理的な範囲を計算
+  double global_min_x = std::numeric_limits<double>::max();
+  double global_max_x = std::numeric_limits<double>::lowest();
+  double global_min_y = std::numeric_limits<double>::max();
+  double global_max_y = std::numeric_limits<double>::lowest();
+
+  for (const auto& submap : completed_submaps) {
+    double cos_a = cos(submap.start_pose.a);
+    double sin_a = sin(submap.start_pose.a);
+
+    std::vector<std::pair<double, double>> corners = {
+      {submap.min_x, submap.min_y}, {submap.max_x, submap.min_y},
+      {submap.min_x, submap.max_y}, {submap.max_x, submap.max_y}
+    };
+
+    for (const auto& corner : corners) {
+      double rotated_x = corner.first * cos_a - corner.second * sin_a;
+      double rotated_y = corner.first * sin_a + corner.second * cos_a;
+      double global_x = submap.start_pose.x + rotated_x;
+      double global_y = submap.start_pose.y + rotated_y;
+
+      global_min_x = std::min(global_min_x, global_x);
+      global_max_x = std::max(global_max_x, global_x);
+      global_min_y = std::min(global_min_y, global_y);
+      global_max_y = std::max(global_max_y, global_y);
+    }
+  }
+
+  double margin = 5.0; // 5mのマージン
+  global_min_x -= margin;
+  global_max_x += margin;
+  global_min_y -= margin;
+  global_max_y += margin;
+
+  // 2. 地図のパラメータを計算
+  int integrated_width = static_cast<int>((global_max_x - global_min_x) / CSIZE);
+  int integrated_height = static_cast<int>((global_max_y - global_min_y) / CSIZE);
+  int origin_x = static_cast<int>(-global_min_x / CSIZE);
+  int origin_y = static_cast<int>(global_max_y / CSIZE);
+
+  // 3. 統合地図を生成
+  OccupancyGrid integrated_map(integrated_height, std::vector<double>(integrated_width, 0.0));
+
+  for (const auto& submap : completed_submaps) {
+    for (int local_y = 0; local_y < submap.LOCAL_HEIGHT; local_y++) {
+      for (int local_x = 0; local_x < submap.LOCAL_WIDTH; local_x++) {
+        double log_odds = submap.local_gmap[local_y][local_x];
+        if (std::abs(log_odds) < 1e-6) continue;
+
+        double local_world_x = (local_x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+        double local_world_y = -(local_y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
+
+        double cos_a = cos(submap.start_pose.a);
+        double sin_a = sin(submap.start_pose.a);
+        double rotated_x = local_world_x * cos_a - local_world_y * sin_a;
+        double rotated_y = local_world_x * sin_a + local_world_y * cos_a;
+
+        double global_x = submap.start_pose.x + rotated_x;
+        double global_y = submap.start_pose.y + rotated_y;
+
+        int integrated_x = static_cast<int>((global_x - global_min_x) / CSIZE);
+        int integrated_y = static_cast<int>((global_max_y - global_y) / CSIZE);
+
+        if (integrated_x >= 0 && integrated_x < integrated_width &&
+            integrated_y >= 0 && integrated_y < integrated_height) {
+          integrated_map[integrated_y][integrated_x] += log_odds;
+        }
+      }
+    }
+  }
+
+  // 4. mapInfo.yamlを保存
+  std::ofstream metadata_file(output_dir + "/integrated_mapInfo.yaml");
+  metadata_file << "image: integrated_occMap.png" << std::endl;
+  metadata_file << "submap_id: " << -1 << std::endl;
+  metadata_file << "csize: " << CSIZE << std::endl;
+  metadata_file << "bounds:" << std::endl;
+  metadata_file << "  min_x: " << global_min_x << std::endl;
+  metadata_file << "  max_x: " << global_max_x << std::endl;
+  metadata_file << "  min_y: " << global_min_y << std::endl;
+  metadata_file << "  max_y: " << global_max_y << std::endl;
+  metadata_file << "--- # 追加情報" << std::endl;
+  metadata_file << "width: " << integrated_width << std::endl;
+  metadata_file << "height: " << integrated_height << std::endl;
+  metadata_file << "origin_x_px: " << origin_x << std::endl;
+  metadata_file << "origin_y_px: " << origin_y << std::endl;
+  metadata_file.close();
+  std::cout << "統合地図のメタデータを保存しました: " << output_dir + "/integrated_mapInfo.yaml" << std::endl;
+
+  // 5. integrated_occMap.pngを保存
+  cv::Mat integrated_img(integrated_height, integrated_width, CV_8UC1, cv::Scalar(128)); // 未知は灰色
+  const double HIGH_THRESHOLD = 0.405; // 60%
+  const double LOW_THRESHOLD = -0.405; // 40%
+
+  for (int y = 0; y < integrated_height; y++) {
+    for (int x = 0; x < integrated_width; x++) {
+      double log_odds = integrated_map[y][x];
+      if (log_odds > HIGH_THRESHOLD) {
+        integrated_img.at<uchar>(y, x) = 0; // 占有は黒
+      } else if (log_odds < LOW_THRESHOLD) {
+        //integrated_img.at<uchar>(y, x) = 255; // 自由は白
+      }
+    }
+  }
+
+  // 5. integrated_occMap.pngを保存 (描画用に変更)
+  cv::Mat integrated_img_color;
+  cv::cvtColor(integrated_img, integrated_img_color, cv::COLOR_GRAY2BGR);
+
+  // 5.5 部分地図の範囲を描画する
+  for (size_t i = 0; i < completed_submaps.size(); ++i) {
+    const auto& submap = completed_submaps[i];
+    double cos_a = cos(submap.start_pose.a);
+    double sin_a = sin(submap.start_pose.a);
+
+    // 各部分地図の色を決定
+    cv::Scalar color;
+    switch (i % 6) {
+      case 0: color = cv::Scalar(0, 0, 255); break;    // 赤
+      case 1: color = cv::Scalar(0, 255, 0); break;    // 緑
+      case 2: color = cv::Scalar(255, 0, 0); break;    // 青
+      case 3: color = cv::Scalar(0, 255, 255); break;  // 黄
+      case 4: color = cv::Scalar(255, 0, 255); break;  // マゼンタ
+      case 5: color = cv::Scalar(255, 255, 0); break;  // シアン
+    }
+
+    // submapのバウンディングボックスの4隅のローカル座標
+    std::vector<cv::Point2d> local_corners = {
+        {submap.min_x, submap.min_y}, {submap.max_x, submap.min_y},
+        {submap.max_x, submap.max_y}, {submap.min_x, submap.max_y}
+    };
+
+    // 統合地図上でのピクセル座標に変換
+    std::vector<cv::Point> integrated_corners_px;
+    for (const auto& lc : local_corners) {
+        double rotated_x = lc.x * cos_a - lc.y * sin_a;
+        double rotated_y = lc.x * sin_a + lc.y * cos_a;
+        double global_x = submap.start_pose.x + rotated_x;
+        double global_y = submap.start_pose.y + rotated_y;
+        int ix = static_cast<int>((global_x - global_min_x) / CSIZE);
+        int iy = static_cast<int>((global_max_y - global_y) / CSIZE);
+        integrated_corners_px.push_back(cv::Point(ix, iy));
+    }
+
+    // 4つの頂点を線で結んで四角形を描画
+    for (size_t j = 0; j < 4; ++j) {
+        cv::line(integrated_img_color, integrated_corners_px[j], integrated_corners_px[(j + 1) % 4], color, 1);
+    }
+  }
+
+  std::string final_map_path = output_dir + "/integrated_occMap_with_bounds.png";
+  cv::imwrite(final_map_path, integrated_img_color);
+  std::cout << "境界線付き統合占有地図を保存しました: " << final_map_path << std::endl;
+
+  // 6. 可視化（オプション）
+  cv::imshow("Final Integrated Map", integrated_img_color);
+  cv::waitKey(1000);
 }
 
 // LiDARデータの読み取りクラス
@@ -1406,7 +1579,7 @@ int main (int argc, char *argv[]) {
     return 1;
   }
   fout_mapInfo << "local mapInfo = {\n"
-    //<< "\toriginX = " << originX << ",\n" 
+    //<< "\toriginX = " << originX << ",\n"
     //<< "\toriginY = " << originY << ",\n"
     //<< "\tCSIZE = " << CSIZE << ",\n"
     //<< "\tminX = " << minX << ",\n"
@@ -1628,8 +1801,8 @@ int main (int argc, char *argv[]) {
     completed_submaps.push_back(current_submap);
     std::cout << "最後のSubMap " << current_submap.submap_id << " を処理完了" << std::endl;
 
-    // 最終的な統合地図を表示
-    create_and_show_integrated_map(completed_submaps, CSIZE);
+    // 最終的な統合地図を生成・保存
+    create_and_save_integrated_map(completed_submaps, CSIZE, STORE_ROOT_DIR_NAME);
   }
 
   std::cout << "全部分地図の構築完了 総数: " << completed_submaps.size() << std::endl;
@@ -1637,36 +1810,6 @@ int main (int argc, char *argv[]) {
   std::ofstream fout(STORE_ROOT_DIR_NAME + "/robot_poses.txt");
   for(int i = 0; i < robot_poses.size(); i++) {
     fout << robot_poses[i].ts << " " << robot_poses[i].x << " " << robot_poses[i].y << " " << robot_poses[i].a << "\n";
-  }
-
-  // 最終的な統合地図を生成
-  std::cout << "最終的な統合地図を生成・保存します..." << std::endl;
-  OccupancyGrid final_map_data = create_and_show_integrated_map(completed_submaps, CSIZE);
-
-  if (final_map_data.empty()) {
-    std::cerr << "エラー: 最終地図が空です。保存処理を中断します。" << std::endl;
-  } else {
-    // 統合地図データを可視化用のcv::Matに変換
-    int map_h = final_map_data.size();
-    int map_w = final_map_data[0].size();
-    cv::Mat integrated_map_img(map_h, map_w, CV_8UC3, cv::Scalar(50, 50, 50));
-
-    const double HIGH_THRESHOLD = 0.405; // 60%
-    for (int y = 0; y < map_h; y++) {
-      for (int x = 0; x < map_w; x++) {
-        double log_odds = final_map_data[y][x];
-        if (log_odds > HIGH_THRESHOLD) {
-          integrated_map_img.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255); // Obstacle
-        } else if (log_odds < -HIGH_THRESHOLD) {
-          integrated_map_img.at<cv::Vec3b>(y, x) = cv::Vec3b(0, 0, 0); // Free space
-        }
-      }
-    }
-
-    // 統合地図を保存
-    std::string final_map_path = STORE_ROOT_DIR_NAME + "/integrated_occMap.png";
-    cv::imwrite(final_map_path, integrated_map_img);
-    std::cout << "統合占有地図を保存しました: " << final_map_path << std::endl;
   }
 
   std::cout << "Done." << std::endl;
