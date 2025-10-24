@@ -29,6 +29,9 @@ using OccupancyGrid = std::vector<std::vector<double>>;
 #define WHITE cv::Scalar(198,204,203)
 #define RED cv::Scalar(0,31,245)
 
+//
+#define INFTY std::numeric_limits<double>::infinity() // 正の無限大
+
 // センサー配置の座標
 const double SENSOR_OFFSET_X = 0.19; // urglog_bのX軸オフセット [m]
 
@@ -160,7 +163,7 @@ double table_csize = 0.0;
 
 // 対数オッズ値の定数（CreateOccMap.cppより）
 const double log04  = log(0.40/(1.0 - 0.40));   // 約-0.4055 (低い占有確率)
-const double log045 = log(0.45/(1.0 - 0.45)); // 約-0.2007 (わずかに低い確率)  
+const double log045 = log(0.45/(1.0 - 0.45));   // 約-0.2007 (わずかに低い確率)  
 const double log06  = log(0.60/(1.0 - 0.60));   // 約+0.4055 (高い占有確率)
 
 // ガウシアンカーネルクラス
@@ -211,34 +214,14 @@ void check_and_rebuild_map_if_needed(
   const Pose& robot_pose,
   const LaserData& laser_data);
 
-// 関数の前方宣言
-OccupancyGrid update_map(OccupancyGrid &gmap, 
-                         std::vector<Point> &pt1, 
-                         const Pose& pose, 
-                         int width, int height, int ox, int oy, double CSIZE);
-
-OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, 
-                                    const LaserData &scan_data,
-                                    double current_x, double current_y, double current_a,
-                                    int width, int height, int ox, int oy, double CSIZE);
-
-std::tuple<double, double, double, double> optimize_de(
-  OccupancyGrid &gmap, std::vector<Point> &pt,
-  double current_x, double current_y, double current_a,
-  int originX, int originY, 
-  double CSIZE, double dth,
-  int width, int height, 
-  double Wxy, double Wa, 
-  int population_size, int generations, double F, double CR,
-  const GaussianKernel* kernel);
-
-
+// 実座標をピクセル座標に変換
 std::tuple<int, int> xy2index(double xd, double yd, double CSIZE, int ox, int oy) {
   int ix = static_cast<int>( xd / CSIZE) + ox;
   int iy = static_cast<int>(-yd / CSIZE) + oy;
   return std::make_tuple(ix, iy);
 }
 
+// Grid mapにLiDAR点群を対数尤度で更新する
 OccupancyGrid update_map(OccupancyGrid &gmap,
                          std::vector<Point> &pt1, 
                          const Pose& pose,
@@ -300,8 +283,6 @@ void initialize_polar_table(int size, int origin, double csize) {
 OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, const LaserData &scan_data, 
                                     double current_x, double current_y, double current_a, 
                                     int width, int height, int ox, int oy, double CSIZE) {
-  // std::cout << "  [移動体除去処理] スキャン点数: " << scan_data.points.size() << std::endl;
-
   // レーザー到達距離設定（ロボット近傍の移動体のみ対象）
   const double LASER_RANGE = 5.0; 
 
@@ -563,6 +544,7 @@ cv::Mat gmap_show(OccupancyGrid &gmap, double width, double height,
   return img;
 }
 
+// 角度の正規化[rad]
 double normalize_th(double ra) {
   while(1) {
     if (ra > M_PI) {
@@ -577,6 +559,7 @@ double normalize_th(double ra) {
 }
 
 
+// 単純カウントの評価関数
 double match_simple_count(OccupancyGrid &gmap,
                           std::vector<Point> &pt,
                           double cx, double cy, double ca,
@@ -597,6 +580,7 @@ double match_simple_count(OccupancyGrid &gmap,
   return eval;
 }
 
+// 対象点の周辺を含めた重み付き総和
 double match_count(OccupancyGrid &gmap,
                    std::vector<Point> &pt,
                    double cx, double cy, double ca,
@@ -669,6 +653,7 @@ double gaussian_match_count(const OccupancyGrid& gmap,
   return total_score;
 }
 
+// 貪欲法による最適化
 std::tuple<double, double, double, double> optimize_greedy(
   OccupancyGrid &gmap, std::vector<Point> &pt,
   double current_x, double current_y, double current_a, 
@@ -697,6 +682,7 @@ std::tuple<double, double, double, double> optimize_greedy(
   return std::make_tuple(best_x, best_y, best_a, best_eval);
 }
 
+// DEによる最適化
 // 乱数生成エンジンの準備
 std::random_device rd; // ハードウェア乱数生成器
 std::mt19937 gen(rd()); // メルセンヌ・ツイスタ法の乱数生成器
@@ -1211,6 +1197,7 @@ OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& complete
   return integrated_map;
 }
 
+// LiDARデータの読み取りクラス
 class LaserLogReader {
 public:
   LaserLogReader(const std::string& filepath, char sensor_type, int lidar_skip)
@@ -1335,6 +1322,7 @@ private:
   int line_count;
 };
 
+// 複数のLiDARデータを統合して提供するクラス
 class MergedLaserStream {
 public:
   MergedLaserStream(const std::string& path_t, const std::string& path_b, int lidar_skip)
@@ -1393,10 +1381,9 @@ private:
   LaserData next_scan_b;
 };
 
-std::random_device rd_bi;
-std::mt19937 gen_bi(rd_bi());
-std::uniform_int_distribution<int> binary_dist(0, 1);
-
+/******************************************************
+* MAIN
+*******************************************************/
 int main (int argc, char *argv[]) {
   int LIDAR_DIRECTION_SKIP = 1;   // LIDARデータの角度方向の読み飛ばし
   double CSIZE = 0.05;     // [m] 格子の解像度 0.025よりうまくいく
@@ -1474,7 +1461,7 @@ int main (int argc, char *argv[]) {
   SubMap current_submap;                         // 現在構築中の部分地図
   int next_submap_id = 0;                        // 次の部分地図ID
   const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
-  //const double SUBMAP_DISTANCE = std::numeric_limits<double>::infinity(); // 部分地図で分割したくないときは，正の無限大を使う
+  //const double SUBMAP_DISTANCE = INFTY; // 部分地図で分割したくないときは，正の無限大を使う
   double current_submap_local_distance = 0.0;    // 現在の部分地図内での累積走行距離
   bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
@@ -1687,6 +1674,9 @@ int main (int argc, char *argv[]) {
   return 0;
 }
 
+/******************************************************
+* Define methods
+*******************************************************/
 // SubMapクラスのsave_submap_data()メソッドの実装
 void SubMap::save_submap_data(const std::string& base_dir) {
   // サブディレクトリ作成
