@@ -19,6 +19,7 @@
 #include <lua.hpp>  // Lua
 
 namespace fs = std::filesystem;
+using OccupancyGrid = std::vector<std::vector<double>>;
 
 // Color definitions for visualization
 #define GREEN cv::Scalar(118,209,173)
@@ -36,6 +37,16 @@ std::vector<double> lidar_cos_table;
 std::vector<double> lidar_sin_table;
 std::vector<double> lidar_angle_table;
 
+// Utility functions for angle tranformations
+constexpr double deg2rad(double deg) {
+  return deg * M_PI / 180.0;
+}
+
+constexpr double rad2deg(double rad) {
+  return rad * 180.0 / M_PI;
+}
+
+// Data structure for point cloud
 struct Point {
   double x;
   double y;
@@ -47,7 +58,7 @@ struct Point {
   }
 };
 
-// ロボット姿勢
+// Pose of robot
 struct Pose {
   long long ts;
   double x, y, a;
@@ -89,7 +100,7 @@ struct SubMap {
 
   std::vector<LaserData> laser_data_sequence;
   std::vector<Pose> trajectory; // 部分地図内での相対座標による軌跡
-  std::vector<std::vector<double>> local_gmap;
+  OccupancyGrid local_gmap;
 
   // 点群の実際の範囲（部分地図相対座標）
   double min_x, max_x;
@@ -192,8 +203,7 @@ public:
 
 
 // 統合地図作成・表示関数の前方宣言
-std::vector<std::vector<double>> create_and_show_integrated_map(
-  const std::vector<SubMap>& completed_submaps);
+OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps, double CSIZE);
 
 // 地図の境界をチェックし、必要であれば再構築する関数の前方宣言
 void check_and_rebuild_map_if_needed(
@@ -202,20 +212,18 @@ void check_and_rebuild_map_if_needed(
   const LaserData& laser_data);
 
 // 関数の前方宣言
-std::vector<std::vector<double>> update_map(
-  std::vector<std::vector<double>> &gmap, 
-  std::vector<Point> &pt1, 
-  double current_x, double current_y, double current_a, 
-  int width, int height, int ox, int oy, double CSIZE);
+OccupancyGrid update_map(OccupancyGrid &gmap, 
+                         std::vector<Point> &pt1, 
+                         double current_x, double current_y, double current_a, 
+                         int width, int height, int ox, int oy, double CSIZE);
 
-std::vector<std::vector<double>> remove_moving_objects(
-  std::vector<std::vector<double>> &gmap,
-  const LaserData &scan_data,
-  double current_x, double current_y, double current_a,
-  int width, int height, int ox, int oy, double CSIZE);
+OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, 
+                                    const LaserData &scan_data,
+                                    double current_x, double current_y, double current_a,
+                                    int width, int height, int ox, int oy, double CSIZE);
 
 std::tuple<double, double, double, double> optimize_de(
-  std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
+  OccupancyGrid &gmap, std::vector<Point> &pt,
   double current_x, double current_y, double current_a,
   int originX, int originY, 
   double CSIZE, double dth,
@@ -231,10 +239,9 @@ std::tuple<int, int> xy2index(double xd, double yd, double CSIZE, int ox, int oy
   return std::make_tuple(ix, iy);
 }
 
-std::vector<std::vector<double>> update_map(std::vector<std::vector<double>> &gmap, 
-                                            std::vector<Point> &pt1, 
-                                            double current_x, double current_y, double current_a, 
-                                            int width, int height, int ox, int oy, double CSIZE) {
+OccupancyGrid update_map(OccupancyGrid &gmap, std::vector<Point> &pt1, 
+                         double current_x, double current_y, double current_a, 
+                         int width, int height, int ox, int oy, double CSIZE) {
   int ix, iy;
   double cs = cos(current_a);
   double sn = sin(current_a);
@@ -289,10 +296,9 @@ void initialize_polar_table(int size, int origin, double csize) {
 }
 
 // 移動体除去処理
-std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<double>> &gmap,
-                                                       const LaserData &scan_data,
-                                                       double current_x, double current_y, double current_a,
-                                                       int width, int height, int ox, int oy, double CSIZE) {
+OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, const LaserData &scan_data, 
+                                    double current_x, double current_y, double current_a, 
+                                    int width, int height, int ox, int oy, double CSIZE) {
   // std::cout << "  [移動体除去処理] スキャン点数: " << scan_data.points.size() << std::endl;
 
   // レーザー到達距離設定（ロボット近傍の移動体のみ対象）
@@ -303,7 +309,7 @@ std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<d
   int local_origin = local_size / 2; // 中央を原点とする
 
   // ローカル座標系の2次元配列を初期化（実数値対応）
-  std::vector<std::vector<double>> local_map(local_size, std::vector<double>(local_size, 0.0));
+  OccupancyGrid local_map(local_size, std::vector<double>(local_size, 0.0));
 
   // scan_dataの点をローカル座標系にバイナリで格納
   for (const auto& point : scan_data.points) {
@@ -342,7 +348,7 @@ std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<d
   initialize_polar_table(local_size, local_origin, CSIZE);
 
   // 自由空間判定用配列
-  std::vector<std::vector<double>> free_space_map(local_size, std::vector<double>(local_size, 0.0));
+  OccupancyGrid free_space_map(local_size, std::vector<double>(local_size, 0.0));
 
   // 各ピクセルについて自由空間判定（ルックアップテーブル使用）
   for (int y = 0; y < local_size; y++) {
@@ -372,7 +378,7 @@ std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<d
       }
 
       // 角度の許容範囲内で、スキャン点より近い場合は自由空間
-      const double ANGLE_TOLERANCE = scan_data.delta_th * M_PI / 180.0 * 2; // 角度刻みの2倍を許容範囲
+      const double ANGLE_TOLERANCE = deg2rad(scan_data.delta_th) * 2; // 角度刻みの2倍を許容範囲
       if (min_angle_diff < ANGLE_TOLERANCE && pixel_polar.distance < closest_scan_distance) {
         free_space_map[y][x] = -1.0;
       }
@@ -444,7 +450,7 @@ std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<d
 }
 
 // 占有地図から尤度場地図を生成する関数
-void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap, 
+void create_likelihood_field_map(const OccupancyGrid& gmap, 
                                  int width, int height, double CSIZE,
                                  const std::string& output_dir) {
   std::cout << "尤度場地図生成開始..." << std::endl;
@@ -550,7 +556,7 @@ void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap,
   std::cout << "\r尤度場地図生成完了: " << output_dir << "/lfm.yml (実数データ), lfm.png (可視化)" << std::endl;
 }
 
-cv::Mat gmap_show(std::vector<std::vector<double>> &gmap, double width, double height,
+cv::Mat gmap_show(OccupancyGrid &gmap, double width, double height,
                   const std::vector<Pose>* pose_trajectory = nullptr,
                   double CSIZE = 0.05, int originX = 0, int originY = 0, double minX = 0, double minY = 0) {
   cv::Mat img = cv::Mat(cv::Size(width, height), CV_8UC3, BACK_BLUE);
@@ -619,7 +625,7 @@ double normalize_th(double ra) {
 }
 
 
-double match_simple_count(std::vector<std::vector<double>> &gmap,
+double match_simple_count(OccupancyGrid &gmap,
                           std::vector<Point> &pt,
                           double cx, double cy, double ca,
                           double CSIZE, int originX, int originY, int width, int height) {
@@ -639,7 +645,7 @@ double match_simple_count(std::vector<std::vector<double>> &gmap,
   return eval;
 }
 
-double match_count(std::vector<std::vector<double>> &gmap,
+double match_count(OccupancyGrid &gmap,
                    std::vector<Point> &pt,
                    double cx, double cy, double ca,
                    double CSIZE, int originX, int originY, int width, int height) {
@@ -671,7 +677,7 @@ double match_count(std::vector<std::vector<double>> &gmap,
 }
 
 // ガウシアンカーネルを使用した評価関数
-double gaussian_match_count(const std::vector<std::vector<double>>& gmap,
+double gaussian_match_count(const OccupancyGrid& gmap,
                             const std::vector<Point>& pt,
                             double cx, double cy, double ca,
                             double CSIZE, int originX, int originY, 
@@ -712,7 +718,7 @@ double gaussian_match_count(const std::vector<std::vector<double>>& gmap,
 }
 
 std::tuple<double, double, double, double> optimize_greedy(
-  std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
+  OccupancyGrid &gmap, std::vector<Point> &pt,
   double current_x, double current_y, double current_a, 
   int originX, int originY, 
   double CSIZE, double dth,
@@ -745,9 +751,8 @@ std::mt19937 gen(rd()); // メルセンヌ・ツイスタ法の乱数生成器
 // -1から1の間の一様分布を定義
 std::uniform_real_distribution<> dis(-1.0, 1.0);
 
-
 std::tuple<double, double, double, double> optimize_de(
-  std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
+  OccupancyGrid &gmap, std::vector<Point> &pt,
   double current_x, double current_y, double current_a,
   int originX, int originY, 
   double CSIZE, double dth,
@@ -868,15 +873,15 @@ int count_laserscanrt_lines(const std::string& filename) {
 // 画面クリアと上部固定表示用の関数
 void update_status_display(int loop, const std::string& sensor_type, 
                            long long timestamp, double eval, 
-                           double x, double y, double angle_deg, int total_count, double distance = 0.0) {
+                           double x, double y, double a, int total_count, double distance = 0.0) {
   static std::vector<std::string> recent_lines;
   const int MAX_LINES = 20;
 
   // 色分け設定
   std::string color_code;
-  if (sensor_type.find("Top") != std::string::npos) {
+  if (sensor_type == "Top") {
     color_code = "\033[31m"; // 赤色
-  } else if (sensor_type.find("Bottom") != std::string::npos) {
+  } else if (sensor_type == "Bottom") {
     color_code = "\033[34m"; // 青色
   } else {
     color_code = "\033[37m"; // 白色（その他）
@@ -893,8 +898,8 @@ void update_status_display(int loop, const std::string& sensor_type,
 
   // 角度を手動でフォーマット
   ss << ",";
-  if (angle_deg >= 0) ss << " ";  // 正の数の場合は先頭にスペース
-  ss << std::fixed << std::setprecision(1) << std::setw(4) << angle_deg << "°)";
+  if (a >= 0) ss << " ";  // 正の数の場合は先頭にスペース
+  ss << std::fixed << std::setprecision(1) << std::setw(4) << rad2deg(a) << "°)";
 
   // 累積距離を追加
   if (distance > 0.0) {
@@ -939,12 +944,12 @@ void initialize_lidar_tables() {
   lidar_sin_table.resize(num_points);
   lidar_angle_table.resize(num_points);
 
-  double th = START_ANGLE * M_PI/180.0;
+  double th = deg2rad(START_ANGLE);
   for (int i = 0; i < num_points; i++) {
     lidar_cos_table[i] = cos(th);
     lidar_sin_table[i] = sin(th);
     lidar_angle_table[i] = th; // 角度値を事前計算
-    th += DELTA_TH * M_PI/180.0;
+    th += deg2rad(DELTA_TH);
   }
 
   std::cout << "LiDAR角度テーブル初期化完了: " << num_points << "点" << std::endl;
@@ -1061,7 +1066,8 @@ void SubMap::show_submap_progress(size_t current_frame) {
 }
 
 // 統合地図作成・表示関数の実装
-std::vector<std::vector<double>> create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps) {
+OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps,
+                                                                double CSIZE) {
   if (completed_submaps.empty()) return {};   // 空のvector が戻る
 
   // 統合地図の範囲を計算
@@ -1115,15 +1121,14 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
   global_max_y += margin;
 
   // 統合地図のサイズを計算
-  const double INTEGRATED_CSIZE = 0.05;
-  int integrated_width = static_cast<int>((global_max_x - global_min_x) / INTEGRATED_CSIZE);
-  int integrated_height = static_cast<int>((global_max_y - global_min_y) / INTEGRATED_CSIZE);
+  int integrated_width = static_cast<int>((global_max_x - global_min_x) / CSIZE);
+  int integrated_height = static_cast<int>((global_max_y - global_min_y) / CSIZE);
 
   // デバッグ出力：統合地図の範囲とサイズ
   std::cout << "=== 統合地図範囲デバッグ ===" << std::endl;
   std::cout << "統合地図範囲: X[" << global_min_x << "," << global_max_x 
     << "] Y[" << global_min_y << "," << global_max_y << "]" << std::endl;
-  std::cout << "統合地図サイズ: " << integrated_width << "x" << integrated_height << " (解像度:" << INTEGRATED_CSIZE << "m)" << std::endl;
+  std::cout << "統合地図サイズ: " << integrated_width << "x" << integrated_height << " (解像度:" << CSIZE << "m)" << std::endl;
   std::cout << "実際の範囲: X=" << (global_max_x - global_min_x) << "m, Y=" << (global_max_y - global_min_y) << "m" << std::endl;
 
   // 各部分地図の範囲も出力
@@ -1136,8 +1141,7 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
   std::cout << "=========================" << std::endl;
 
   // 統合地図の初期化
-  std::vector<std::vector<double>> integrated_map(integrated_height, 
-                                                  std::vector<double>(integrated_width, 0.0));
+  OccupancyGrid integrated_map(integrated_height, std::vector<double>(integrated_width, 0.0));
 
   std::cout << "統合地図作成中... (サイズ: " << integrated_width << "x" << integrated_height << ")" << std::endl;
 
@@ -1163,8 +1167,8 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
         double global_y = submap.start_pose.y + rotated_y;
 
         // 統合地図のグリッドインデックスに変換
-        int integrated_x = static_cast<int>((global_x - global_min_x) / INTEGRATED_CSIZE);
-        int integrated_y = static_cast<int>((global_max_y - global_y) / INTEGRATED_CSIZE);
+        int integrated_x = static_cast<int>((global_x - global_min_x) / CSIZE);
+        int integrated_y = static_cast<int>((global_max_y - global_y) / CSIZE);
 
         if (integrated_x >= 0 && integrated_x < integrated_width &&
           integrated_y >= 0 && integrated_y < integrated_height) {
@@ -1217,8 +1221,8 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
       double global_x = submap.start_pose.x + rotated_x;
       double global_y = submap.start_pose.y + rotated_y;
 
-      int px = static_cast<int>((global_x - global_min_x) / INTEGRATED_CSIZE);
-      int py = static_cast<int>((global_max_y - global_y) / INTEGRATED_CSIZE);
+      int px = static_cast<int>((global_x - global_min_x) / CSIZE);
+      int py = static_cast<int>((global_max_y - global_y) / CSIZE);
 
       if (px >= 0 && px < integrated_width && py >= 0 && py < integrated_height) {
         cv::circle(integrated_img, cv::Point(px, py), 1, color, -1);
@@ -1228,8 +1232,8 @@ std::vector<std::vector<double>> create_and_show_integrated_map(const std::vecto
     // スタート地点を大きく表示
     double start_x = submap.start_pose.x;
     double start_y = submap.start_pose.y;
-    int start_px = static_cast<int>((start_x - global_min_x) / INTEGRATED_CSIZE);
-    int start_py = static_cast<int>((global_max_y - start_y) / INTEGRATED_CSIZE);
+    int start_px = static_cast<int>((start_x - global_min_x) / CSIZE);
+    int start_py = static_cast<int>((global_max_y - start_y) / CSIZE);
 
     if (start_px >= 0 && start_px < integrated_width && start_py >= 0 && start_py < integrated_height) {
       cv::circle(integrated_img, cv::Point(start_px, start_py), 5, color, 2);
@@ -1282,6 +1286,7 @@ public:
 
     line_count++;
 
+    long long timestamp;
     std::string type;
     while (file >> type && !file.eof()) {
       if (type == "LASERSCANRT") {
@@ -1308,7 +1313,7 @@ public:
 
         int loop_count = count / max_echo_size;
         if (this->sensor_type == 'b') {
-          std::cout << "[デバッグ] センサb (行" << this->line_count << "): count=" << count << ", max_echo_size=" << max_echo_size << ", loop_count=" << loop_count << std::endl;
+          //std::cout << "[デバッグ] センサb (行" << this->line_count << "): count=" << count << ", max_echo_size=" << max_echo_size << ", loop_count=" << loop_count << std::endl;
         }
 
         for (int i = 0; i < loop_count; i += this->lidar_direction_skip) {
@@ -1357,7 +1362,8 @@ public:
     }
 
     if (!data.valid) {
-      std::cout << "[デバッグ] センサ" << this->sensor_type << "のファイル読み込み失敗" << std::endl;
+      std::cout << "[デバッグ] センサ" << this->sensor_type << "のファイル読み込み失敗" << " " << line_count << 
+        " " << timestamp << std::endl;
       std::cout << "  ファイル状態: eof=" << file.eof() << ", fail=" << file.fail() << ", bad=" << file.bad() << std::endl;
       std::cout << "  ファイル位置: " << file.tellg() << std::endl;
 
@@ -1438,6 +1444,10 @@ private:
   LaserData next_scan_b;
 };
 
+std::random_device rd_bi;
+std::mt19937 gen_bi(rd_bi());
+std::uniform_int_distribution<int> binary_dist(0, 1);
+
 int main (int argc, char *argv[]) {
   int LIDAR_DIRECTION_SKIP = 1;   // LIDARデータの角度方向の読み飛ばし
   double CSIZE = 0.05;     // [m] 格子の解像度 0.025よりうまくいく
@@ -1475,14 +1485,14 @@ int main (int argc, char *argv[]) {
   initialize_lidar_tables();
 
   // 読み込むLiDARデータのパス
-#if 1
+#if 0
   const std::string PATH_TO_URGLOG_T = "./2025/10/05/184420/urglog_t";
   const std::string PATH_TO_URGLOG_B = "./2025/10/05/184420/urglog_b";
 #endif
 
-#if 0
-  const std::string PATH_TO_URGLOG_T = "./2025/10/20/162619/urglog_t";
-  const std::string PATH_TO_URGLOG_B = "./2025/10/20/162619/urglog_b";
+#if 1
+  const std::string PATH_TO_URGLOG_T = "./2025/10/22/155017/urglog_t";
+  const std::string PATH_TO_URGLOG_B = "./2025/10/22/155017/urglog_b";
 #endif
 
   // LASERSCANRTの総数を事前に取得
@@ -1520,13 +1530,22 @@ int main (int argc, char *argv[]) {
   bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
   int loop = 0;
+  int STREAM_SKIP = 31;     // LiDARデータ列の読み飛ばし数
+  int stream_counter = -1;
   while (!stream.is_finished()) {
     LaserData current_data = stream.getNextScan();
     if (!current_data.valid) {
       continue;
     }
 
-    // 選択されたデータを処理（不要なコピーを削除）
+    // STREAM_SKIPだけLiDARデータを読み飛ばす
+    // 密すぎるデータは自己位置推定が破綻するケースもあるので，その対策を
+    // ユーザーが自身で調整するため
+    stream_counter++;
+    if (stream_counter % STREAM_SKIP != 0) {
+      continue;
+    }
+
     long long timestamp = current_data.timestamp;
     long max_r = current_data.max_r;
 
@@ -1555,16 +1574,20 @@ int main (int argc, char *argv[]) {
     double best_x, best_y, best_a, best_eval;
 
     // Check if the map needs to be rebuilt before localization and update
-    check_and_rebuild_map_if_needed(current_submap, Pose(current_data.timestamp, current_x, current_y, current_a), current_data);
+    check_and_rebuild_map_if_needed(current_submap, 
+                                    Pose(current_data.timestamp, current_x, current_y, current_a), 
+                                    current_data);
 
     // Localize within the current submap to get the new relative pose
     Pose prev_relative_pose = current_submap.trajectory.back();
     double rel_x, rel_y, rel_a;
-    std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(current_submap.local_gmap, current_data.points,
-                                                           prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a,
-                                                           current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth,
-                                                           current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
-                                                           Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
+    std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(
+      current_submap.local_gmap, current_data.points, 
+      prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a, 
+      current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth, 
+      current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT, 
+      Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
+
     // Convert the new relative pose to a global pose for logging and distance calculation
     double cos_start = cos(current_submap.start_pose.a);
     double sin_start = sin(current_submap.start_pose.a);
@@ -1574,8 +1597,7 @@ int main (int argc, char *argv[]) {
     best_a = normalize_th(best_a);
 
     // 推定結果を固定表示関数で表示
-    double angle_deg = best_a * 180.0 / M_PI;
-    update_status_display(loop, sensor_name, timestamp, best_eval, best_x, best_y, angle_deg, total_data_count, global_total_distance);
+    update_status_display(loop, sensor_name, timestamp, best_eval, best_x, best_y, best_a, total_data_count, global_total_distance);
 
     current_x = best_x;
     current_y = best_y;
@@ -1615,7 +1637,7 @@ int main (int argc, char *argv[]) {
       completed_submaps.push_back(current_submap);
 
       // 統合地図を表示
-      // create_and_show_integrated_map(completed_submaps); // 中間表示は最終出力時に統合するため一旦コメントアウト
+      // create_and_show_integrated_map(completed_submaps, CSIZE); // 中間表示は最終出力時に統合するため一旦コメントアウト
 
       // 新しい部分地図を開始（境界フレームの姿勢を開始点とする）
       Pose new_start_pose;
@@ -1682,7 +1704,7 @@ int main (int argc, char *argv[]) {
     std::cout << "最後のSubMap " << current_submap.submap_id << " を処理完了" << std::endl;
 
     // 最終的な統合地図を表示
-    create_and_show_integrated_map(completed_submaps);
+    create_and_show_integrated_map(completed_submaps, CSIZE);
   }
 
   std::cout << "全部分地図の構築完了 総数: " << completed_submaps.size() << std::endl;
@@ -1694,7 +1716,7 @@ int main (int argc, char *argv[]) {
 
   // 最終的な統合地図を生成
   std::cout << "最終的な統合地図を生成・保存します..." << std::endl;
-  std::vector<std::vector<double>> final_map_data = create_and_show_integrated_map(completed_submaps);
+  OccupancyGrid final_map_data = create_and_show_integrated_map(completed_submaps, CSIZE);
 
   if (final_map_data.empty()) {
     std::cerr << "エラー: 最終地図が空です。保存処理を中断します。" << std::endl;
@@ -1822,7 +1844,7 @@ void SubMap::save_submap_data(const std::string& base_dir) {
     // 実際の測定値を正しいインデックスに格納
     for (size_t i = 0; i < ldata.ranges.size(); ++i) {
       double angle_rad = ldata.angles[i];
-      double angle_deg = angle_rad * 180.0 / M_PI;
+      double angle_deg = rad2deg(angle_rad);
       // 角度から理論上のインデックスを計算
       int index = static_cast<int>(round((angle_deg - ldata.start_angle) / ldata.delta_th));
 
@@ -1934,7 +1956,7 @@ void check_and_rebuild_map_if_needed(
 
     // 3. 新しい地図を作成し、データをコピー
     std::cout << "  Rebuilding map..." << std::endl;
-    std::vector<std::vector<double>> new_gmap(new_height, std::vector<double>(new_width, 0.0));
+    OccupancyGrid new_gmap(new_height, std::vector<double>(new_width, 0.0));
 
     for (int old_py = 0; old_py < submap.LOCAL_HEIGHT; ++old_py) {
       for (int old_px = 0; old_px < submap.LOCAL_WIDTH; ++old_px) {
