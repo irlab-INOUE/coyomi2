@@ -63,6 +63,10 @@ double normalize_th(double ra) {
   return ra;
 }
 
+// 関数のプロトタイプ宣言
+std::vector<SubMap> load_all_submaps(const std::string& root_dir);
+void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, const double CSIZE);
+
 // slam.cppから移植したGaussianKernelクラス
 class GaussianKernel {
 private:
@@ -266,199 +270,196 @@ std::tuple<double, double, double, double> optimize_de(
 }
 
 std::vector<SubMap> load_all_submaps(const std::string& root_dir);
-void visualize_maps(const std::vector<SubMap>& submaps, int selected_id);
 
 // OccupancyGridから点群を生成するヘルパー関数
 std::vector<Point> create_point_cloud_from_grid(const SubMap& submap) {
-    std::vector<Point> points;
-    for (int y = 0; y < submap.LOCAL_HEIGHT; ++y) {
-        for (int x = 0; x < submap.LOCAL_WIDTH; ++x) {
-            if (submap.local_gmap[y][x] > 0.4) { // 占有されているセルを点として抽出
-                // ピクセル座標を物理座標（サブマップのローカル座標系）に変換
-                double px = (x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
-                double py = -(y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE; // y軸反転
-                points.emplace_back(px, py);
-            }
-        }
+  std::vector<Point> points;
+  for (int y = 0; y < submap.LOCAL_HEIGHT; ++y) {
+    for (int x = 0; x < submap.LOCAL_WIDTH; ++x) {
+      if (submap.local_gmap[y][x] > 0.4) { // 占有されているセルを点として抽出
+        // ピクセル座標を物理座標（サブマップのローカル座標系）に変換
+        double px = (x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+        double py = -(y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE; // y軸反転
+        points.emplace_back(px, py);
+      }
     }
-    return points;
+  }
+  return points;
 }
 
 // スキャンマッチングを実行する関数
 Pose perform_scan_matching(const SubMap& fixed_submap, const SubMap& moving_submap) {
-    // 1. fixed_submapのlocal_gmapをターゲット地図とする
-    OccupancyGrid& target_gmap = const_cast<OccupancyGrid&>(fixed_submap.local_gmap);
-    int target_width = fixed_submap.LOCAL_WIDTH;
-    int target_height = fixed_submap.LOCAL_HEIGHT;
-    int target_origin_x = fixed_submap.LOCAL_ORIGIN_X;
-    int target_origin_y = fixed_submap.LOCAL_ORIGIN_Y;
-    double target_csize = fixed_submap.LOCAL_CSIZE;
+  // 1. fixed_submapのlocal_gmapをターゲット地図とする
+  OccupancyGrid& target_gmap = const_cast<OccupancyGrid&>(fixed_submap.local_gmap);
+  int target_width = fixed_submap.LOCAL_WIDTH;
+  int target_height = fixed_submap.LOCAL_HEIGHT;
+  int target_origin_x = fixed_submap.LOCAL_ORIGIN_X;
+  int target_origin_y = fixed_submap.LOCAL_ORIGIN_Y;
+  double target_csize = fixed_submap.LOCAL_CSIZE;
 
-    // 2. moving_submapのlocal_gmapから点群を生成し、ソース点群とする
-    std::vector<Point> source_points = create_point_cloud_from_grid(moving_submap);
+  // 2. moving_submapのlocal_gmapから点群を生成し、ソース点群とする
+  std::vector<Point> source_points = create_point_cloud_from_grid(moving_submap);
 
-    // 3. optimize_deの初期姿勢を計算
-    //    fixed_submapのstart_poseを基準としたmoving_submapの相対姿勢を初期推定値とする
-    double initial_x_rel = moving_submap.start_pose.x - fixed_submap.start_pose.x;
-    double initial_y_rel = moving_submap.start_pose.y - fixed_submap.start_pose.y;
-    double initial_a_rel = normalize_th(moving_submap.start_pose.a - fixed_submap.start_pose.a);
+  // 3. optimize_deの初期姿勢を計算
+  //    fixed_submapのstart_poseを基準としたmoving_submapの相対姿勢を初期推定値とする
+  double initial_x_rel = moving_submap.start_pose.x - fixed_submap.start_pose.x;
+  double initial_y_rel = moving_submap.start_pose.y - fixed_submap.start_pose.y;
+  double initial_a_rel = normalize_th(moving_submap.start_pose.a - fixed_submap.start_pose.a);
 
-    //    fixed_submapのローカル座標系に変換
-    double cos_fixed_a_inv = cos(-fixed_submap.start_pose.a);
-    double sin_fixed_a_inv = sin(-fixed_submap.start_pose.a);
-    double initial_x = initial_x_rel * cos_fixed_a_inv - initial_y_rel * sin_fixed_a_inv;
-    double initial_y = initial_x_rel * sin_fixed_a_inv + initial_y_rel * cos_fixed_a_inv;
-    double initial_a = initial_a_rel; // 角度はそのまま
+  //    fixed_submapのローカル座標系に変換
+  double cos_fixed_a_inv = cos(-fixed_submap.start_pose.a);
+  double sin_fixed_a_inv = sin(-fixed_submap.start_pose.a);
+  double initial_x = initial_x_rel * cos_fixed_a_inv - initial_y_rel * sin_fixed_a_inv;
+  double initial_y = initial_x_rel * sin_fixed_a_inv + initial_y_rel * cos_fixed_a_inv;
+  double initial_a = initial_a_rel; // 角度はそのまま
 
-    // optimize_deのパラメータ
-    double Wxy = 1.0; // 探索範囲 [m]
-    double Wa = deg2rad(10.0); // 探索角度 [rad]
-    int population_size = 100;
-    int generations = 50;
-    double F = 0.5;
-    double CR = 0.2;
-    GaussianKernel gaussian_kernel(0.8, 2);
+  // optimize_deのパラメータ
+  double Wxy = 1.0; // 探索範囲 [m]
+  double Wa = deg2rad(10.0); // 探索角度 [rad]
+  int population_size = 100;
+  int generations = 50;
+  double F = 0.5;
+  double CR = 0.2;
+  GaussianKernel gaussian_kernel(0.8, 2);
 
-    double best_x_local, best_y_local, best_a_local, best_eval;
-    std::tie(best_x_local, best_y_local, best_a_local, best_eval) = optimize_de(
-        target_gmap, source_points,
-        initial_x, initial_y, initial_a,
-        target_origin_x, target_origin_y, target_csize,
-        deg2rad(0.25), // dth (LiDAR resolution, can be fixed or passed)
-        target_width, target_height,
-        Wxy, Wa,
-        population_size, generations, F, CR,
-        &gaussian_kernel);
+  double best_x_local, best_y_local, best_a_local, best_eval;
+  std::tie(best_x_local, best_y_local, best_a_local, best_eval) = optimize_de(
+    target_gmap, source_points,
+    initial_x, initial_y, initial_a,
+    target_origin_x, target_origin_y, target_csize,
+    deg2rad(0.25), // dth (LiDAR resolution, can be fixed or passed)
+    target_width, target_height,
+    Wxy, Wa,
+    population_size, generations, F, CR,
+    &gaussian_kernel);
 
-    // optimize_deが返した姿勢はfixed_submapのローカル座標系におけるsource_pointsの姿勢
-    // これをグローバル座標系に戻す
-    Pose result_pose;
-    
-    double cos_fixed_a = cos(fixed_submap.start_pose.a);
-    double sin_fixed_a = sin(fixed_submap.start_pose.a);
-    
-    result_pose.x = best_x_local * cos_fixed_a - best_y_local * sin_fixed_a + fixed_submap.start_pose.x;
-    result_pose.y = best_x_local * sin_fixed_a + best_y_local * cos_fixed_a + fixed_submap.start_pose.y;
-    result_pose.a = normalize_th(best_a_local + fixed_submap.start_pose.a);
+  // optimize_deが返した姿勢はfixed_submapのローカル座標系におけるsource_pointsの姿勢
+  // これをグローバル座標系に戻す
+  Pose result_pose;
 
-    std::cout << "スキャンマッチング結果 (グローバル): x=" << result_pose.x 
-              << ", y=" << result_pose.y 
-              << ", a=" << rad2deg(result_pose.a) << " deg" 
-              << " (評価値: " << best_eval << ")" << std::endl;
+  double cos_fixed_a = cos(fixed_submap.start_pose.a);
+  double sin_fixed_a = sin(fixed_submap.start_pose.a);
 
-    return result_pose;
+  result_pose.x = best_x_local * cos_fixed_a - best_y_local * sin_fixed_a + fixed_submap.start_pose.x;
+  result_pose.y = best_x_local * sin_fixed_a + best_y_local * cos_fixed_a + fixed_submap.start_pose.y;
+  result_pose.a = normalize_th(best_a_local + fixed_submap.start_pose.a);
+
+  std::cout << "スキャンマッチング結果 (グローバル): x=" << result_pose.x 
+    << ", y=" << result_pose.y 
+    << ", a=" << rad2deg(result_pose.a) << " deg" 
+    << " (評価値: " << best_eval << ")" << std::endl;
+
+  return result_pose;
 }
 
 Pose perform_scan_matching(const SubMap& fixed_submap, const SubMap& moving_submap);
 
 // スキャンマッチング結果を個別に可視化する関数
 void visualize_scan_match_result(const SubMap& fixed_submap, const SubMap& moving_submap, const Pose& matched_pose) {
-    const double CSIZE = 0.05; // 解像度
+  const double CSIZE = 0.05; // 解像度
 
-    // 1. 描画範囲を計算 (fixed_submap と matched_pose で変換された moving_submap)
-    double global_min_x = std::numeric_limits<double>::max();
-    double global_max_x = std::numeric_limits<double>::lowest();
-    double global_min_y = std::numeric_limits<double>::max();
-    double global_max_y = std::numeric_limits<double>::lowest();
+  // 1. 描画範囲を計算 (fixed_submap と matched_pose で変換された moving_submap)
+  double global_min_x = std::numeric_limits<double>::max();
+  double global_max_x = std::numeric_limits<double>::lowest();
+  double global_min_y = std::numeric_limits<double>::max();
+  double global_max_y = std::numeric_limits<double>::lowest();
 
-    // fixed_submapの範囲
-    double cos_fixed_a = cos(fixed_submap.start_pose.a);
-    double sin_fixed_a = sin(fixed_submap.start_pose.a);
-    std::vector<Point> fixed_corners = {
-        {fixed_submap.min_x, fixed_submap.min_y}, {fixed_submap.max_x, fixed_submap.min_y},
-        {fixed_submap.max_x, fixed_submap.max_y}, {fixed_submap.min_x, fixed_submap.max_y}
-    };
-    for (const auto& corner : fixed_corners) {
-        double rot_x = corner.x * cos_fixed_a - corner.y * sin_fixed_a;
-        double rot_y = corner.x * sin_fixed_a + corner.y * cos_fixed_a;
+  // fixed_submapの範囲
+  double cos_fixed_a = cos(fixed_submap.start_pose.a);
+  double sin_fixed_a = sin(fixed_submap.start_pose.a);
+  std::vector<Point> fixed_corners = {
+    {fixed_submap.min_x, fixed_submap.min_y}, {fixed_submap.max_x, fixed_submap.min_y},
+    {fixed_submap.max_x, fixed_submap.max_y}, {fixed_submap.min_x, fixed_submap.max_y}
+  };
+  for (const auto& corner : fixed_corners) {
+    double rot_x = corner.x * cos_fixed_a - corner.y * sin_fixed_a;
+    double rot_y = corner.x * sin_fixed_a + corner.y * cos_fixed_a;
+    double glob_x = fixed_submap.start_pose.x + rot_x;
+    double glob_y = fixed_submap.start_pose.y + rot_y;
+    if (glob_x < global_min_x) global_min_x = glob_x;
+    if (glob_x > global_max_x) global_max_x = glob_x;
+    if (glob_y < global_min_y) global_min_y = glob_y;
+    if (glob_y > global_max_y) global_max_y = glob_y;
+  }
+
+  // matched_poseで変換されたmoving_submapの範囲
+  double cos_matched_a = cos(matched_pose.a);
+  double sin_matched_a = sin(matched_pose.a);
+  std::vector<Point> moving_corners = {
+    {moving_submap.min_x, moving_submap.min_y}, {moving_submap.max_x, moving_submap.min_y},
+    {moving_submap.max_x, moving_submap.max_y}, {moving_submap.min_x, moving_submap.max_y}
+  };
+  for (const auto& corner : moving_corners) {
+    double rot_x = corner.x * cos_matched_a - corner.y * sin_matched_a;
+    double rot_y = corner.x * sin_matched_a + corner.y * cos_matched_a;
+    double glob_x = matched_pose.x + rot_x;
+    double glob_y = matched_pose.y + rot_y;
+    if (glob_x < global_min_x) global_min_x = glob_x;
+    if (glob_x > global_max_x) global_max_x = glob_x;
+    if (glob_y < global_min_y) global_min_y = glob_y;
+    if (glob_y > global_max_y) global_max_y = glob_y;
+  }
+
+  double margin = 5.0; // マージン
+  global_min_x -= margin; global_max_x += margin;
+  global_min_y -= margin; global_max_y += margin;
+
+  // 2. 描画用イメージを作成
+  int img_w = static_cast<int>((global_max_x - global_min_x) / CSIZE);
+  int img_h = static_cast<int>((global_max_y - global_min_y) / CSIZE);
+  cv::Mat result_img = cv::Mat::zeros(img_h, img_w, CV_8UC3);
+  result_img.setTo(BACK_BLUE);
+
+  // 3. fixed_submapを描画 (白)
+  for (int y = 0; y < fixed_submap.LOCAL_HEIGHT; ++y) {
+    for (int x = 0; x < fixed_submap.LOCAL_WIDTH; ++x) {
+      if (fixed_submap.local_gmap[y][x] > 0.4) {
+        double local_x = (x - fixed_submap.LOCAL_ORIGIN_X) * fixed_submap.LOCAL_CSIZE;
+        double local_y = -(y - fixed_submap.LOCAL_ORIGIN_Y) * fixed_submap.LOCAL_CSIZE;
+        double rot_x = local_x * cos_fixed_a - local_y * sin_fixed_a;
+        double rot_y = local_x * sin_fixed_a + local_y * cos_fixed_a;
         double glob_x = fixed_submap.start_pose.x + rot_x;
         double glob_y = fixed_submap.start_pose.y + rot_y;
-        if (glob_x < global_min_x) global_min_x = glob_x;
-        if (glob_x > global_max_x) global_max_x = glob_x;
-        if (glob_y < global_min_y) global_min_y = glob_y;
-        if (glob_y > global_max_y) global_max_y = glob_y;
+        int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
+        int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
+        if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+          result_img.at<cv::Vec3b>(py, px) = cv::Vec3b(198, 204, 203);
+        }
+      }
     }
+  }
 
-    // matched_poseで変換されたmoving_submapの範囲
-    double cos_matched_a = cos(matched_pose.a);
-    double sin_matched_a = sin(matched_pose.a);
-    std::vector<Point> moving_corners = {
-        {moving_submap.min_x, moving_submap.min_y}, {moving_submap.max_x, moving_submap.min_y},
-        {moving_submap.max_x, moving_submap.max_y}, {moving_submap.min_x, moving_submap.max_y}
-    };
-    for (const auto& corner : moving_corners) {
-        double rot_x = corner.x * cos_matched_a - corner.y * sin_matched_a;
-        double rot_y = corner.x * sin_matched_a + corner.y * cos_matched_a;
+  // 4. matched_poseで変換されたmoving_submapを描画 (緑)
+  for (int y = 0; y < moving_submap.LOCAL_HEIGHT; ++y) {
+    for (int x = 0; x < moving_submap.LOCAL_WIDTH; ++x) {
+      if (moving_submap.local_gmap[y][x] > 0.4) {
+        double local_x = (x - moving_submap.LOCAL_ORIGIN_X) * moving_submap.LOCAL_CSIZE;
+        double local_y = -(y - moving_submap.LOCAL_ORIGIN_Y) * moving_submap.LOCAL_CSIZE;
+        double rot_x = local_x * cos_matched_a - local_y * sin_matched_a;
+        double rot_y = local_x * sin_matched_a + local_y * cos_matched_a;
         double glob_x = matched_pose.x + rot_x;
         double glob_y = matched_pose.y + rot_y;
-        if (glob_x < global_min_x) global_min_x = glob_x;
-        if (glob_x > global_max_x) global_max_x = glob_x;
-        if (glob_y < global_min_y) global_min_y = glob_y;
-        if (glob_y > global_max_y) global_max_y = glob_y;
-    }
-
-    double margin = 5.0; // マージン
-    global_min_x -= margin; global_max_x += margin;
-    global_min_y -= margin; global_max_y += margin;
-
-    // 2. 描画用イメージを作成
-    int img_w = static_cast<int>((global_max_x - global_min_x) / CSIZE);
-    int img_h = static_cast<int>((global_max_y - global_min_y) / CSIZE);
-    cv::Mat result_img = cv::Mat::zeros(img_h, img_w, CV_8UC3);
-    result_img.setTo(BACK_BLUE);
-
-    // 3. fixed_submapを描画 (白)
-    for (int y = 0; y < fixed_submap.LOCAL_HEIGHT; ++y) {
-        for (int x = 0; x < fixed_submap.LOCAL_WIDTH; ++x) {
-            if (fixed_submap.local_gmap[y][x] > 0.4) {
-                double local_x = (x - fixed_submap.LOCAL_ORIGIN_X) * fixed_submap.LOCAL_CSIZE;
-                double local_y = -(y - fixed_submap.LOCAL_ORIGIN_Y) * fixed_submap.LOCAL_CSIZE;
-                double rot_x = local_x * cos_fixed_a - local_y * sin_fixed_a;
-                double rot_y = local_x * sin_fixed_a + local_y * cos_fixed_a;
-                double glob_x = fixed_submap.start_pose.x + rot_x;
-                double glob_y = fixed_submap.start_pose.y + rot_y;
-                int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
-                int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
-                if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
-                    result_img.at<cv::Vec3b>(py, px) = cv::Vec3b(198, 204, 203);
-                }
-            }
+        int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
+        int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
+        if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+          result_img.at<cv::Vec3b>(py, px) = cv::Vec3b(118, 209, 173);
         }
+      }
     }
+  }
 
-    // 4. matched_poseで変換されたmoving_submapを描画 (緑)
-    for (int y = 0; y < moving_submap.LOCAL_HEIGHT; ++y) {
-        for (int x = 0; x < moving_submap.LOCAL_WIDTH; ++x) {
-            if (moving_submap.local_gmap[y][x] > 0.4) {
-                double local_x = (x - moving_submap.LOCAL_ORIGIN_X) * moving_submap.LOCAL_CSIZE;
-                double local_y = -(y - moving_submap.LOCAL_ORIGIN_Y) * moving_submap.LOCAL_CSIZE;
-                double rot_x = local_x * cos_matched_a - local_y * sin_matched_a;
-                double rot_y = local_x * sin_matched_a + local_y * cos_matched_a;
-                double glob_x = matched_pose.x + rot_x;
-                double glob_y = matched_pose.y + rot_y;
-                int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
-                int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
-                if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
-                    result_img.at<cv::Vec3b>(py, px) = cv::Vec3b(118, 209, 173);
-                }
-            }
-        }
-    }
-
-    // 5. ウィンドウに表示
-    cv::imshow("Scan Match Result", result_img);
-    cv::waitKey(0); // ユーザーが閉じるまで待機
+  // 5. ウィンドウに表示
+  cv::imshow("Scan Match Result", result_img);
+  cv::waitKey(0); // ユーザーが閉じるまで待機
 }
-
-// 関数のプロトタイプ宣言
-std::vector<SubMap> load_all_submaps(const std::string& root_dir);
-void visualize_maps(const std::vector<SubMap>& submaps, int selected_id);
 
 
 /******************************************************
 * MAIN
 *******************************************************/
 int main(int argc, char *argv[]) {
+  const double CSIZE = 0.05;     // [m] 格子の解像度 slam.cppと合わせる
+
   if (argc < 2) {
     std::cerr << "使用法: " << argv[0] << " <slam_result_directory>" << std::endl;
     return 1;
@@ -493,11 +494,11 @@ int main(int argc, char *argv[]) {
   while (true) {
     int id_to_highlight = selected_submap_id; // 通常は選択中のIDをハイライト
     if (id_selection_mode || scan_match_mode) {
-        id_to_highlight = temp_highlighted_id; // モード中はハイライト中のID
+      id_to_highlight = temp_highlighted_id; // モード中はハイライト中のID
     }
 
     if (needs_redraw) {
-      visualize_maps(submaps, id_to_highlight);
+      visualize_maps(submaps, id_to_highlight, CSIZE);
       needs_redraw = false;
     }
 
@@ -563,12 +564,12 @@ int main(int argc, char *argv[]) {
             std::cout << "2つ目の部分地図ID: " << id_match_2 << " を選択しました。" << std::endl;
 
             if (id_match_1 == id_match_2) {
-                std::cerr << "エラー: 同じ部分地図を選択することはできません。" << std::endl;
-                id_match_1 = -1; // リセット
-                id_match_2 = -1;
-                scan_match_mode = false;
-                needs_redraw = true;
-                break;
+              std::cerr << "エラー: 同じ部分地図を選択することはできません。" << std::endl;
+              id_match_1 = -1; // リセット
+              id_match_2 = -1;
+              scan_match_mode = false;
+              needs_redraw = true;
+              break;
             }
 
             // 固定側と移動側を決定
@@ -577,30 +578,30 @@ int main(int argc, char *argv[]) {
             int actual_moving_id = -1;
 
             if (id_match_1 == 0) { // 1つ目が0なら、0を固定、2つ目を移動
-                fixed_map_ptr = &submaps[id_match_1];
-                moving_map_ptr = &submaps[id_match_2];
-                actual_moving_id = id_match_2;
+              fixed_map_ptr = &submaps[id_match_1];
+              moving_map_ptr = &submaps[id_match_2];
+              actual_moving_id = id_match_2;
             } else if (id_match_2 == 0) { // 2つ目が0なら、0を固定、1つ目を移動
-                fixed_map_ptr = &submaps[id_match_2];
-                moving_map_ptr = &submaps[id_match_1];
-                actual_moving_id = id_match_1;
+              fixed_map_ptr = &submaps[id_match_2];
+              moving_map_ptr = &submaps[id_match_1];
+              actual_moving_id = id_match_1;
             } else { // どちらも0以外なら、1つ目を固定、2つ目を移動
-                fixed_map_ptr = &submaps[id_match_1];
-                moving_map_ptr = &submaps[id_match_2];
-                actual_moving_id = id_match_2;
+              fixed_map_ptr = &submaps[id_match_1];
+              moving_map_ptr = &submaps[id_match_2];
+              actual_moving_id = id_match_2;
             }
 
             if (fixed_map_ptr && moving_map_ptr) {
-                std::cout << "スキャンマッチング: 固定側ID=" << fixed_map_ptr->submap_id
-                          << ", 移動側ID=" << moving_map_ptr->submap_id << " を実行中..." << std::endl;
-                Pose matched_pose = perform_scan_matching(*fixed_map_ptr, *moving_map_ptr);
-                moving_map_ptr->start_pose = matched_pose;
-                std::cout << "部分地図 " << actual_moving_id << " をマッチング結果に移動しました。" << std::endl;
+              std::cout << "スキャンマッチング: 固定側ID=" << fixed_map_ptr->submap_id
+                << ", 移動側ID=" << moving_map_ptr->submap_id << " を実行中..." << std::endl;
+              Pose matched_pose = perform_scan_matching(*fixed_map_ptr, *moving_map_ptr);
+              moving_map_ptr->start_pose = matched_pose;
+              std::cout << "部分地図 " << actual_moving_id << " をマッチング結果に移動しました。" << std::endl;
 
-                // スキャンマッチング結果を個別に表示
-                visualize_scan_match_result(*fixed_map_ptr, *moving_map_ptr, matched_pose);
+              // スキャンマッチング結果を個別に表示
+              visualize_scan_match_result(*fixed_map_ptr, *moving_map_ptr, matched_pose);
             } else {
-                std::cerr << "エラー: スキャンマッチングの対象が不正です。" << std::endl;
+              std::cerr << "エラー: スキャンマッチングの対象が不正です。" << std::endl;
             }
 
             id_match_1 = -1; // リセット
@@ -690,183 +691,181 @@ int main(int argc, char *argv[]) {
 
   return 0;
 }
+// End of MAIN
 
 
 // YAMLファイルから特定のキーの値を取得する、より堅牢なヘルパー関数
 double get_yaml_value(const std::string& path, const std::string& key_to_find) {
-    std::ifstream file(path);
-    std::string line;
-    while (std::getline(file, line)) {
-        std::stringstream ss(line);
-        std::string key_part;
-        ss >> key_part;
-        if (key_part == key_to_find + ":") {
-            double value;
-            ss >> value;
-            if (!ss.fail()) {
-                return value;
-            }
-        }
+  std::ifstream file(path);
+  std::string line;
+  while (std::getline(file, line)) {
+    std::stringstream ss(line);
+    std::string key_part;
+    ss >> key_part;
+    if (key_part == key_to_find + ":") {
+      double value;
+      ss >> value;
+      if (!ss.fail()) {
+        return value;
+      }
     }
-    return 0.0; // 見つからなかった、またはパース失敗
+  }
+  return 0.0; // 見つからなかった、またはパース失敗
 }
 
 // 単一の部分地図を読み込むヘルパー関数
 SubMap load_single_submap(const std::string& submap_dir) {
-    SubMap submap;
-    std::string map_info_path = submap_dir + "/mapInfo.yaml";
-    std::string gmap_path = submap_dir + "/local_gmap.yml";
+  SubMap submap;
+  std::string map_info_path = submap_dir + "/mapInfo.yaml";
+  std::string gmap_path = submap_dir + "/local_gmap.yml";
 
-    if (!fs::exists(map_info_path) || !fs::exists(gmap_path)) {
-        return submap; // 必要なファイルがない
-    }
+  if (!fs::exists(map_info_path) || !fs::exists(gmap_path)) {
+    return submap; // 必要なファイルがない
+  }
 
-    // 1. mapInfo.yamlからメタデータを読み込む
-    submap.submap_id = static_cast<int>(get_yaml_value(map_info_path, "submap_id"));
-    submap.start_pose.x = get_yaml_value(map_info_path, "x");
-    submap.start_pose.y = get_yaml_value(map_info_path, "y");
-    submap.start_pose.a = get_yaml_value(map_info_path, "a");
-    submap.min_x = get_yaml_value(map_info_path, "min_x");
-    submap.max_x = get_yaml_value(map_info_path, "max_x");
-    submap.min_y = get_yaml_value(map_info_path, "min_y");
-    submap.max_y = get_yaml_value(map_info_path, "max_y");
+  // 1. mapInfo.yamlからメタデータを読み込む
+  submap.submap_id = static_cast<int>(get_yaml_value(map_info_path, "submap_id"));
+  submap.start_pose.x = get_yaml_value(map_info_path, "x");
+  submap.start_pose.y = get_yaml_value(map_info_path, "y");
+  submap.start_pose.a = get_yaml_value(map_info_path, "a");
+  submap.min_x = get_yaml_value(map_info_path, "min_x");
+  submap.max_x = get_yaml_value(map_info_path, "max_x");
+  submap.min_y = get_yaml_value(map_info_path, "min_y");
+  submap.max_y = get_yaml_value(map_info_path, "max_y");
 
-    // 2. local_gmap.ymlから地図データを読み込む
-    cv::FileStorage fs(gmap_path, cv::FileStorage::READ);
-    if (!fs.isOpened()) {
-        return submap;
-    }
-    cv::Mat gmap_mat;
-    fs["local_gmap"] >> gmap_mat;
-    fs["width"] >> submap.LOCAL_WIDTH;
-    fs["height"] >> submap.LOCAL_HEIGHT;
-    fs["origin_x"] >> submap.LOCAL_ORIGIN_X;
-    fs["origin_y"] >> submap.LOCAL_ORIGIN_Y;
-    fs["cell_size"] >> submap.LOCAL_CSIZE;
-    fs.release();
-
-    // cv::MatをOccupancyGridに変換
-    submap.local_gmap.resize(gmap_mat.rows, std::vector<double>(gmap_mat.cols));
-    for (int r = 0; r < gmap_mat.rows; ++r) {
-        for (int c = 0; c < gmap_mat.cols; ++c) {
-            submap.local_gmap[r][c] = gmap_mat.at<double>(r, c);
-        }
-    }
-
-    submap.is_valid = true;
+  // 2. local_gmap.ymlから地図データを読み込む
+  cv::FileStorage fs(gmap_path, cv::FileStorage::READ);
+  if (!fs.isOpened()) {
     return submap;
+  }
+  cv::Mat gmap_mat;
+  fs["local_gmap"] >> gmap_mat;
+  fs["width"] >> submap.LOCAL_WIDTH;
+  fs["height"] >> submap.LOCAL_HEIGHT;
+  fs["origin_x"] >> submap.LOCAL_ORIGIN_X;
+  fs["origin_y"] >> submap.LOCAL_ORIGIN_Y;
+  fs["cell_size"] >> submap.LOCAL_CSIZE;
+  fs.release();
+
+  // cv::MatをOccupancyGridに変換
+  submap.local_gmap.resize(gmap_mat.rows, std::vector<double>(gmap_mat.cols));
+  for (int r = 0; r < gmap_mat.rows; ++r) {
+    for (int c = 0; c < gmap_mat.cols; ++c) {
+      submap.local_gmap[r][c] = gmap_mat.at<double>(r, c);
+    }
+  }
+
+  submap.is_valid = true;
+  return submap;
 }
 
 // 全ての部分地図を読み込むメイン関数
 std::vector<SubMap> load_all_submaps(const std::string& root_dir) {
-    std::string submaps_path = root_dir + "/submaps";
-    std::vector<SubMap> submaps;
+  std::string submaps_path = root_dir + "/submaps";
+  std::vector<SubMap> submaps;
 
-    if (!fs::exists(submaps_path) || !fs::is_directory(submaps_path)) {
-        return submaps;
-    }
-
-    // ディレクトリ名をソートするために一時的なベクターに格納
-    std::vector<std::string> dir_paths;
-    for (const auto& entry : fs::directory_iterator(submaps_path)) {
-        if (entry.is_directory()) {
-            dir_paths.push_back(entry.path().string());
-        }
-    }
-    std::sort(dir_paths.begin(), dir_paths.end());
-
-    // ソートされたパスからサブマップを読み込む
-    for (const auto& path : dir_paths) {
-        std::cout << path << " を読み込み中..." << std::endl;
-        SubMap submap = load_single_submap(path);
-        if (submap.is_valid) {
-            submaps.push_back(submap);
-        }
-    }
-
+  if (!fs::exists(submaps_path) || !fs::is_directory(submaps_path)) {
     return submaps;
+  }
+
+  // ディレクトリ名をソートするために一時的なベクターに格納
+  std::vector<std::string> dir_paths;
+  for (const auto& entry : fs::directory_iterator(submaps_path)) {
+    if (entry.is_directory()) {
+      dir_paths.push_back(entry.path().string());
+    }
+  }
+  std::sort(dir_paths.begin(), dir_paths.end());
+
+  // ソートされたパスからサブマップを読み込む
+  for (const auto& path : dir_paths) {
+    std::cout << path << " を読み込み中..." << std::endl;
+    SubMap submap = load_single_submap(path);
+    if (submap.is_valid) {
+      submaps.push_back(submap);
+    }
+  }
+
+  return submaps;
 }
 
-void visualize_maps(const std::vector<SubMap>& submaps, int selected_id) {
-    if (submaps.empty()) return;
+void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, double CSIZE) {
+  if (submaps.empty()) return;
 
-    const double CSIZE = 0.05; // 解像度
+  // 1. 全体地図の描画範囲を計算
+  double global_min_x = std::numeric_limits<double>::max();
+  double global_max_x = std::numeric_limits<double>::lowest();
+  double global_min_y = std::numeric_limits<double>::max();
+  double global_max_y = std::numeric_limits<double>::lowest();
 
-    // 1. 全体地図の描画範囲を計算
-    double global_min_x = std::numeric_limits<double>::max();
-    double global_max_x = std::numeric_limits<double>::lowest();
-    double global_min_y = std::numeric_limits<double>::max();
-    double global_max_y = std::numeric_limits<double>::lowest();
-
-    for (const auto& submap : submaps) {
-        double cos_a = cos(submap.start_pose.a);
-        double sin_a = sin(submap.start_pose.a);
-        std::vector<Point> corners = {
-            {submap.min_x, submap.min_y}, {submap.max_x, submap.min_y},
-            {submap.max_x, submap.max_y}, {submap.min_x, submap.max_y}
-        };
-        for (const auto& corner : corners) {
-            double rot_x = corner.x * cos_a - corner.y * sin_a;
-            double rot_y = corner.x * sin_a + corner.y * cos_a;
-            double glob_x = submap.start_pose.x + rot_x;
-            double glob_y = submap.start_pose.y + rot_y;
-            if (glob_x < global_min_x) global_min_x = glob_x;
-            if (glob_x > global_max_x) global_max_x = glob_x;
-            if (glob_y < global_min_y) global_min_y = glob_y;
-            if (glob_y > global_max_y) global_max_y = glob_y;
-        }
+  for (const auto& submap : submaps) {
+    double cos_a = cos(submap.start_pose.a);
+    double sin_a = sin(submap.start_pose.a);
+    std::vector<Point> corners = {
+      {submap.min_x, submap.min_y}, {submap.max_x, submap.min_y},
+      {submap.max_x, submap.max_y}, {submap.min_x, submap.max_y}
+    };
+    for (const auto& corner : corners) {
+      double rot_x = corner.x * cos_a - corner.y * sin_a;
+      double rot_y = corner.x * sin_a + corner.y * cos_a;
+      double glob_x = submap.start_pose.x + rot_x;
+      double glob_y = submap.start_pose.y + rot_y;
+      if (glob_x < global_min_x) global_min_x = glob_x;
+      if (glob_x > global_max_x) global_max_x = glob_x;
+      if (glob_y < global_min_y) global_min_y = glob_y;
+      if (glob_y > global_max_y) global_max_y = glob_y;
     }
-    double margin = 10.0; // 10mマージン
-    global_min_x -= margin; global_max_x += margin;
-    global_min_y -= margin; global_max_y += margin;
+  }
+  double margin = 10.0; // 10mマージン
+  global_min_x -= margin; global_max_x += margin;
+  global_min_y -= margin; global_max_y += margin;
 
-    // 2. 描画用イメージを作成
-    int img_w = static_cast<int>((global_max_x - global_min_x) / CSIZE);
-    int img_h = static_cast<int>((global_max_y - global_min_y) / CSIZE);
-    cv::Mat integrated_img = cv::Mat::zeros(img_h, img_w, CV_8UC3);
-    integrated_img.setTo(BACK_BLUE);
+  // 2. 描画用イメージを作成
+  int img_w = static_cast<int>((global_max_x - global_min_x) / CSIZE);
+  int img_h = static_cast<int>((global_max_y - global_min_y) / CSIZE);
+  cv::Mat integrated_img = cv::Mat::zeros(img_h, img_w, CV_8UC3);
+  integrated_img.setTo(BACK_BLUE);
 
-    // 3. 各部分地図を描画
-    for (const auto& submap : submaps) {
-        double cos_a = cos(submap.start_pose.a);
-        double sin_a = sin(submap.start_pose.a);
-        for (int y = 0; y < submap.LOCAL_HEIGHT; ++y) {
-            for (int x = 0; x < submap.LOCAL_WIDTH; ++x) {
-                if (submap.local_gmap[y][x] > 0.4) { // 占有確率が高いグリッドのみ描画
-                    double local_x = (x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
-                    double local_y = -(y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
-                    double rot_x = local_x * cos_a - local_y * sin_a;
-                    double rot_y = local_x * sin_a + local_y * cos_a;
-                    double glob_x = submap.start_pose.x + rot_x;
-                    double glob_y = submap.start_pose.y + rot_y;
-                    int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
-                    int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
-                    if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
-                        integrated_img.at<cv::Vec3b>(py, px) = cv::Vec3b(198, 204, 203);
-                    }
-                }
-            }
+  // 3. 各部分地図を描画
+  for (const auto& submap : submaps) {
+    double cos_a = cos(submap.start_pose.a);
+    double sin_a = sin(submap.start_pose.a);
+    for (int y = 0; y < submap.LOCAL_HEIGHT; ++y) {
+      for (int x = 0; x < submap.LOCAL_WIDTH; ++x) {
+        if (submap.local_gmap[y][x] > 0.4) { // 占有確率が高いグリッドのみ描画
+          double local_x = (x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+          double local_y = -(y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
+          double rot_x = local_x * cos_a - local_y * sin_a;
+          double rot_y = local_x * sin_a + local_y * cos_a;
+          double glob_x = submap.start_pose.x + rot_x;
+          double glob_y = submap.start_pose.y + rot_y;
+          int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
+          int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
+          if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+            integrated_img.at<cv::Vec3b>(py, px) = cv::Vec3b(198, 204, 203);
+          }
         }
+      }
     }
+  }
 
-    // 4. 各部分地図の目印（ID付きの円）を描画
-    for (const auto& submap : submaps) {
-        double glob_x = submap.start_pose.x;
-        double glob_y = submap.start_pose.y;
-        int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
-        int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
+  // 4. 各部分地図の目印（ID付きの円）を描画
+  for (const auto& submap : submaps) {
+    double glob_x = submap.start_pose.x;
+    double glob_y = submap.start_pose.y;
+    int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
+    int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
 
-        cv::Scalar color = (submap.submap_id == selected_id) ? RED : BLUE_LIGHT;
-        int radius = (submap.submap_id == selected_id) ? 10 : 5;
+    cv::Scalar color = (submap.submap_id == selected_id) ? RED : BLUE_LIGHT;
+    int radius = (submap.submap_id == selected_id) ? 10 : 5;
 
-        if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
-            cv::circle(integrated_img, cv::Point(px, py), radius, color, -1); // 塗りつぶし
-            cv::putText(integrated_img, std::to_string(submap.submap_id), cv::Point(px + 10, py + 10), 
-                        cv::FONT_HERSHEY_SIMPLEX, 0.8, color, 2);
-        }
+    if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+      cv::circle(integrated_img, cv::Point(px, py), radius, color, -1); // 塗りつぶし
+      cv::putText(integrated_img, std::to_string(submap.submap_id), cv::Point(px + 10, py + 10), 
+                  cv::FONT_HERSHEY_SIMPLEX, 0.8, color, 2);
     }
+  }
 
-    // 5. ウィンドウに表示
-    cv::imshow("Manual Loop Closure", integrated_img);
+  // 5. ウィンドウに表示
+  cv::imshow("Manual Loop Closure", integrated_img);
 }
-
