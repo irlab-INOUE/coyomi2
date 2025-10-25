@@ -351,7 +351,6 @@ Pose perform_scan_matching(const SubMap& fixed_submap, const SubMap& moving_subm
   return result_pose;
 }
 
-Pose perform_scan_matching(const SubMap& fixed_submap, const SubMap& moving_submap);
 
 // スキャンマッチング結果を個別に可視化する関数
 void visualize_scan_match_result(const SubMap& fixed_submap, const SubMap& moving_submap, const Pose& matched_pose) {
