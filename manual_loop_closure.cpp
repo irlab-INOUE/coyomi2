@@ -269,7 +269,6 @@ std::tuple<double, double, double, double> optimize_de(
   }
 }
 
-std::vector<SubMap> load_all_submaps(const std::string& root_dir);
 
 // OccupancyGridから点群を生成するヘルパー関数
 std::vector<Point> create_point_cloud_from_grid(const SubMap& submap) {
