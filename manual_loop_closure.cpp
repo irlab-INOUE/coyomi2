@@ -65,7 +65,8 @@ double normalize_th(double ra) {
 
 // 関数のプロトタイプ宣言
 std::vector<SubMap> load_all_submaps(const std::string& root_dir);
-void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, const double CSIZE);
+void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, const double CSIZE, 
+                    const bool id_selection_mode);
 
 // slam.cppから移植したGaussianKernelクラス
 class GaussianKernel {
@@ -480,13 +481,13 @@ int main(int argc, char *argv[]) {
   int id_match_1 = -1;          // マッチング対象1つ目のID
   int id_match_2 = -1;          // マッチング対象2つ目のID
 
-  std::cout << "操作方法:" << std::endl;
-  std::cout << "  - i: ID選択モードに入る (n/pで移動, Enterで決定, Escでキャンセル)" << std::endl;
-  std::cout << "  - m: スキャンマッチングモードに入る (1つ目選択 -> 2つ目選択 -> マッチング実行)" << std::endl;
-  std::cout << "  - 矢印キー: 選択した地図以降を平行移動" << std::endl;
-  std::cout << "  - r/t: 選択した地図以降を回転 (r:反時計回り, t:時計回り)" << std::endl;
-  std::cout << "  - s: 現在の変更を保存（未実装）" << std::endl;
-  std::cout << "  - q: 終了" << std::endl;
+  std::cout << "操作方法:" << "\n";
+  std::cout << "  -        i: ID選択モードに入る (n/pで移動, Enterで決定, Escでキャンセル)" << "\n";
+  std::cout << "  -        m: スキャンマッチングモードに入る (1つ目選択 -> 2つ目選択 -> マッチング実行)" << "\n";
+  std::cout << "  - 矢印キー: 選択した地図以降を平行移動" << "\n";
+  std::cout << "  -      r/t: 選択した地図以降を回転 (r:反時計回り, t:時計回り)" << "\n";
+  std::cout << "  -        s: 現在の変更を保存（未実装）" << "\n";
+  std::cout << "  -        q: 終了" << std::endl;
 
   // 2. インタラクションループ
   while (true) {
@@ -496,7 +497,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (needs_redraw) {
-      visualize_maps(submaps, id_to_highlight, CSIZE);
+      visualize_maps(submaps, id_to_highlight, CSIZE, id_selection_mode);
       needs_redraw = false;
     }
 
@@ -787,7 +788,8 @@ std::vector<SubMap> load_all_submaps(const std::string& root_dir) {
   return submaps;
 }
 
-void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, double CSIZE) {
+void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, double CSIZE,
+                    const bool id_selection_mode) {
   if (submaps.empty()) return;
 
   // 1. 全体地図の描画範囲を計算
@@ -841,6 +843,29 @@ void visualize_maps(const std::vector<SubMap>& submaps, int selected_id, double 
           int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
           if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
             integrated_img.at<cv::Vec3b>(py, px) = cv::Vec3b(198, 204, 203);
+          }
+        }
+      }
+    }
+  }
+
+  // 3.1 idセレクトモードで，ハイライトされている部分地図を描画
+  if (id_selection_mode) {
+    double cos_a = cos(submaps[selected_id].start_pose.a);
+    double sin_a = sin(submaps[selected_id].start_pose.a);
+    for (int y = 0; y < submaps[selected_id].LOCAL_HEIGHT; ++y) {
+      for (int x = 0; x < submaps[selected_id].LOCAL_WIDTH; ++x) {
+        if (submaps[selected_id].local_gmap[y][x] > 0.4) { // 占有確率が高いグリッドのみ描画
+          double local_x = (x - submaps[selected_id].LOCAL_ORIGIN_X) * submaps[selected_id].LOCAL_CSIZE;
+          double local_y = -(y - submaps[selected_id].LOCAL_ORIGIN_Y) * submaps[selected_id].LOCAL_CSIZE;
+          double rot_x = local_x * cos_a - local_y * sin_a;
+          double rot_y = local_x * sin_a + local_y * cos_a;
+          double glob_x = submaps[selected_id].start_pose.x + rot_x;
+          double glob_y = submaps[selected_id].start_pose.y + rot_y;
+          int px = static_cast<int>((glob_x - global_min_x) / CSIZE);
+          int py = static_cast<int>((global_max_y - glob_y) / CSIZE);
+          if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+            cv::circle(integrated_img, cv::Point(px, py), 5, GREEN, -1); // 塗りつぶし
           }
         }
       }
