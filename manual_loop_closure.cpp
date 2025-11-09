@@ -484,7 +484,7 @@ int main(int argc, char *argv[]) {
   std::cout << "操作方法:" << "\n";
   std::cout << "  -        i: ID選択モードに入る (n/pで移動, Enterで決定, Escでキャンセル)" << "\n";
   std::cout << "  -        m: スキャンマッチングモードに入る (1つ目選択 -> 2つ目選択 -> マッチング実行)" << "\n";
-  std::cout << "  - 矢印キー: 選択した地図以降を平行移動" << "\n";
+  std::cout << "  -     hjkl: 選択した地図以降を平行移動" << "\n";
   std::cout << "  -      r/t: 選択した地図以降を回転 (r:反時計回り, t:時計回り)" << "\n";
   std::cout << "  -        s: 現在の変更を保存（未実装）" << "\n";
   std::cout << "  -        q: 終了" << std::endl;
@@ -639,10 +639,14 @@ int main(int argc, char *argv[]) {
           break;
 
         // --- 移動・回転 ---
-        case 82: dy = -0.1; break; // Up arrow
-        case 84: dy = 0.1; break;  // Down arrow
-        case 81: dx = -0.1; break; // Left arrow
-        case 83: dx = 0.1; break;  // Right arrow
+        case 'k': dy = -0.5; break; // Up
+        case 'K': dy = -1.0; break; // Up
+        case 'j': dy =  0.5; break;  // Down
+        case 'J': dy =  1.0; break;  // Down
+        case 'h': dx = -0.5; break; // Left
+        case 'H': dx = -1.0; break; // Left
+        case 'l': dx =  0.5; break;  // Right
+        case 'L': dx =  1.0; break;  // Right
         case 'r': da = deg2rad(1.0); break; // 1度回転
         case 't': da = -deg2rad(1.0); break; // -1度回転
 
