@@ -28,7 +28,7 @@ import Lidar
 SENSOR_DIRECTION_DEGREE = 0 # 180.0  # Set sensor's forward direction (0: right, 90: up, 180: left)
 UPDATE_INTERVAL_SEC = 0.5 # Interval for automatic map updates
 MAP_EXPANSION_MARGIN_M = 5.0 # Margin in meters to expand the map when boundaries are reached
-MAX_UNDO_HISTORY_STEPS = 100 # Limit undo history to this many steps (e.g., 100 seconds)
+MAX_UNDO_HISTORY_STEPS = 10 # Limit undo history to this many steps (e.g., 100 seconds)
 
 STATE_INITIAL = "INITIAL"       # Initial state
 STATE_TARGET_CAPTURED = "TARGET_CAPTURED" # First scan (target) is captured
@@ -82,17 +82,30 @@ class GaussianKernel:
         
         self.kernel /= sum_val
 
-
 def create_occupancy_grid(points, csize, width, height, origin_x, origin_y):
     """Creates a simple binary occupancy grid map from a point cloud."""
     gmap = np.zeros((height, width), dtype=np.float64)
     if points is None or len(points) == 0:
         return gmap
-    for p in points:
-        ix = int(p[0] / csize) + origin_x
-        iy = int(-p[1] / csize) + origin_y
-        if 0 <= ix < width and 0 <= iy < height:
-            gmap[iy, ix] = 1.0 # Occupied
+    #for p in points:
+    #    ix = int(p[0] / csize) + origin_x
+    #    iy = int(-p[1] / csize) + origin_y
+    #    if 0 <= ix < width and 0 <= iy < height:
+    #        gmap[iy, ix] = 1.0 # Occupied
+
+    # 以下は上記ループ処理をnumpyで処理する
+    ix_arr = ( points[:, 0] / csize).astype(int) + origin_x
+    iy_arr = (-points[:, 1] / csize).astype(int) + origin_y
+   
+    mask_x = (ix_arr >= 0) & (ix_arr < width)
+    mask_y = (iy_arr >= 0) & (iy_arr < height)
+    final_mask = mask_x & mask_y
+   
+    valid_ix = ix_arr[final_mask]
+    valid_iy = iy_arr[final_mask]
+   
+    gmap[valid_iy, valid_ix] = 1.0
+
     return gmap
 
 @jit(nopython=True)
@@ -135,7 +148,7 @@ def optimize_de(gmap, points, csize, origin_x, origin_y, kernel_obj, initial_pos
     """Port of optimize_de from slam.cpp"""
     # DE Parameters
     Wxy = 0.8  # Search range for x, y [m]
-    Wa = np.deg2rad(22.5) # Search range for angle [rad]
+    Wa = np.deg2rad(30) # Search range for angle [rad]
     population_size = 200 # Increased for better search
     generations = 100     # Increased for better search
     F = 0.5  # Mutation factor
@@ -225,7 +238,7 @@ def draw_points(img, points, color, csize, origin_x, origin_y, width, height):
         ix = int(px_rot / csize + origin_x)
         iy = int(-py_rot / csize + origin_y)
         if 0 <= ix < width and 0 <= iy < height:
-            cv2.circle(img, (ix, iy), 2, color, -1)
+            cv2.circle(img, (ix, iy), 1, color, -1)
 
 def draw_pose(img, pose, color, csize, origin_x, origin_y, radius=8, line_length=20, thickness=2):
     """Draws a pose (position and orientation) on the image."""
@@ -585,16 +598,16 @@ def main():
                         map_origin_y_history.append(img_origin_y)
 
                         # Apply history limit to all stacks
-                        if len(pose_history) > MAX_UNDO_HISTORY_STEPS:
-                            pose_history.pop(0)
-                            map_scans_in_world.pop(0)
-                            raw_scans_history.pop(0)
-                            timestamps_history.pop(0)
-                            map_gmap_history.pop(0)
-                            map_width_history.pop(0)
-                            map_height_history.pop(0)
-                            map_origin_x_history.pop(0)
-                            map_origin_y_history.pop(0)
+                        # if len(pose_history) > MAX_UNDO_HISTORY_STEPS:
+                        #     pose_history.pop(0)
+                        #     map_scans_in_world.pop(0)
+                        #     raw_scans_history.pop(0)
+                        #     timestamps_history.pop(0)
+                        #     map_gmap_history.pop(0)
+                        #     map_width_history.pop(0)
+                        #     map_height_history.pop(0)
+                        #     map_origin_x_history.pop(0)
+                        #     map_origin_y_history.pop(0)
 
                         robot_pose = pose_history[-1]
                         map_points = np.vstack(map_scans_in_world) # Update map_points for drawing current scan
