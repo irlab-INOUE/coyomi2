@@ -1452,7 +1452,7 @@ public:
           file >> r >> r;
 
           if (file.fail()) {
-            std::cout << "[デバッグ] センサ" << this->sensor_type << " マルチエコー読み込み失敗 at i=" << i << " (部分的に有効として継続)" << std::endl;
+            std::cout << "[デバッグ] センサ" << this->sensor_type << " マルチエコー読み込み失敗 at i=" << i << " (部分的に有効として継続)" << " " << data.timestamp << std::endl;
             file.clear();
             break;
           }
@@ -1460,9 +1460,11 @@ public:
         file >> timestamp_end;
 
         if (file.fail()) {
-          std::cout << "[デバッグ] センサ" << this->sensor_type << " 最終タイムスタンプ読み込み失敗" << std::endl;
-          data.valid = false;
-          return data;
+          std::cout << "[デバッグ] センサ" << this->sensor_type << " 最終タイムスタンプ読み込み失敗 (部分的に有効として継続)" << " " << data.timestamp << std::endl;
+          file.clear(); // エラー状態をクリア
+          // 行の残りを読み飛ばして、次の readNextScan 呼び出しに備える
+          std::string dummy;
+          std::getline(file, dummy);
         }
 
         data.valid = true;
@@ -1567,7 +1569,7 @@ int main (int argc, char *argv[]) {
   // ガウシアンカーネル初期化（軽量版：σ=0.8, 半径=2, 5×5カーネル）
   GaussianKernel gaussian_kernel(0.8, 2);
 
-  const std::string STORE_ROOT_DIR_NAME = "slam_result_251021-3";
+  const std::string STORE_ROOT_DIR_NAME = "./slam_result_251108-1";
   // ディレクトリが存在しない場合は作成
   if (!fs::exists(STORE_ROOT_DIR_NAME)) {
     fs::create_directories(STORE_ROOT_DIR_NAME);
@@ -1600,8 +1602,10 @@ int main (int argc, char *argv[]) {
 #endif
 
 #if 1
-  const std::string PATH_TO_URGLOG_T = "./2025/10/22/155017/urglog_t";
-  const std::string PATH_TO_URGLOG_B = "./2025/10/22/155017/urglog_b";
+  const std::string PATH_TO_URGLOG_B = "./2025/data_251108-2/urg_data4.txt";
+  const std::string PATH_TO_URGLOG_T = "./2025/urg_data_t.txt";
+  // const std::string PATH_TO_URGLOG_T = "./2025/10/22/155017/urglog_t";
+  // const std::string PATH_TO_URGLOG_B = "./2025/10/22/155017/urglog_b";
 #endif
 
   // LASERSCANRTの総数を事前に取得
@@ -1639,7 +1643,7 @@ int main (int argc, char *argv[]) {
   bool submap_initialized = false;               // 最初の部分地図が初期化されたか
 
   int loop = 0;
-  int STREAM_SKIP = 31;     // LiDARデータ列の読み飛ばし数
+  int STREAM_SKIP = 10; //31;     // LiDARデータ列の読み飛ばし数
   int stream_counter = -1;
   while (!stream.is_finished()) {
     LaserData current_data = stream.getNextScan();
