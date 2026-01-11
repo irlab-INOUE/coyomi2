@@ -16,9 +16,10 @@
 #include <random>
 #include <sstream>  // std::stringstream
 #include <cstdlib>  // popen, pclose
-#include <lua.hpp>  // Luaヘッダ
+#include <lua.hpp>  // Lua
 
 namespace fs = std::filesystem;
+using OccupancyGrid = std::vector<std::vector<double>>;
 
 // Color definitions for visualization
 #define GREEN cv::Scalar(118,209,173)
@@ -28,14 +29,27 @@ namespace fs = std::filesystem;
 #define WHITE cv::Scalar(198,204,203)
 #define RED cv::Scalar(0,31,245)
 
-// センサー設定定数
+//
+#define INFTY std::numeric_limits<double>::infinity() // 正の無限大
+
+// センサー配置の座標
 const double SENSOR_OFFSET_X = 0.19; // urglog_bのX軸オフセット [m]
 
-// LiDAR角度テーブル（グローバル変数）
+// LiDAR照射方向テーブル（グローバル変数）
 std::vector<double> lidar_cos_table;
 std::vector<double> lidar_sin_table;
 std::vector<double> lidar_angle_table;
 
+// Utility functions for angle tranformations
+constexpr double deg2rad(double deg) {
+  return deg * M_PI / 180.0;
+}
+
+constexpr double rad2deg(double rad) {
+  return rad * 180.0 / M_PI;
+}
+
+// Data structure for point cloud
 struct Point {
   double x;
   double y;
@@ -47,6 +61,7 @@ struct Point {
   }
 };
 
+// Pose of robot
 struct Pose {
   long long ts;
   double x, y, a;
@@ -59,6 +74,7 @@ struct Pose {
   }
 };
 
+// LiDARのレイキャストの逆引きのための曲座標情報;
 struct PolarInfo {
   double angle;
   double distance;
@@ -66,6 +82,7 @@ struct PolarInfo {
   PolarInfo(double a, double d) : angle(a), distance(d) {}
 };
 
+// LiDARの1スキャンデータ
 struct LaserData {
   long long timestamp;
   std::vector<Point> points;
@@ -74,42 +91,45 @@ struct LaserData {
   long max_r;
   bool valid;
   char sensor_type; // 't' for urglog_t, 'b' for urglog_b
-  double start_angle, end_angle, delta_th; // 角度情報
+  double start_angle, end_angle, delta_th; // 照射角情報
 };
 
+// 部分地図の構造体
 struct SubMap {
   int submap_id;
-  double start_distance;
-  double end_distance;
+  double global_start_distance;
+  double global_end_distance;
   Pose start_pose;  // 物理座標の原点（基準点）
-  
+
   std::vector<LaserData> laser_data_sequence;
-  std::vector<Pose> trajectory;
-  std::vector<std::vector<double>> local_gmap;
-  
+  std::vector<Pose> trajectory; // 部分地図内での相対座標による軌跡
+  OccupancyGrid local_gmap;
+
   // 点群の実際の範囲（部分地図相対座標）
   double min_x, max_x;
   double min_y, max_y;
   bool bounds_initialized;
-  
-  // 地図パラメータ（定数）
-  static const int LOCAL_WIDTH = 2000;   // 100m / 0.05m
-  static const int LOCAL_HEIGHT = 2000;  // 100m / 0.05m
-  static const int LOCAL_ORIGIN_X = 1000; // 中央
-  static const int LOCAL_ORIGIN_Y = 1000; // 中央
-  static constexpr double LOCAL_CSIZE = 0.05;
-  
-  SubMap() : submap_id(-1), start_distance(0.0), end_distance(0.0),
-             min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false) {
+  double LOCAL_CSIZE; // 元の全体地図のcsizeに相当する
+
+  // 地図パラメータ（インスタンス変数）
+  int LOCAL_WIDTH;
+  int LOCAL_HEIGHT;
+  int LOCAL_ORIGIN_X;
+  int LOCAL_ORIGIN_Y;
+
+  SubMap() : submap_id(-1), global_start_distance(0.0), global_end_distance(0.0),
+    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(0.05),
+    LOCAL_WIDTH(2000), LOCAL_HEIGHT(2000), LOCAL_ORIGIN_X(1000), LOCAL_ORIGIN_Y(1000) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
-             
-  SubMap(int id, double start_dist, const Pose& start_p) 
-    : submap_id(id), start_distance(start_dist), end_distance(start_dist), start_pose(start_p),
-      min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false) {
+
+  SubMap(int id, double start_dist, const Pose& start_p, double csize) 
+    : submap_id(id), global_start_distance(start_dist), global_end_distance(start_dist), start_pose(start_p),
+    min_x(0.0), max_x(0.0), min_y(0.0), max_y(0.0), bounds_initialized(false), LOCAL_CSIZE(csize),
+    LOCAL_WIDTH(2000), LOCAL_HEIGHT(2000), LOCAL_ORIGIN_X(1000), LOCAL_ORIGIN_Y(1000) {
     local_gmap.resize(LOCAL_HEIGHT, std::vector<double>(LOCAL_WIDTH, 0.0));
   }
-  
+
   // 点の範囲を更新（部分地図相対座標で）
   void update_bounds_point(double rel_x, double rel_y) {
     if (!bounds_initialized) {
@@ -123,13 +143,13 @@ struct SubMap {
       if (rel_y > max_y) max_y = rel_y;
     }
   }
-  
-  // 部分地図での姿勢推定と地図構築（宣言のみ）
+
+  // 部分地図での姿勢推定と地図構築
   void build_submap();
-  
-  // 部分地図構築進捗の可視化（宣言のみ）
+
+  // 部分地図構築進捗の可視化
   void show_submap_progress(size_t current_frame);
-  
+
   // 部分地図データの保存
   void save_submap_data(const std::string& base_dir);
 };
@@ -142,62 +162,89 @@ int table_origin = 0;
 double table_csize = 0.0;
 
 // 対数オッズ値の定数（CreateOccMap.cppより）
-const double log04  = log(0.4/(1.0 - 0.4));   // 約-0.4055 (低い占有確率)
-const double log045 = log(0.45/(1.0 - 0.45)); // 約-0.2007 (わずかに低い確率)  
-const double log06  = log(0.6/(1.0 - 0.6));   // 約+0.4055 (高い占有確率)
+const double log04  = log(0.40/(1.0 - 0.40));   // 約-0.4055 (低い占有確率)
+const double log045 = log(0.45/(1.0 - 0.45));   // 約-0.2007 (わずかに低い確率)  
+const double log06  = log(0.60/(1.0 - 0.60));   // 約+0.4055 (高い占有確率)
 
-// クラスの前方宣言
-class GaussianKernel;
+// ガウシアンカーネルクラス
+class GaussianKernel {
+private:
+  std::vector<std::vector<double>> kernel;
+  int radius;
+
+public:
+  GaussianKernel(double sigma, int kernel_radius) : radius(kernel_radius) {
+    int size = 2 * radius + 1;
+    kernel.resize(size, std::vector<double>(size));
+
+    double sum = 0.0;
+    double sigma2 = sigma * sigma;
+    for (int y = -radius; y <= radius; y++) {
+      for (int x = -radius; x <= radius; x++) {
+        double distance_sq = x*x + y*y;
+        double weight = exp(-distance_sq / (2.0 * sigma2));
+        kernel[y + radius][x + radius] = weight;
+        sum += weight;
+      }
+    }
+
+    // 正規化
+    for (int y = 0; y < size; y++) {
+      for (int x = 0; x < size; x++) {
+        kernel[y][x] /= sum;
+      }
+    }
+  }
+
+  double getWeight(int dx, int dy) const {
+    if (abs(dx) > radius || abs(dy) > radius) return 0.0;
+    return kernel[dy + radius][dx + radius];
+  }
+
+  int getRadius() const { return radius; }
+};
+
 
 // 統合地図作成・表示関数の前方宣言
-void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps);
+OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps, double CSIZE);
 
-// 関数の前方宣言
-std::vector<std::vector<double>> update_map(std::vector<std::vector<double>> &gmap, 
-                                         std::vector<Point> &pt1, 
-                                         double current_x, double current_y, double current_a, 
-                                         int width, int height, int ox, int oy, double CSIZE);
+// 新しい統合地図生成・保存関数の前方宣言
+void create_and_save_integrated_map(const std::vector<SubMap>& completed_submaps, 
+                                             double CSIZE,
+                                             const std::string& output_dir);
 
-std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<double>> &gmap,
-                                                   const LaserData &scan_data,
-                                                   double current_x, double current_y, double current_a,
-                                                   int width, int height, int ox, int oy, double CSIZE);
+// 地図の境界をチェックし、必要であれば再構築する関数の前方宣言
+void check_and_rebuild_map_if_needed(
+  SubMap& submap,
+  const Pose& robot_pose,
+  const LaserData& laser_data);
 
-std::tuple<double, double, double, double> optimize_de(
-  std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
-  double current_x, double current_y, double current_a,
-  int originX, int originY, 
-  double CSIZE, double dth,
-  int width, int height, 
-  double Wxy, double Wa, 
-  int population_size, int generations, double F, double CR,
-  const GaussianKernel* kernel);
-
-
+// 実座標をピクセル座標に変換
 std::tuple<int, int> xy2index(double xd, double yd, double CSIZE, int ox, int oy) {
   int ix = static_cast<int>( xd / CSIZE) + ox;
   int iy = static_cast<int>(-yd / CSIZE) + oy;
   return std::make_tuple(ix, iy);
 }
 
-std::vector<std::vector<double>> update_map(std::vector<std::vector<double>> &gmap, 
-                                         std::vector<Point> &pt1, 
-                                         double current_x, double current_y, double current_a, 
-                                         int width, int height, int ox, int oy, double CSIZE) {
+// Grid mapにLiDAR点群を対数尤度で更新する
+OccupancyGrid update_map(OccupancyGrid &gmap,
+                         std::vector<Point> &pt1, 
+                         const Pose& pose,
+                         int width, int height, int ox, int oy, double CSIZE) {
   int ix, iy;
-  double cs = cos(current_a);
-  double sn = sin(current_a);
+  double cs = cos(pose.a);
+  double sn = sin(pose.a);
   for (size_t i = 0; i < pt1.size(); i++) {
     // ロボット中心からの距離を計算
     double distance = sqrt(pt1[i].x * pt1[i].x + pt1[i].y * pt1[i].y);
-    
+
     // 500mm以下の近距離データは除去（ロボット自身や近傍ノイズ）
     if (distance <= 0.5) {
       continue;
     }
-    
-    double xd = pt1[i].x * cs - pt1[i].y * sn + current_x;
-    double yd = pt1[i].x * sn + pt1[i].y * cs + current_y;
+
+    double xd = pt1[i].x * cs - pt1[i].y * sn + pose.x;
+    double yd = pt1[i].x * sn + pt1[i].y * cs + pose.y;
     auto [ix, iy] = xy2index(xd, yd, CSIZE, ox, oy);
     if (0 <= ix && ix < width && 0 <= iy && iy < height) {
       // 観測された点は高い占有確率を与える（強化）
@@ -211,147 +258,100 @@ std::vector<std::vector<double>> update_map(std::vector<std::vector<double>> &gm
 // 極座標ルックアップテーブルの初期化
 void initialize_polar_table(int size, int origin, double csize) {
   if (polar_table_initialized && table_size == size && 
-      table_origin == origin && table_csize == csize) {
+    table_origin == origin && table_csize == csize) {
     return; // 既に同じパラメータで初期化済み
   }
-  
+
   table_size = size;
   table_origin = origin;
   table_csize = csize;
-  
+
   polar_lookup_table.resize(size, std::vector<PolarInfo>(size));
-  
+
   // 各ピクセルの角度と距離を事前計算
   for (int y = 0; y < size; y++) {
     for (int x = 0; x < size; x++) {
       double dx = (x - origin) * csize;
       double dy = -(y - origin) * csize; // y軸反転
-      
+
       double angle = atan2(dy, dx);
       double distance = sqrt(dx * dx + dy * dy);
       polar_lookup_table[y][x] = PolarInfo(angle, distance);
     }
   }
-  
+
   polar_table_initialized = true;
   std::cout << "極座標ルックアップテーブル初期化完了 (" << size << "x" << size << ")" << std::endl;
 }
 
 // 移動体除去処理
-std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<double>> &gmap,
-                                                   const LaserData &scan_data,
-                                                   double current_x, double current_y, double current_a,
-                                                   int width, int height, int ox, int oy, double CSIZE) {
-  // std::cout << "  [移動体除去処理] スキャン点数: " << scan_data.points.size() << std::endl;
-  
+OccupancyGrid remove_moving_objects(OccupancyGrid &gmap, const LaserData &scan_data, 
+                                    double current_x, double current_y, double current_a, 
+                                    int width, int height, int ox, int oy, double CSIZE) {
   // レーザー到達距離設定（ロボット近傍の移動体のみ対象）
   const double LASER_RANGE = 5.0; 
-  
+
   // ローカル座標系の2次元配列サイズ計算（解像度はgmapと同一）
   int local_size = static_cast<int>(2 * LASER_RANGE / CSIZE); 
   int local_origin = local_size / 2; // 中央を原点とする
-  
+
   // ローカル座標系の2次元配列を初期化（実数値対応）
-  std::vector<std::vector<double>> local_map(local_size, std::vector<double>(local_size, 0.0));
-  
+  OccupancyGrid local_map(local_size, std::vector<double>(local_size, 0.0));
+
   // scan_dataの点をローカル座標系にバイナリで格納
   for (const auto& point : scan_data.points) {
     // ローカル座標系でのインデックス計算
     int ix = static_cast<int>( point.x / CSIZE) + local_origin;
     int iy = static_cast<int>(-point.y / CSIZE) + local_origin; // y軸反転
-    
+
     // 範囲チェック
     if (ix >= 0 && ix < local_size && iy >= 0 && iy < local_size) {
       local_map[iy][ix] = 1.0; // バイナリで格納
     }
   }
-  
-  // cv::Matに変換して可視化
-  /*
-  cv::Mat local_img(local_size, local_size, CV_64F);
-  for (int y = 0; y < local_size; y++) {
-    for (int x = 0; x < local_size; x++) {
-      local_img.at<double>(y, x) = local_map[y][x];
-    }
-  }
-  
-  // 可視化用に0-255に正規化
-  cv::Mat display_img;
-  local_img.convertTo(display_img, CV_8U, 255.0);
-  
-  // 十字線を描画（原点表示）
-  cv::line(display_img, cv::Point(local_origin, 0), cv::Point(local_origin, local_size-1), cv::Scalar(128), 1);
-  cv::line(display_img, cv::Point(0, local_origin), cv::Point(local_size-1, local_origin), cv::Scalar(128), 1);
-  
-  cv::imshow("Local Scan (Bottom)", display_img);
-  cv::waitKey(10);
-  */
-  
+
   // 極座標テーブルの初期化（初回のみ）
   initialize_polar_table(local_size, local_origin, CSIZE);
-  
+
   // 自由空間判定用配列
-  std::vector<std::vector<double>> free_space_map(local_size, std::vector<double>(local_size, 0.0));
-  
+  OccupancyGrid free_space_map(local_size, std::vector<double>(local_size, 0.0));
+
   // 各ピクセルについて自由空間判定（ルックアップテーブル使用）
   for (int y = 0; y < local_size; y++) {
     for (int x = 0; x < local_size; x++) {
       const PolarInfo& pixel_polar = polar_lookup_table[y][x];
-      
+
       // 原点はロボット位置なので確実に自由空間として登録
       if (x == local_origin && y == local_origin) {
         free_space_map[y][x] = -1.0;  // 自由空間として登録
         continue;
       }
-      
+
       // 該当角度に最も近いLiDARデータを探す（角度情報を直接使用）
       double min_angle_diff = M_PI;
       double closest_scan_distance = LASER_RANGE;
-      
+
       // LiDARの角度データを直接参照
       for (size_t i = 0; i < scan_data.angles.size(); i++) {
         double angle_diff = fabs(scan_data.angles[i] - pixel_polar.angle);
         // 角度の周期性を考慮（-π〜πの範囲）
         if (angle_diff > M_PI) angle_diff = 2 * M_PI - angle_diff;
-        
+
         if (angle_diff < min_angle_diff) {
           min_angle_diff = angle_diff;
           closest_scan_distance = scan_data.ranges[i];
         }
       }
-      
+
       // 角度の許容範囲内で、スキャン点より近い場合は自由空間
-      const double ANGLE_TOLERANCE = scan_data.delta_th * M_PI / 180.0 * 2; // 角度刻みの2倍を許容範囲
+      const double ANGLE_TOLERANCE = deg2rad(scan_data.delta_th) * 2; // 角度刻みの2倍を許容範囲
       if (min_angle_diff < ANGLE_TOLERANCE && pixel_polar.distance < closest_scan_distance) {
         free_space_map[y][x] = -1.0;
       }
     }
   }
-  
-  // 自由空間マップをcv::Matに変換して可視化
-  /*
-  cv::Mat free_space_img(local_size, local_size, CV_8U);
-  for (int y = 0; y < local_size; y++) {
-    for (int x = 0; x < local_size; x++) {
-      if (free_space_map[y][x] == -1.0) {
-        free_space_img.at<uchar>(y, x) = 255; // -1の部分を白
-      } else {
-        free_space_img.at<uchar>(y, x) = 0;   // それ以外は黒
-      }
-    }
-  }
-  
-  // 十字線を描画（原点表示）
-  cv::line(free_space_img, cv::Point(local_origin, 0), cv::Point(local_origin, local_size-1), cv::Scalar(128), 1);
-  cv::line(free_space_img, cv::Point(0, local_origin), cv::Point(local_size-1, local_origin), cv::Scalar(128), 1);
-  
-  cv::imshow("Free Space Map", free_space_img);
-  cv::waitKey(10);
-  */
-  
+
   // 自由空間ピクセルをgmapに対応付けて移動体除去
-  int removed_count = 0;
-  
   double cs = cos(current_a);
   double sn = sin(current_a);
   for (int y = 0; y < local_size; y++) {
@@ -360,52 +360,47 @@ std::vector<std::vector<double>> remove_moving_objects(std::vector<std::vector<d
         // ローカル座標系からセンサー座標系への変換
         double local_x =  (x - local_origin) * CSIZE;
         double local_y = -(y - local_origin) * CSIZE; // y軸反転
-        
+
         // センサー座標系から車両座標系への変換（オフセット考慮）
         double sensor_x = local_x - SENSOR_OFFSET_X; // センサーオフセット補正
         double sensor_y = local_y;
-        
+
         // 車両座標系から世界座標系への変換
         double world_x = sensor_x * cs - sensor_y * sn + current_x;
         double world_y = sensor_x * sn + sensor_y * cs + current_y;
-        
+
         // 世界座標系からgmapインデックスへの変換
         auto [gmap_ix, gmap_iy] = xy2index(world_x, world_y, CSIZE, ox, oy);
-        
+
         // gmap範囲内で、障害物の占有確率が高い場合は尤度を減算
         if (gmap_ix >= 0 && gmap_ix < width && gmap_iy >= 0 && gmap_iy < height) {
           // 占有確率が30%以上の場合を障害物とみなす（閾値を下げて除去を強化）
           if (gmap[gmap_iy][gmap_ix] > -0.8) {  // log(0.3/0.7) ≈ -0.847
             // より強い減算で確実に除去
             gmap[gmap_iy][gmap_ix] -= log06 * 2.0; // 2倍の減算で強力除去
-            removed_count++;
           }
         }
       }
     }
   }
-  
-  if (removed_count > 0) {
-    // std::cout << "  [移動体除去] 除去したグリッド数: " << removed_count << std::endl;
-  }
-  
+
   return gmap;
 }
 
 // 占有地図から尤度場地図を生成する関数
-void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap, 
-                                  int width, int height, double CSIZE,
-                                  const std::string& output_dir) {
+void create_likelihood_field_map(const OccupancyGrid& gmap, 
+                                 int width, int height, double CSIZE,
+                                 const std::string& output_dir) {
   std::cout << "尤度場地図生成開始..." << std::endl;
-  
+
   // gmapの内容確認用表示
   cv::Mat gmap_check = cv::Mat(cv::Size(width, height), CV_8UC3, cv::Scalar(50, 50, 50));
   const double HIGH_THRESHOLD = 0.405;   // 60%確率に相当
-  
+
   for (int j = 0; j < height; j++) {
     for (int i = 0; i < width; i++) {
       double log_odds = gmap[j][i];
-      
+
       if (log_odds > HIGH_THRESHOLD) {  // 高い占有確率：白色
         gmap_check.at<cv::Vec3b>(j, i)[0] = 255;
         gmap_check.at<cv::Vec3b>(j, i)[1] = 255;
@@ -414,33 +409,33 @@ void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap,
       // その他は背景色のまま
     }
   }
-  
+
   // パラメータ設定（MakeLFM.cppより）
   double sgm2 = 0.4 * 0.4;  // σ² = 0.16
   double mu = 1.0/sqrt(2*M_PI*sgm2);
   int distance = static_cast<int>(2.0 / CSIZE);  // 2m範囲で最近傍探索
-  
+
   // 尤度場地図用の配列
   cv::Mat LFM(height, width, CV_64FC1);
   cv::Mat imgLFM(height, width, CV_8UC1);
-  
+
   // 占有確率閾値（対数オッズから判定）
-  
+
   for (int iy = 0; iy < height; iy++) {
     if (iy % 100 == 0) {
       std::cout << "\r尤度場生成進捗: " << iy << "/" << height << std::flush;
     }
-    
+
     for (int ix = 0; ix < width; ix++) {
       // 全範囲で尤度場を計算（未観測領域も含む）
-      
+
       // 最近傍の障害物を探索
       double min_dist2 = 1e9;
       int startX = ix - distance; if (startX < 0) startX = 0;
       int endX = ix + distance; if (endX >= width) endX = width - 1;
       int startY = iy - distance; if (startY < 0) startY = 0;
       int endY = iy + distance; if (endY >= height) endY = height - 1;
-      
+
       for (int cy = startY; cy < endY; cy++) {
         for (int cx = startX; cx < endX; cx++) {
           // 高い占有確率（障害物）の場合
@@ -452,12 +447,12 @@ void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap,
           }
         }
       }
-      
+
       // ガウシアン尤度値を計算
       LFM.at<double>(iy, ix) = sgm2 * exp(-0.5 * min_dist2/sgm2);
     }
   }
-  
+
   // OpenCV形式で実数データを出力（ナビゲーション用）
   cv::FileStorage fs(output_dir + "/lfm.yml", cv::FileStorage::WRITE);
   fs << "height" << height;
@@ -466,9 +461,9 @@ void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap,
   fs << "sigma" << sqrt(sgm2);  // パラメータも保存
   fs << "likelihood_field" << LFM;
   fs.release();
-  
+
   std::cout << "尤度場地図保存: " << output_dir << "/lfm.yml" << std::endl;
-  
+
   // 可視化用PNG出力
   double min_val = 1e9;
   double max_val = -1e9;
@@ -479,7 +474,7 @@ void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap,
       if (max_val < LFM.at<double>(iy, ix)) max_val = LFM.at<double>(iy, ix);
     }
   }
-  
+
   for (int iy = 0; iy < imgLFM.rows; iy++) {
     for (int ix = 0; ix < imgLFM.cols; ix++) {
       if (LFM.at<double>(iy, ix) < 0) {
@@ -494,25 +489,25 @@ void create_likelihood_field_map(const std::vector<std::vector<double>>& gmap,
       }
     }
   }
-  
+
   cv::imwrite(output_dir + "/lfm.png", imgLFM);
   std::cout << "\r尤度場地図生成完了: " << output_dir << "/lfm.yml (実数データ), lfm.png (可視化)" << std::endl;
 }
 
-cv::Mat gmap_show(std::vector<std::vector<double>> &gmap, double width, double height,
+cv::Mat gmap_show(OccupancyGrid &gmap, double width, double height,
                   const std::vector<Pose>* pose_trajectory = nullptr,
                   double CSIZE = 0.05, int originX = 0, int originY = 0, double minX = 0, double minY = 0) {
   cv::Mat img = cv::Mat(cv::Size(width, height), CV_8UC3, BACK_BLUE);
-  
+
   // 対数オッズ直接比較で高速化（exp計算を回避）
   // log(0.6/0.4) ≈ 0.405, log(0.4/0.6) ≈ -0.405
   const double HIGH_THRESHOLD = 0.405;   // 60%確率に相当
   const double LOW_THRESHOLD = -0.405;   // 40%確率に相当
-  
+
   for (int j = 0; j < gmap.size(); j++) {
     for (int i = 0; i < gmap[0].size(); i++) {
       double log_odds = gmap[j][i];
-      
+
       if (log_odds > HIGH_THRESHOLD) {  // 高い占有確率：白色
         img.at<cv::Vec3b>(j, i)[0] = WHITE[0];
         img.at<cv::Vec3b>(j, i)[1] = WHITE[1];
@@ -521,7 +516,7 @@ cv::Mat gmap_show(std::vector<std::vector<double>> &gmap, double width, double h
       // 中間確率は背景色のまま
     }
   }
-  
+
   // Draw estimated trajectory and uncertainty ellipses
   if (pose_trajectory != nullptr && pose_trajectory->size() > 1) {
     // Draw trajectory path
@@ -530,30 +525,31 @@ cv::Mat gmap_show(std::vector<std::vector<double>> &gmap, double width, double h
       int prev_y = static_cast<int>(-(*pose_trajectory)[i-1].y / CSIZE) + originY;
       int curr_x = static_cast<int>((*pose_trajectory)[i].x / CSIZE) + originX;
       int curr_y = static_cast<int>(-(*pose_trajectory)[i].y / CSIZE) + originY;
-      
+
       if (prev_x >= 0 && prev_x < width && prev_y >= 0 && prev_y < height &&
-          curr_x >= 0 && curr_x < width && curr_y >= 0 && curr_y < height) {
+        curr_x >= 0 && curr_x < width && curr_y >= 0 && curr_y < height) {
         cv::line(img, cv::Point(prev_x, prev_y), cv::Point(curr_x, curr_y), GREEN, 2);
       }
     }
-    
+
     // Draw pose trajectory points
     for (size_t i = 0; i < pose_trajectory->size(); i += 5) {
       const auto& pose = (*pose_trajectory)[i];
       int pose_x = static_cast<int>(pose.x / CSIZE) + originX;
       int pose_y = static_cast<int>(-pose.y / CSIZE) + originY;
-      
+
       if (pose_x >= 0 && pose_x < width && pose_y >= 0 && pose_y < height) {
         cv::circle(img, cv::Point(pose_x, pose_y), 3, BLUE_LIGHT, -1);
       }
     }
   }
-  
+
   cv::imshow("slam", img);
   int key = cv::waitKey(10);
   return img;
 }
 
+// 角度の正規化[rad]
 double normalize_th(double ra) {
   while(1) {
     if (ra > M_PI) {
@@ -568,10 +564,11 @@ double normalize_th(double ra) {
 }
 
 
-double match_simple_count(std::vector<std::vector<double>> &gmap,
-                   std::vector<Point> &pt,
-                   double cx, double cy, double ca,
-                   double CSIZE, int originX, int originY, int width, int height) {
+// 単純カウントの評価関数
+double match_simple_count(OccupancyGrid &gmap,
+                          std::vector<Point> &pt,
+                          double cx, double cy, double ca,
+                          double CSIZE, int originX, int originY, int width, int height) {
   double eval = 0;
   double cs = cos(ca);
   double sn = sin(ca);
@@ -588,44 +585,8 @@ double match_simple_count(std::vector<std::vector<double>> &gmap,
   return eval;
 }
 
-// ガウシアンカーネルクラス
-class GaussianKernel {
-private:
-  std::vector<std::vector<double>> kernel;
-  int radius;
-  
-public:
-  GaussianKernel(double sigma, int kernel_radius) : radius(kernel_radius) {
-    int size = 2 * radius + 1;
-    kernel.resize(size, std::vector<double>(size));
-    
-    double sum = 0.0;
-    for (int y = -radius; y <= radius; y++) {
-      for (int x = -radius; x <= radius; x++) {
-        double distance_sq = x*x + y*y;
-        double weight = exp(-distance_sq / (2.0 * sigma * sigma));
-        kernel[y + radius][x + radius] = weight;
-        sum += weight;
-      }
-    }
-    
-    // 正規化
-    for (int y = 0; y < size; y++) {
-      for (int x = 0; x < size; x++) {
-        kernel[y][x] /= sum;
-      }
-    }
-  }
-  
-  double getWeight(int dx, int dy) const {
-    if (abs(dx) > radius || abs(dy) > radius) return 0.0;
-    return kernel[dy + radius][dx + radius];
-  }
-  
-  int getRadius() const { return radius; }
-};
-
-double match_count(std::vector<std::vector<double>> &gmap,
+// 対象点の周辺を含めた重み付き総和
+double match_count(OccupancyGrid &gmap,
                    std::vector<Point> &pt,
                    double cx, double cy, double ca,
                    double CSIZE, int originX, int originY, int width, int height) {
@@ -646,42 +607,42 @@ double match_count(std::vector<std::vector<double>> &gmap,
       }
     }
   }
-  
+
   // 0～1に正規化
   // 理論的最大値: 1点あたり最大 13/3, 最大LiDAR点数 1081
   const double MAX_SCORE_PER_POINT = 13.0/3.0;  // 4.33...
   const double MAX_LIDAR_POINTS = 1081.0;
   const double THEORETICAL_MAX = MAX_LIDAR_POINTS * MAX_SCORE_PER_POINT;
-  
+
   return eval / THEORETICAL_MAX;
 }
 
 // ガウシアンカーネルを使用した評価関数
-double gaussian_match_count(const std::vector<std::vector<double>>& gmap,
-                           const std::vector<Point>& pt,
-                           double cx, double cy, double ca,
-                           double CSIZE, int originX, int originY, 
-                           int width, int height,
-                           const GaussianKernel& kernel) {
+double gaussian_match_count(const OccupancyGrid& gmap,
+                            const std::vector<Point>& pt,
+                            double cx, double cy, double ca,
+                            double CSIZE, int originX, int originY, 
+                            int width, int height,
+                            const GaussianKernel& kernel) {
   double total_score = 0.0;
   double cs = cos(ca);
   double sn = sin(ca);
-  
+
   for (int idx = 0; idx < pt.size(); idx++) {
     const auto& p = pt[idx];
-    
+
     // 点を変換してグリッド座標に変換
     double xd = p.x * cs - p.y * sn + cx;
     double yd = p.x * sn + p.y * cs + cy;
     auto [gx, gy] = xy2index(xd, yd, CSIZE, originX, originY);
-    
+
     // カーネル範囲内でガウシアン重み付きスコア計算
     double point_score = 0.0;
     for (int dy = -kernel.getRadius(); dy <= kernel.getRadius(); dy++) {
       for (int dx = -kernel.getRadius(); dx <= kernel.getRadius(); dx++) {
         int map_x = gx + dx;
         int map_y = gy + dy;
-        
+
         // グリッド範囲チェック
         if (map_x >= 0 && map_x < width && map_y >= 0 && map_y < height) {
           // 対数オッズ直接比較（高速化）
@@ -693,12 +654,13 @@ double gaussian_match_count(const std::vector<std::vector<double>>& gmap,
     }
     total_score += point_score;
   }
-  
+
   return total_score;
 }
 
+// 貪欲法による最適化
 std::tuple<double, double, double, double> optimize_greedy(
-  std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
+  OccupancyGrid &gmap, std::vector<Point> &pt,
   double current_x, double current_y, double current_a, 
   int originX, int originY, 
   double CSIZE, double dth,
@@ -725,15 +687,15 @@ std::tuple<double, double, double, double> optimize_greedy(
   return std::make_tuple(best_x, best_y, best_a, best_eval);
 }
 
+// DEによる最適化
 // 乱数生成エンジンの準備
 std::random_device rd; // ハードウェア乱数生成器
 std::mt19937 gen(rd()); // メルセンヌ・ツイスタ法の乱数生成器
 // -1から1の間の一様分布を定義
 std::uniform_real_distribution<> dis(-1.0, 1.0);
 
-
 std::tuple<double, double, double, double> optimize_de(
-  std::vector<std::vector<double>> &gmap, std::vector<Point> &pt,
+  OccupancyGrid &gmap, std::vector<Point> &pt,
   double current_x, double current_y, double current_a,
   int originX, int originY, 
   double CSIZE, double dth,
@@ -778,7 +740,14 @@ std::tuple<double, double, double, double> optimize_de(
         // Mutation: v = x_r1 + F * (x_r2 - x_r3)
         double vx = x1 + F * (x2 - x3);
         double vy = y1 + F * (y2 - y3);
-        double va = a1 + F * (a2 - a3);
+        //double va = a1 + F * (a2 - a3);
+
+        double ax1 = cos(a1), ay1 = sin(a1);
+        double ax2 = cos(a2), ay2 = sin(a2);
+        double ax3 = cos(a3), ay3 = sin(a3);
+        double vax = ax1 + F * (ax2 - ax3);
+        double vay = ay1 + F * (ay2 - ay3);
+        double va = atan2(vay, vax);
 
         // Crossover: generate trial vector u by mixing the mutant vector with the target vector
         double trial_x = vx;
@@ -820,21 +789,7 @@ std::tuple<double, double, double, double> optimize_de(
       }
     }
 
-    //exit(0);
     return std::make_tuple(best_x, best_y, best_a, best_eval);
-    /*
-    if (fabs(prev_a - best_a) < 0.5 && (fabs(prev_x - best_x) < 2.0) && (fabs(prev_y - best_y) < 2.0)) {
-      return std::make_tuple(best_x, best_y, best_a, best_eval);
-    }
-    std::cout << "やり直します" 
-      << "(" << prev_x << ", " << prev_y << "," << prev_a << ")"
-      << "(" << current_x << ", " << current_y << "," << current_a << ")"
-      << "(" << best_x << ", " << best_y << "," << best_a << ")"
-      << std::endl;
-    current_x = prev_x;
-    current_y = prev_y;
-    current_a = prev_a;
-    */
   }
 }
 
@@ -843,14 +798,14 @@ int count_laserscanrt_lines(const std::string& filename) {
   std::string command = "grep -c 'LASERSCANRT' " + filename;
   FILE* pipe = popen(command.c_str(), "r");
   if (!pipe) return -1;
-  
+
   char buffer[128];
   std::string result = "";
   while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
     result += buffer;
   }
   pclose(pipe);
-  
+
   try {
     return std::stoi(result);
   } catch (const std::exception&) {
@@ -860,71 +815,63 @@ int count_laserscanrt_lines(const std::string& filename) {
 
 // 画面クリアと上部固定表示用の関数
 void update_status_display(int loop, const std::string& sensor_type, 
-                          long long timestamp, double eval, 
-                          double x, double y, double angle_deg, int total_count, double distance = 0.0) {
+                           long long timestamp, double eval, 
+                           double x, double y, double a, int total_count, double distance = 0.0) {
   static std::vector<std::string> recent_lines;
-  const int MAX_LINES = 10;
-  
+  const int MAX_LINES = 20;
+
   // 色分け設定
   std::string color_code;
-  if (sensor_type.find("Top") != std::string::npos) {
+  if (sensor_type == "Top") {
     color_code = "\033[31m"; // 赤色
-  } else if (sensor_type.find("Bottom") != std::string::npos) {
+  } else if (sensor_type == "Bottom") {
     color_code = "\033[34m"; // 青色
   } else {
     color_code = "\033[37m"; // 白色（その他）
   }
-  
+
   // 新しい行を作成（色付き・桁揃え）
   std::stringstream ss;
   ss << color_code 
-     << "[" << std::setw(12) << std::left << sensor_type << "] "
-     << "ts:" << std::setw(13) << timestamp 
-     << " eval:" << std::fixed << std::setprecision(3) << std::setw(7) << eval
-     << " pose:(" << std::setprecision(3) << std::setw(8) << x 
-     << "," << std::setw(8) << y;
-  
+    << "[" << std::setw(12) << std::left << sensor_type << "] "
+    << "ts:" << std::setw(13) << timestamp 
+    << " eval:" << std::fixed << std::setprecision(3) << std::setw(7) << eval
+    << " pose:(" << std::setprecision(3) << std::setw(8) << x 
+    << "," << std::setw(8) << y;
+
   // 角度を手動でフォーマット
   ss << ",";
-  if (angle_deg >= 0) ss << " ";  // 正の数の場合は先頭にスペース
-  ss << std::fixed << std::setprecision(1) << std::setw(4) << angle_deg << "°)";
-  
+  if (a >= 0) ss << " ";  // 正の数の場合は先頭にスペース
+  ss << std::fixed << std::setprecision(1) << std::setw(4) << rad2deg(a) << "°)";
+
   // 累積距離を追加
   if (distance > 0.0) {
     ss << " dist:" << std::setprecision(2) << std::setw(6) << distance << "m";
   }
-  
+
   ss << "\033[0m"; // 色リセット
-  
+
   // 最新行を追加
   recent_lines.push_back(ss.str());
   if (recent_lines.size() > MAX_LINES) {
     recent_lines.erase(recent_lines.begin());
   }
-  
+
   // 画面クリアして再表示
   std::cout << "\033[2J\033[H"; // 画面クリア + カーソル移動
-  
+
   // プログレス表示（色付き）
   int progress = (total_count > 0) ? (loop * 100) / total_count : 0;
   progress = std::min(100, progress);  // 100%で上限
   std::cout << "\033[32mSLAM Progress: \033[33m" << std::setw(4) << loop 
-            << "\033[32m/" << total_count << " (\033[33m" << std::setw(3) << progress << "%\033[32m)\033[0m" 
-            << std::endl;
+    << "\033[32m/" << total_count << " (\033[33m" << std::setw(3) << progress << "\033[32m%)\033[0m" 
+    << std::endl;
   std::cout << "\033[36m" << std::string(50, '=') << "\033[0m" << std::endl;
-  
+
   for (const auto& line : recent_lines) {
     std::cout << line << std::endl;
   }
   std::cout << std::flush;
-}
-
-// 部分地図保存用のダミー関数（将来実装予定）
-void save_submap(const SubMap& submap) {
-  std::cout << "SubMap " << submap.submap_id << " 保存完了（ダミー）" 
-            << " 距離: " << submap.start_distance << "-" << submap.end_distance << "m"
-            << " 範囲: (" << submap.min_x << "," << submap.min_y << ")-(" 
-            << submap.max_x << "," << submap.max_y << ")" << std::endl;
 }
 
 // LiDAR角度テーブルの初期化関数
@@ -934,132 +881,62 @@ void initialize_lidar_tables() {
   const double END_ANGLE = 135.0;
   const double DELTA_TH = 0.25;
   const int MAX_ECHO_SIZE = 3;
-  
+
   int num_points = static_cast<int>((END_ANGLE - START_ANGLE) / DELTA_TH + 1);
   lidar_cos_table.resize(num_points);
   lidar_sin_table.resize(num_points);
   lidar_angle_table.resize(num_points);
-  
-  double th = START_ANGLE * M_PI/180.0;
+
+  double th = deg2rad(START_ANGLE);
   for (int i = 0; i < num_points; i++) {
     lidar_cos_table[i] = cos(th);
     lidar_sin_table[i] = sin(th);
     lidar_angle_table[i] = th; // 角度値を事前計算
-    th += DELTA_TH * M_PI/180.0;
+    th += deg2rad(DELTA_TH);
   }
-  
+
   std::cout << "LiDAR角度テーブル初期化完了: " << num_points << "点" << std::endl;
 }
 
 // SubMapクラスのbuild_submap()メソッドの実装
 void SubMap::build_submap() {
-  std::cout << "SubMap " << submap_id << " の構築開始 (データ数: " 
-            << laser_data_sequence.size() << ")" << std::endl;
-  
-  // local_gmapを初期化
-  for (int i = 0; i < LOCAL_HEIGHT; i++) {
-    for (int j = 0; j < LOCAL_WIDTH; j++) {
-      local_gmap[i][j] = 0.0;
-    }
-  }
-  
-  // 初期姿勢：最初のフレームは原点(0,0,0)
-  if (!trajectory.empty()) {
-    trajectory[0] = Pose(trajectory[0].ts, 0.0, 0.0, 0.0);
-  }
-  
-  // 逐次的にlocal_gmap構築とoptimize_de実行
+  std::cout << "SubMap " << submap_id << " の構築完了 (メインループの結果を使用)" << std::endl;
+
+  // LiDAR点群の範囲を更新（部分地図相対座標で）
   for (size_t i = 0; i < laser_data_sequence.size(); i++) {
     const LaserData& laser_data = laser_data_sequence[i];
-    
+    const Pose& pose = trajectory[i]; // メインループで推定された姿勢を使用
+
     if (!laser_data.valid || laser_data.points.empty()) continue;
-    
-    // 部分地図でのLiDAR点数をデバッグ出力（最初のフレームのみ）
-    if (i == 0) {
-      std::cout << "[デバッグ] 部分地図" << submap_id << "最初のフレーム:" << std::endl;
-      std::cout << "  LiDAR点数: " << laser_data.points.size() << std::endl;
-      std::cout << "  センサータイプ: " << laser_data.sensor_type << std::endl;
-      std::cout << "  タイムスタンプ: " << laser_data.timestamp << std::endl;
-    }
-    
-    // 進捗表示
-    std::cout << "\rSubMap " << submap_id << ": フレーム " << (i+1) << "/" 
-              << laser_data_sequence.size() << " 処理中" << std::flush;
-    
-    // i番目のフレームまでの地図で姿勢推定
-    if (i > 0) {
-      // 前フレームの姿勢から開始
-      double prev_x = trajectory[i-1].x;
-      double prev_y = trajectory[i-1].y;
-      double prev_a = trajectory[i-1].a;
-      
-      // local_gmapを参照してoptimize_de実行
-      std::vector<Point> points = laser_data.points;  // コピーを作成
-      auto [best_x, best_y, best_a, best_eval] = optimize_de(
-        local_gmap, points, 
-        prev_x, prev_y, prev_a,
-        LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y,
-        LOCAL_CSIZE, 0.0175,  // dth = 1 degree
-        LOCAL_WIDTH, LOCAL_HEIGHT,
-        0.35, 0.087,  // Wxy, Wa (調整可能)
-        100, 50,      // population_size, generations (メインループと同じ)
-        0.5, 0.2,     // F, CR (メインループと同じ)
-        nullptr       // kernel
-      );
-      
-      // 推定結果を更新
-      trajectory[i] = Pose(trajectory[i].ts, best_x, best_y, best_a);
-    }
-    
-    // 推定姿勢でlocal_gmap更新
-    std::vector<Point> points = laser_data.points;
-    local_gmap = update_map(local_gmap, points, 
-                           trajectory[i].x, trajectory[i].y, trajectory[i].a,
-                           LOCAL_WIDTH, LOCAL_HEIGHT, 
-                           LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y, LOCAL_CSIZE);
-    
-    // bottom sensorデータの場合は移動体除去
-    if (laser_data.sensor_type == 'b') {
-      local_gmap = remove_moving_objects(local_gmap, laser_data,
-                                       trajectory[i].x, trajectory[i].y, trajectory[i].a,
-                                       LOCAL_WIDTH, LOCAL_HEIGHT,
-                                       LOCAL_ORIGIN_X, LOCAL_ORIGIN_Y, LOCAL_CSIZE);
-    }
-    
-    // LiDAR点群の範囲を更新（部分地図相対座標で）
-    double cos_a = cos(trajectory[i].a);
-    double sin_a = sin(trajectory[i].a);
+
+    double cos_a = cos(pose.a);
+    double sin_a = sin(pose.a);
     for (const Point& pt : laser_data.points) {
       // LiDAR点をロボット座標系から部分地図座標系に変換
-      double global_x = pt.x * cos_a - pt.y * sin_a + trajectory[i].x;
-      double global_y = pt.x * sin_a + pt.y * cos_a + trajectory[i].y;
+      double global_x = pt.x * cos_a - pt.y * sin_a + pose.x;
+      double global_y = pt.x * sin_a + pt.y * cos_a + pose.y;
       update_bounds_point(global_x, global_y);
     }
-    
+
     // ロボット位置自体も範囲に含める
-    update_bounds_point(trajectory[i].x, trajectory[i].y);
-    
-    // 構築途中の可視化（5フレームごと、または最後のフレーム）
-    if (i % 5 == 0 || i == laser_data_sequence.size() - 1) {
-      show_submap_progress(i);
-    }
+    // 例えば，視野が前方しかない場合に後退すると，点群は範囲でも自身が領域をはみ出すことがある
+    update_bounds_point(pose.x, pose.y);
   }
-  
-  std::cout << "\nSubMap " << submap_id << " の構築完了" << std::endl;
+
   std::cout << "SubMap " << submap_id << " bounds: X[" << min_x << "," << max_x 
-            << "] Y[" << min_y << "," << max_y << "]" << std::endl;
+    << "] Y[" << min_y << "," << max_y << "]" << std::endl;
 }
 
 // SubMapクラスのshow_submap_progress()メソッドの実装
 void SubMap::show_submap_progress(size_t current_frame) {
   // local_gmapを可視化用画像に変換
   cv::Mat submap_img = cv::Mat(cv::Size(LOCAL_WIDTH, LOCAL_HEIGHT), CV_8UC3, cv::Scalar(50, 50, 50));
-  
+
   // local_gmapの内容を描画（対数オッズを確率に変換）
   for (int j = 0; j < LOCAL_HEIGHT; j++) {
     for (int i = 0; i < LOCAL_WIDTH; i++) {
       double log_odds = local_gmap[j][i];
-      
+
       if (log_odds > 0.2) {  // 高い占有確率：白色（障害物）
         submap_img.at<cv::Vec3b>(j, i) = cv::Vec3b(255, 255, 255);
       } else if (log_odds < -0.2) {  // 低い占有確率：黒色（自由空間）
@@ -1068,59 +945,59 @@ void SubMap::show_submap_progress(size_t current_frame) {
       // 未観測領域は背景色のまま
     }
   }
-  
+
   // 軌跡を描画（現在のフレームまで）
   for (size_t i = 0; i <= current_frame && i < trajectory.size(); i++) {
     int px = static_cast<int>(trajectory[i].x / LOCAL_CSIZE) + LOCAL_ORIGIN_X;
     int py = static_cast<int>(-trajectory[i].y / LOCAL_CSIZE) + LOCAL_ORIGIN_Y;
-    
+
     if (px >= 0 && px < LOCAL_WIDTH && py >= 0 && py < LOCAL_HEIGHT) {
       if (i == current_frame) {
         // 現在位置：赤色（大きめ）
         cv::circle(submap_img, cv::Point(px, py), 3, cv::Scalar(0, 0, 255), -1);
-        
+
         // 方向表示
         double ax = cos(trajectory[i].a) * 10;
         double ay = sin(trajectory[i].a) * 10;
         cv::line(submap_img, cv::Point(px, py), 
-                cv::Point(px + ax, py - ay), cv::Scalar(0, 0, 255), 2);
+                 cv::Point(px + ax, py - ay), cv::Scalar(0, 0, 255), 2);
       } else {
         // 過去の軌跡：緑色（小さめ）
         cv::circle(submap_img, cv::Point(px, py), 1, cv::Scalar(0, 255, 0), -1);
       }
     }
   }
-  
+
   // 現在のLiDARデータを描画
   if (current_frame < laser_data_sequence.size()) {
     const LaserData& current_laser = laser_data_sequence[current_frame];
     const Pose& current_pose = trajectory[current_frame];
-    
+
     for (const Point& pt : current_laser.points) {
       // LiDAR点をグローバル座標に変換
       double cs = cos(current_pose.a);
       double sn = sin(current_pose.a);
       double x_global = pt.x * cs - pt.y * sn + current_pose.x;
       double y_global = pt.x * sn + pt.y * cs + current_pose.y;
-      
+
       int px = static_cast<int>(x_global / LOCAL_CSIZE) + LOCAL_ORIGIN_X;
       int py = static_cast<int>(-y_global / LOCAL_CSIZE) + LOCAL_ORIGIN_Y;
-      
+
       if (px >= 0 && px < LOCAL_WIDTH && py >= 0 && py < LOCAL_HEIGHT) {
         // LiDAR点：青色
         submap_img.at<cv::Vec3b>(py, px) = cv::Vec3b(255, 100, 0);
       }
     }
   }
-  
+
   // 画像のリサイズ（見やすくするため）
   cv::Mat display_img;
   cv::resize(submap_img, display_img, cv::Size(600, 600));
-  
+
   // ウィンドウ名を動的に設定
   std::string window_name = "SubMap " + std::to_string(submap_id) + " 構築進捗";
   cv::imshow(window_name, display_img);
-  
+
   // 短時間待機（構築過程を観察するため）
   int key = cv::waitKey(100);
   if (key == ' ') {  // スペースキーで一時停止
@@ -1129,20 +1006,22 @@ void SubMap::show_submap_progress(size_t current_frame) {
 }
 
 // 統合地図作成・表示関数の実装
-void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps) {
-  if (completed_submaps.empty()) return;
-  
+OccupancyGrid create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps,
+                                                                double CSIZE) {
+  if (completed_submaps.empty()) return {};   // 空のvector が戻る
+
   // 統合地図の範囲を計算
+  // まず最大最小値で初期化
   double global_min_x = std::numeric_limits<double>::max();
   double global_max_x = std::numeric_limits<double>::lowest();
   double global_min_y = std::numeric_limits<double>::max();
   double global_max_y = std::numeric_limits<double>::lowest();
-  
+
   for (const auto& submap : completed_submaps) {
     // 各部分地図の範囲をグローバル座標系に変換（回転考慮）
     double cos_a = cos(submap.start_pose.a);
     double sin_a = sin(submap.start_pose.a);
-    
+
     // 部分地図の4つの角を回転変換
     std::vector<std::pair<double, double>> corners = {
       {submap.min_x, submap.min_y},
@@ -1150,106 +1029,104 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
       {submap.min_x, submap.max_y},
       {submap.max_x, submap.max_y}
     };
-    
+
     double submap_min_x = std::numeric_limits<double>::max();
     double submap_max_x = std::numeric_limits<double>::lowest();
     double submap_min_y = std::numeric_limits<double>::max();
     double submap_max_y = std::numeric_limits<double>::lowest();
-    
+
     for (const auto& corner : corners) {
       double rotated_x = corner.first * cos_a - corner.second * sin_a;
       double rotated_y = corner.first * sin_a + corner.second * cos_a;
       double global_x = submap.start_pose.x + rotated_x;
       double global_y = submap.start_pose.y + rotated_y;
-      
+
       submap_min_x = std::min(submap_min_x, global_x);
       submap_max_x = std::max(submap_max_x, global_x);
       submap_min_y = std::min(submap_min_y, global_y);
       submap_max_y = std::max(submap_max_y, global_y);
     }
-    
+
     global_min_x = std::min(global_min_x, submap_min_x);
     global_max_x = std::max(global_max_x, submap_max_x);
     global_min_y = std::min(global_min_y, submap_min_y);
     global_max_y = std::max(global_max_y, submap_max_y);
   }
-  
+
   // マージンを追加
   double margin = 5.0;
   global_min_x -= margin;
   global_max_x += margin;
   global_min_y -= margin;
   global_max_y += margin;
-  
+
   // 統合地図のサイズを計算
-  const double INTEGRATED_CSIZE = 0.05;
-  int integrated_width = static_cast<int>((global_max_x - global_min_x) / INTEGRATED_CSIZE);
-  int integrated_height = static_cast<int>((global_max_y - global_min_y) / INTEGRATED_CSIZE);
-  
+  int integrated_width = static_cast<int>((global_max_x - global_min_x) / CSIZE);
+  int integrated_height = static_cast<int>((global_max_y - global_min_y) / CSIZE);
+
   // デバッグ出力：統合地図の範囲とサイズ
-  std::cout << "=== 統合地図範囲デバッグ ===" << std::endl;
+  std::cout << "=== 統合地図範囲デバッグ ====" << std::endl;
   std::cout << "統合地図範囲: X[" << global_min_x << "," << global_max_x 
-            << "] Y[" << global_min_y << "," << global_max_y << "]" << std::endl;
-  std::cout << "統合地図サイズ: " << integrated_width << "x" << integrated_height << " (解像度:" << INTEGRATED_CSIZE << "m)" << std::endl;
+    << "] Y[" << global_min_y << "," << global_max_y << "]" << std::endl;
+  std::cout << "統合地図サイズ: " << integrated_width << "x" << integrated_height << " (解像度:" << CSIZE << "m)" << std::endl;
   std::cout << "実際の範囲: X=" << (global_max_x - global_min_x) << "m, Y=" << (global_max_y - global_min_y) << "m" << std::endl;
-  
+
   // 各部分地図の範囲も出力
   for (size_t i = 0; i < completed_submaps.size(); i++) {
     const auto& submap = completed_submaps[i];
     std::cout << "SubMap" << i << " start_pose:(" << submap.start_pose.x << "," << submap.start_pose.y << "," << submap.start_pose.a << ")" << std::endl;
     std::cout << "SubMap" << i << " bounds:X[" << submap.min_x << "," << submap.max_x 
-              << "] Y[" << submap.min_y << "," << submap.max_y << "]" << std::endl;
+      << "] Y[" << submap.min_y << "," << submap.max_y << "]" << std::endl;
   }
   std::cout << "=========================" << std::endl;
-  
+
   // 統合地図の初期化
-  std::vector<std::vector<double>> integrated_map(integrated_height, 
-                                                  std::vector<double>(integrated_width, 0.0));
-  
+  OccupancyGrid integrated_map(integrated_height, std::vector<double>(integrated_width, 0.0));
+
   std::cout << "統合地図作成中... (サイズ: " << integrated_width << "x" << integrated_height << ")" << std::endl;
-  
+
   // 各部分地図を統合地図に投影
   for (const auto& submap : completed_submaps) {
-    for (int local_y = 0; local_y < SubMap::LOCAL_HEIGHT; local_y++) {
-      for (int local_x = 0; local_x < SubMap::LOCAL_WIDTH; local_x++) {
+    for (int local_y = 0; local_y < submap.LOCAL_HEIGHT; local_y++) {
+      for (int local_x = 0; local_x < submap.LOCAL_WIDTH; local_x++) {
         double log_odds = submap.local_gmap[local_y][local_x];
-        
+
         if (std::abs(log_odds) < 1e-6) continue; // 未観測グリッドはスキップ
-        
+
         // 部分地図座標をグローバル座標に変換（回転考慮）
-        double local_world_x = (local_x - SubMap::LOCAL_ORIGIN_X) * SubMap::LOCAL_CSIZE;
-        double local_world_y = -(local_y - SubMap::LOCAL_ORIGIN_Y) * SubMap::LOCAL_CSIZE;
-        
+        double local_world_x = (local_x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+        double local_world_y = -(local_y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
+
         // start_poseの回転を考慮した座標変換
         double cos_a = cos(submap.start_pose.a);
         double sin_a = sin(submap.start_pose.a);
         double rotated_x = local_world_x * cos_a - local_world_y * sin_a;
         double rotated_y = local_world_x * sin_a + local_world_y * cos_a;
-        
+
         double global_x = submap.start_pose.x + rotated_x;
         double global_y = submap.start_pose.y + rotated_y;
-        
+
         // 統合地図のグリッドインデックスに変換
-        int integrated_x = static_cast<int>((global_x - global_min_x) / INTEGRATED_CSIZE);
-        int integrated_y = static_cast<int>((global_max_y - global_y) / INTEGRATED_CSIZE);
-        
+        int integrated_x = static_cast<int>((global_x - global_min_x) / CSIZE);
+        int integrated_y = static_cast<int>((global_max_y - global_y) / CSIZE);
+
         if (integrated_x >= 0 && integrated_x < integrated_width &&
-            integrated_y >= 0 && integrated_y < integrated_height) {
+          integrated_y >= 0 && integrated_y < integrated_height) {
           // 対数オッズを累積（重複領域では統合）
           integrated_map[integrated_y][integrated_x] += log_odds;
         }
       }
     }
   }
-  
+
   // 可視化用画像を作成
   cv::Mat integrated_img = cv::Mat(cv::Size(integrated_width, integrated_height), CV_8UC3, 
                                    cv::Scalar(50, 50, 50));
-  
+
   for (int y = 0; y < integrated_height; y++) {
     for (int x = 0; x < integrated_width; x++) {
       double log_odds = integrated_map[y][x];
-      
+
       if (log_odds > 0.2) {  // 障害物
         integrated_img.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255);
       } else if (log_odds < -0.2) {  // 自由空間
@@ -1257,11 +1134,11 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
       }
     }
   }
-  
+
   // 各部分地図の境界と軌跡を描画
   for (size_t i = 0; i < completed_submaps.size(); i++) {
     const auto& submap = completed_submaps[i];
-    
+
     // 各部分地図の色を決定（異なる色で区別）
     cv::Scalar color;
     switch (i % 6) {
@@ -1272,7 +1149,7 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
       case 4: color = cv::Scalar(255, 0, 255); break;  // マゼンタ
       case 5: color = cv::Scalar(255, 255, 0); break;  // シアン
     }
-    
+
     // 軌跡を描画
     for (const auto& pose : submap.trajectory) {
       // start_poseの回転を考慮した座標変換
@@ -1280,24 +1157,24 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
       double sin_a = sin(submap.start_pose.a);
       double rotated_x = pose.x * cos_a - pose.y * sin_a;
       double rotated_y = pose.x * sin_a + pose.y * cos_a;
-      
+
       double global_x = submap.start_pose.x + rotated_x;
       double global_y = submap.start_pose.y + rotated_y;
-      
-      int px = static_cast<int>((global_x - global_min_x) / INTEGRATED_CSIZE);
-      int py = static_cast<int>((global_max_y - global_y) / INTEGRATED_CSIZE);
-      
+
+      int px = static_cast<int>((global_x - global_min_x) / CSIZE);
+      int py = static_cast<int>((global_max_y - global_y) / CSIZE);
+
       if (px >= 0 && px < integrated_width && py >= 0 && py < integrated_height) {
         cv::circle(integrated_img, cv::Point(px, py), 1, color, -1);
       }
     }
-    
+
     // スタート地点を大きく表示
     double start_x = submap.start_pose.x;
     double start_y = submap.start_pose.y;
-    int start_px = static_cast<int>((start_x - global_min_x) / INTEGRATED_CSIZE);
-    int start_py = static_cast<int>((global_max_y - start_y) / INTEGRATED_CSIZE);
-    
+    int start_px = static_cast<int>((start_x - global_min_x) / CSIZE);
+    int start_py = static_cast<int>((global_max_y - start_y) / CSIZE);
+
     if (start_px >= 0 && start_px < integrated_width && start_py >= 0 && start_py < integrated_height) {
       cv::circle(integrated_img, cv::Point(start_px, start_py), 5, color, 2);
       // 部分地図IDを表示
@@ -1305,7 +1182,7 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
                   cv::Point(start_px + 10, start_py), cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
     }
   }
-  
+
   // 画像をリサイズして表示
   cv::Mat display_img;
   double scale = std::min(800.0 / integrated_width, 600.0 / integrated_height);
@@ -1315,130 +1192,210 @@ void create_and_show_integrated_map(const std::vector<SubMap>& completed_submaps
   } else {
     display_img = integrated_img;
   }
-  
+
   std::string window_name = "統合地図 (部分地図数: " + std::to_string(completed_submaps.size()) + ")";
   cv::imshow(window_name, display_img);
   cv::waitKey(1000);  // 1秒間表示
-  
+
   std::cout << "統合地図表示完了 (部分地図数: " << completed_submaps.size() << ")" << std::endl;
+
+  return integrated_map;
 }
 
-int main (int argc, char *argv[]) {
-  int DATA_SKIP = 1;
-  double CSIZE = 0.05;     // [m] 格子の解像度 0.025よりうまくいく
-  // 図書館前~体育館
-  double minX = -55.0;
-  double minY = -100.0;
-  double maxX = 270.0; 
-  double maxY = 100.0;
-  int originX = int(fabs(minX)/CSIZE);
-  int originY = int(fabs(maxY)/CSIZE);
-  int width = int((maxX - minX)/CSIZE);
-  int height = int((maxY - minY)/CSIZE);
-
-  double Wxy = 0.8;      // 探索範囲[m] (拡大: 0.6 → 0.8)
-  double Wa  = M_PI/8;    // 角度[rad]
-  
-  // ガウシアンカーネル初期化（軽量版：σ=0.8, 半径=2, 5×5カーネル）
-  GaussianKernel gaussian_kernel(0.8, 2);
-
-  const std::string STORE_ROOT_DIR_NAME = "slam_result_251017-2";
-  // ディレクトリが存在しない場合は作成
-  if (!fs::exists(STORE_ROOT_DIR_NAME)) {
-    fs::create_directories(STORE_ROOT_DIR_NAME);
+// 新しい統合地図生成・保存関数の実装
+void create_and_save_integrated_map(const std::vector<SubMap>& completed_submaps, 
+                                      double CSIZE,
+                                      const std::string& output_dir) {
+  if (completed_submaps.empty()) {
+    std::cerr << "エラー: 部分地図がありません。統合地図の生成を中断します。" << std::endl;
+    return;
   }
-  
-  std::ofstream fout_mapInfo(STORE_ROOT_DIR_NAME + "/mapInfo.lua");
-  if (!fout_mapInfo) {
-    std::cerr << "ファイルを開けませんでした。\n";
-    return 1;
+
+  // 1. 統合地図の物理的な範囲を計算
+  double global_min_x = std::numeric_limits<double>::max();
+  double global_max_x = std::numeric_limits<double>::lowest();
+  double global_min_y = std::numeric_limits<double>::max();
+  double global_max_y = std::numeric_limits<double>::lowest();
+
+  for (const auto& submap : completed_submaps) {
+    double cos_a = cos(submap.start_pose.a);
+    double sin_a = sin(submap.start_pose.a);
+
+    std::vector<std::pair<double, double>> corners = {
+      {submap.min_x, submap.min_y}, {submap.max_x, submap.min_y},
+      {submap.min_x, submap.max_y}, {submap.max_x, submap.max_y}
+    };
+
+    for (const auto& corner : corners) {
+      double rotated_x = corner.first * cos_a - corner.second * sin_a;
+      double rotated_y = corner.first * sin_a + corner.second * cos_a;
+      double global_x = submap.start_pose.x + rotated_x;
+      double global_y = submap.start_pose.y + rotated_y;
+
+      global_min_x = std::min(global_min_x, global_x);
+      global_max_x = std::max(global_max_x, global_x);
+      global_min_y = std::min(global_min_y, global_y);
+      global_max_y = std::max(global_max_y, global_y);
+    }
   }
-  fout_mapInfo << "local mapInfo = {\n"
-    << "\toriginX = " << originX << ",\n" 
-    << "\toriginY = " << originY << ",\n"
-    << "\tCSIZE = " << CSIZE << ",\n"
-    << "\tminX = " << minX << ",\n"
-    << "\tminY = " << minY << ",\n"
-    << "\tmaxX = " << maxX << ",\n"
-    << "\tmaxY = " << maxY << ",\n"
-    << "\tmargin = 50,\n"
-    << "}\n"
-    << "return mapInfo\n";
 
-  // LiDAR角度テーブルを初期化
-  initialize_lidar_tables();
+  double margin = 5.0; // 5mのマージン
+  global_min_x -= margin;
+  global_max_x += margin;
+  global_min_y -= margin;
+  global_max_y += margin;
 
-  const std::string PATH_TO_URGLOG_T = "./2025/10/05/184420/urglog_t";
-  const std::string PATH_TO_URGLOG_B = "./2025/10/05/184420/urglog_b";
-  
-  // LASERSCANRTの総数を事前に取得
-  int total_data_count = count_laserscanrt_lines(PATH_TO_URGLOG_T) + 
-                         count_laserscanrt_lines(PATH_TO_URGLOG_B);
-  std::cout << "総データ数: " << total_data_count << " (t:" << count_laserscanrt_lines(PATH_TO_URGLOG_T) 
-            << ", b:" << count_laserscanrt_lines(PATH_TO_URGLOG_B) << ")" << std::endl;
-  
-  /* ファイルコピーは一旦停止
-  try {
-    // ファイルコピー（urglog_t）
-    fs::copy_file(PATH_TO_URGLOG_T, STORE_ROOT_DIR_NAME + "/urglog_t", fs::copy_options::overwrite_existing);
-    std::cout << PATH_TO_URGLOG_T + " コピー成功\n";
-    
-    // ファイルコピー（urglog_b）
-    fs::copy_file(PATH_TO_URGLOG_B, STORE_ROOT_DIR_NAME + "/urglog_b", fs::copy_options::overwrite_existing);
-    std::cout << PATH_TO_URGLOG_B + " コピー成功\n";
-  } catch (const fs::filesystem_error& e) {
-    std::cerr << "ファイルコピーに失敗しました: " << e.what() << '\n';
+  // 2. 地図のパラメータを計算
+  int integrated_width = static_cast<int>((global_max_x - global_min_x) / CSIZE);
+  int integrated_height = static_cast<int>((global_max_y - global_min_y) / CSIZE);
+  int origin_x = static_cast<int>(-global_min_x / CSIZE);
+  int origin_y = static_cast<int>(global_max_y / CSIZE);
+
+  // 3. 統合地図を生成
+  OccupancyGrid integrated_map(integrated_height, std::vector<double>(integrated_width, 0.0));
+
+  for (const auto& submap : completed_submaps) {
+    for (int local_y = 0; local_y < submap.LOCAL_HEIGHT; local_y++) {
+      for (int local_x = 0; local_x < submap.LOCAL_WIDTH; local_x++) {
+        double log_odds = submap.local_gmap[local_y][local_x];
+        if (std::abs(log_odds) < 1e-6) continue;
+
+        double local_world_x = (local_x - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+        double local_world_y = -(local_y - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
+
+        double cos_a = cos(submap.start_pose.a);
+        double sin_a = sin(submap.start_pose.a);
+        double rotated_x = local_world_x * cos_a - local_world_y * sin_a;
+        double rotated_y = local_world_x * sin_a + local_world_y * cos_a;
+
+        double global_x = submap.start_pose.x + rotated_x;
+        double global_y = submap.start_pose.y + rotated_y;
+
+        int integrated_x = static_cast<int>((global_x - global_min_x) / CSIZE);
+        int integrated_y = static_cast<int>((global_max_y - global_y) / CSIZE);
+
+        if (integrated_x >= 0 && integrated_x < integrated_width &&
+            integrated_y >= 0 && integrated_y < integrated_height) {
+          integrated_map[integrated_y][integrated_x] += log_odds;
+        }
+      }
+    }
   }
-*/
 
-  // 確率的占有地図：対数オッズ値で管理（0.0は中立状態）
-  std::vector<std::vector<double>> gmap(height, std::vector<double>(width, 0.0));
+  // 4. mapInfo.yamlを保存
+  std::ofstream metadata_file(output_dir + "/integrated_mapInfo.yaml");
+  metadata_file << "image: integrated_occMap.png" << std::endl;
+  metadata_file << "submap_id: " << -1 << std::endl;
+  metadata_file << "csize: " << CSIZE << std::endl;
+  metadata_file << "bounds:" << std::endl;
+  metadata_file << "  min_x: " << global_min_x << std::endl;
+  metadata_file << "  max_x: " << global_max_x << std::endl;
+  metadata_file << "  min_y: " << global_min_y << std::endl;
+  metadata_file << "  max_y: " << global_max_y << std::endl;
+  metadata_file << "--- # 追加情報" << std::endl;
+  metadata_file << "width: " << integrated_width << std::endl;
+  metadata_file << "height: " << integrated_height << std::endl;
+  metadata_file << "origin_x_px: " << origin_x << std::endl;
+  metadata_file << "origin_y_px: " << origin_y << std::endl;
+  metadata_file.close();
+  std::cout << "統合地図のメタデータを保存しました: " << output_dir + "/integrated_mapInfo.yaml" << std::endl;
 
-  std::vector<Point> pt1;
-  std::vector<Pose> robot_poses;
+  // 5. integrated_occMap.pngを保存
+  cv::Mat integrated_img(integrated_height, integrated_width, CV_8UC1, cv::Scalar(128)); // 未知は灰色
+  const double HIGH_THRESHOLD = 0.405; // 60%
+  const double LOW_THRESHOLD = -0.405; // 40%
 
-  double current_x = 0;
-  double current_y = 0;
-  double current_a = 0;
-
-  double p_odo_x = 0;
-  double p_odo_y = 0;
-  double p_odo_a = 0;
-  
-  // 累積走行距離計算用
-  double total_distance = 0.0;
-  double prev_x = 0.0;
-  double prev_y = 0.0;
-  bool first_pose = true;
-  
-  // 部分地図管理用変数
-  std::vector<SubMap> completed_submaps;  // 完成した部分地図
-  SubMap current_submap;                  // 現在構築中の部分地図
-  int next_submap_id = 0;                 // 次の部分地図ID
-  const double SUBMAP_DISTANCE = 5.0;    // 部分地図の区切り距離[m]
-  double next_submap_boundary = SUBMAP_DISTANCE; // 次の境界距離
-  bool submap_initialized = false;       // 最初の部分地図が初期化されたか
-
-  std::ifstream inFile_t, inFile_b;
-
-  inFile_t.open(PATH_TO_URGLOG_T);
-  inFile_b.open(PATH_TO_URGLOG_B);
-  
-  if (!inFile_t.is_open()) {
-    std::cerr << "urglog_t ファイルを開けませんでした: " << PATH_TO_URGLOG_T << std::endl;
-    return 1;
+  for (int y = 0; y < integrated_height; y++) {
+    for (int x = 0; x < integrated_width; x++) {
+      double log_odds = integrated_map[y][x];
+      if (log_odds > HIGH_THRESHOLD) {
+        integrated_img.at<uchar>(y, x) = 0; // 占有は黒
+      } else if (log_odds < LOW_THRESHOLD) {
+        //integrated_img.at<uchar>(y, x) = 255; // 自由は白
+      }
+    }
   }
-  if (!inFile_b.is_open()) {
-    std::cerr << "urglog_b ファイルを開けませんでした: " << PATH_TO_URGLOG_B << std::endl;
-    return 1;
+
+  // 5. integrated_occMap.pngを保存 (描画用に変更)
+  cv::Mat integrated_img_color;
+  cv::cvtColor(integrated_img, integrated_img_color, cv::COLOR_GRAY2BGR);
+
+  // 5.5 部分地図の範囲を描画する
+  for (size_t i = 0; i < completed_submaps.size(); ++i) {
+    const auto& submap = completed_submaps[i];
+    double cos_a = cos(submap.start_pose.a);
+    double sin_a = sin(submap.start_pose.a);
+
+    // 各部分地図の色を決定
+    cv::Scalar color;
+    switch (i % 6) {
+      case 0: color = cv::Scalar(0, 0, 255); break;    // 赤
+      case 1: color = cv::Scalar(0, 255, 0); break;    // 緑
+      case 2: color = cv::Scalar(255, 0, 0); break;    // 青
+      case 3: color = cv::Scalar(0, 255, 255); break;  // 黄
+      case 4: color = cv::Scalar(255, 0, 255); break;  // マゼンタ
+      case 5: color = cv::Scalar(255, 255, 0); break;  // シアン
+    }
+
+    // submapのバウンディングボックスの4隅のローカル座標
+    std::vector<cv::Point2d> local_corners = {
+        {submap.min_x, submap.min_y}, {submap.max_x, submap.min_y},
+        {submap.max_x, submap.max_y}, {submap.min_x, submap.max_y}
+    };
+
+    // 統合地図上でのピクセル座標に変換
+    std::vector<cv::Point> integrated_corners_px;
+    for (const auto& lc : local_corners) {
+        double rotated_x = lc.x * cos_a - lc.y * sin_a;
+        double rotated_y = lc.x * sin_a + lc.y * cos_a;
+        double global_x = submap.start_pose.x + rotated_x;
+        double global_y = submap.start_pose.y + rotated_y;
+        int ix = static_cast<int>((global_x - global_min_x) / CSIZE);
+        int iy = static_cast<int>((global_max_y - global_y) / CSIZE);
+        integrated_corners_px.push_back(cv::Point(ix, iy));
+    }
+
+    // 4つの頂点を線で結んで四角形を描画
+    for (size_t j = 0; j < 4; ++j) {
+        cv::line(integrated_img_color, integrated_corners_px[j], integrated_corners_px[(j + 1) % 4], color, 1);
+    }
   }
-  // 各ファイルから次のLASERSCANRTデータを先読み
-  
-  auto readNextLaserScan = [DATA_SKIP](std::ifstream& file, char sensor_type) -> LaserData {
+
+  std::string final_map_path = output_dir + "/integrated_occMap_with_bounds.png";
+  cv::imwrite(final_map_path, integrated_img_color);
+  std::cout << "境界線付き統合占有地図を保存しました: " << final_map_path << std::endl;
+
+  // 6. 可視化（オプション）
+  cv::imshow("Final Integrated Map", integrated_img_color);
+  cv::waitKey(1000);
+}
+
+// LiDARデータの読み取りクラス
+class LaserLogReader {
+public:
+  LaserLogReader(const std::string& filepath, char sensor_type, int lidar_skip)
+  : sensor_type(sensor_type), lidar_direction_skip(lidar_skip), line_count(0) {
+    file.open(filepath);
+  }
+
+  ~LaserLogReader() {
+    if (file.is_open()) {
+      file.close();
+    }
+  }
+
+  bool is_open() const {
+    return file.is_open();
+  }
+
+  LaserData readNextScan() {
     LaserData data;
     data.valid = false;
-    data.sensor_type = sensor_type;
-    
+    data.sensor_type = this->sensor_type;
+
+    line_count++;
+
+    long long timestamp;
     std::string type;
     while (file >> type && !file.eof()) {
       if (type == "LASERSCANRT") {
@@ -1450,93 +1407,280 @@ int main (int argc, char *argv[]) {
 
         file >> data.timestamp >> count >> START_ANGLE >> END_ANGLE >> deltaTH >> max_echo_size;
 
-        // 角度情報を構造体に保存
+        if (file.fail()) {
+          std::cout << "[デバッグ] センサ" << this->sensor_type << "のヘッダー読み込み失敗" << std::endl;
+          data.valid = false;
+          break;
+        }
+
         data.start_angle = START_ANGLE;
         data.end_angle = END_ANGLE;
         data.delta_th = deltaTH;
 
-
         data.max_r = 0;
         long r;
-        for (int i = 0; i < count/max_echo_size; i+=DATA_SKIP) {
-        //for (int i = 0; i < count/(max_echo_size+1); i+=DATA_SKIP) {
+
+        int loop_count = count / max_echo_size;
+        if (this->sensor_type == 'b') {
+          //std::cout << "[デバッグ] センサb (行" << this->line_count << "): count=" << count << ", max_echo_size=" << max_echo_size << ", loop_count=" << loop_count << std::endl;
+        }
+
+        for (int i = 0; i < loop_count; i += this->lidar_direction_skip) {
           file >> r;
-          if(data.max_r < r) {
+
+          if (file.fail()) {
+            std::cout << "[デバッグ] センサ" << this->sensor_type << " (行" << this->line_count << ") 距離データ読み込み失敗 at i=" << i << " (部分的に有効として継続)" << std::endl;
+            file.clear();
+            break;
+          }
+
+          if (data.max_r < r) {
             data.max_r = r;
           }
           if (r > 200) {
             double x = (double)r * lidar_cos_table[i] / 1000.0;
             double y = (double)r * lidar_sin_table[i] / 1000.0;
-            // urglog_tの場合はy座標を反転し、車両前方に0.2mオフセット
-            if (sensor_type == 't') {
-              y = -y;     // 上LiDARは逆さまに装着している
-            } else if (sensor_type == 'b') {
-              x += SENSOR_OFFSET_X; // 下LiDARは車両前方方向(x軸)にオフセット
+            if (this->sensor_type == 't') {
+              y = -y;
+            } else if (this->sensor_type == 'b') {
+              x += SENSOR_OFFSET_X;
             }
             data.points.emplace_back(x, y);
-            data.angles.push_back(lidar_angle_table[i]); // 事前計算済み角度を使用
-            data.ranges.push_back(r / 1000.0); // 距離情報を保存（m単位）
+            data.angles.push_back(lidar_angle_table[i]);
+            data.ranges.push_back(r / 1000.0);
           }
-          // マルチエコーを読み飛ばす
           file >> r >> r;
+
+          if (file.fail()) {
+            std::cout << "[デバッグ] センサ" << this->sensor_type << " マルチエコー読み込み失敗 at i=" << i << " (部分的に有効として継続)" << " " << data.timestamp << std::endl;
+            file.clear();
+            break;
+          }
         }
         file >> timestamp_end;
+
+        if (file.fail()) {
+          std::cout << "[デバッグ] センサ" << this->sensor_type << " 最終タイムスタンプ読み込み失敗 (部分的に有効として継続)" << " " << data.timestamp << std::endl;
+          file.clear(); // エラー状態をクリア
+          // 行の残りを読み飛ばして、次の readNextScan 呼び出しに備える
+          std::string dummy;
+          std::getline(file, dummy);
+        }
+
         data.valid = true;
         break;
       }
     }
-    return data;
-  };
-  
-  int loop = 0;
-  LaserData next_t = readNextLaserScan(inFile_t, 't');
-  LaserData next_b = readNextLaserScan(inFile_b, 'b');
-  
-  while (next_t.valid || next_b.valid) {
-    LaserData current_data;
-    
-    // タイムスタンプが小さい方を選択（時系列順）
-    if (!next_t.valid) {
-      current_data = next_b;
-      next_b = readNextLaserScan(inFile_b, 'b');
-    } else if (!next_b.valid) {
-      current_data = next_t;
-      next_t = readNextLaserScan(inFile_t, 't');
-    } else if (next_t.timestamp <= next_b.timestamp) {
-      current_data = next_t;
-      next_t = readNextLaserScan(inFile_t, 't');
-    } else {
-      current_data = next_b;
-      next_b = readNextLaserScan(inFile_b, 'b');
+
+    if (!data.valid) {
+      std::cout << "[デバッグ] センサ" << this->sensor_type << "のファイル読み込み失敗" << " " << line_count << 
+        " " << timestamp << std::endl;
+      std::cout << "  ファイル状態: eof=" << file.eof() << ", fail=" << file.fail() << ", bad=" << file.bad() << std::endl;
+      std::cout << "  ファイル位置: " << file.tellg() << std::endl;
+
+      file.clear();
+      std::string debug_line;
+      if (std::getline(file, debug_line)) {
+        std::cout << "  次の行内容(先頭50文字): " << debug_line.substr(0, 50) << std::endl;
+      } else {
+        std::cout << "  次の行の読み取りも失敗" << std::endl;
+      }
     }
-    
-    // 選択されたデータを処理（不要なコピーを削除）
+
+    return data;
+  }
+
+private:
+  std::ifstream file;
+  char sensor_type;
+  int lidar_direction_skip;
+  int line_count;
+};
+
+// 複数のLiDARデータを統合して提供するクラス
+class MergedLaserStream {
+public:
+  MergedLaserStream(const std::string& path_t, const std::string& path_b, int lidar_skip)
+  : reader_t(path_t, 't', lidar_skip), reader_b(path_b, 'b', lidar_skip) {
+    if (!reader_t.is_open()) {
+      std::cerr << "urglog_t ファイルを開けませんでした: " << path_t << std::endl;
+      next_scan_t.valid = false;
+    } else {
+      next_scan_t = reader_t.readNextScan();
+    }
+
+    if (!reader_b.is_open()) {
+      std::cerr << "urglog_b ファイルを開けませんでした: " << path_b << std::endl;
+      next_scan_b.valid = false;
+    } else {
+      next_scan_b = reader_b.readNextScan();
+    }
+  }
+
+  bool is_finished() const {
+    return !next_scan_t.valid && !next_scan_b.valid;
+  }
+
+  LaserData getNextScan() {
+    if (is_finished()) {
+      LaserData invalid_data; invalid_data.valid = false; return invalid_data;
+    }
+
+    LaserData current_data;
+    bool t_chosen = false;
+
+    if (!next_scan_t.valid) {
+      t_chosen = false;
+    } else if (!next_scan_b.valid) {
+      t_chosen = true;
+    } else if (next_scan_t.timestamp <= next_scan_b.timestamp) {
+      t_chosen = true;
+    } else {
+      t_chosen = false;
+    }
+
+    if (t_chosen) {
+      current_data = next_scan_t;
+      next_scan_t = reader_t.readNextScan();
+    } else {
+      current_data = next_scan_b;
+      next_scan_b = reader_b.readNextScan();
+    }
+    return current_data;
+  }
+
+private:
+  LaserLogReader reader_t;
+  LaserLogReader reader_b;
+  LaserData next_scan_t;
+  LaserData next_scan_b;
+};
+
+/******************************************************
+* MAIN
+*******************************************************/
+int main (int argc, char *argv[]) {
+  int LIDAR_DIRECTION_SKIP = 1;   // LIDARデータの角度方向の読み飛ばし
+  double CSIZE = 0.05;     // [m] 格子の解像度 0.025よりうまくいく
+
+  double Wxy = 0.8;      // 探索範囲[m] (拡大: 0.6 → 0.8)
+  double Wa  = M_PI/8;    // 角度[rad]
+
+  // ガウシアンカーネル初期化（軽量版：σ=0.8, 半径=2, 5×5カーネル）
+  GaussianKernel gaussian_kernel(0.8, 2);
+
+  const std::string STORE_ROOT_DIR_NAME = "./slam_result_251108-1";
+  // ディレクトリが存在しない場合は作成
+  if (!fs::exists(STORE_ROOT_DIR_NAME)) {
+    fs::create_directories(STORE_ROOT_DIR_NAME);
+  }
+
+  std::ofstream fout_mapInfo(STORE_ROOT_DIR_NAME + "/mapInfo.lua");
+  if (!fout_mapInfo) {
+    std::cerr << "ファイルを開けませんでした。\n";
+    return 1;
+  }
+  fout_mapInfo << "local mapInfo = {\n"
+    //<< "\toriginX = " << originX << ",\n"
+    //<< "\toriginY = " << originY << ",\n"
+    //<< "\tCSIZE = " << CSIZE << ",\n"
+    //<< "\tminX = " << minX << ",\n"
+    //<< "\tminY = " << minY << ",\n"
+    //<< "\tmaxX = " << maxX << ",\n"
+    //<< "\tmaxY = " << maxY << ",\n"
+    //<< "\tmargin = 50,\n"
+    //<< "}\n"
+    << "return mapInfo\n";
+
+  // LiDAR角度テーブルを初期化
+  initialize_lidar_tables();
+
+  // 読み込むLiDARデータのパス
+#if 0
+  const std::string PATH_TO_URGLOG_T = "./2025/10/05/184420/urglog_t";
+  const std::string PATH_TO_URGLOG_B = "./2025/10/05/184420/urglog_b";
+#endif
+
+#if 1
+  const std::string PATH_TO_URGLOG_B = "./2025/data_251108-2/urg_data4.txt";
+  const std::string PATH_TO_URGLOG_T = "./2025/urg_data_t.txt";
+  // const std::string PATH_TO_URGLOG_T = "./2025/10/22/155017/urglog_t";
+  // const std::string PATH_TO_URGLOG_B = "./2025/10/22/155017/urglog_b";
+#endif
+
+  // LASERSCANRTの総数を事前に取得
+  int total_data_count = count_laserscanrt_lines(PATH_TO_URGLOG_T) + 
+    count_laserscanrt_lines(PATH_TO_URGLOG_B);
+  std::cout << "総データ数: " << total_data_count << " (t:" << count_laserscanrt_lines(PATH_TO_URGLOG_T) 
+    << ", b:" << count_laserscanrt_lines(PATH_TO_URGLOG_B) << ")" << std::endl;
+
+  MergedLaserStream stream(PATH_TO_URGLOG_T, PATH_TO_URGLOG_B, LIDAR_DIRECTION_SKIP);
+
+  // 確率的占有地図はSubMap内で管理
+  std::vector<Pose> robot_poses;
+
+  double current_x = 0;
+  double current_y = 0;
+  double current_a = 0;
+
+  double p_odo_x = 0;
+  double p_odo_y = 0;
+  double p_odo_a = 0;
+
+  // 累積走行距離計算用
+  double global_total_distance = 0.0;
+  double prev_x = 0.0;
+  double prev_y = 0.0;
+  bool first_pose = true;
+
+  // 部分地図管理用変数
+  std::vector<SubMap> completed_submaps;         // 完成した部分地図
+  SubMap current_submap;                         // 現在構築中の部分地図
+  int next_submap_id = 0;                        // 次の部分地図ID
+  const double SUBMAP_DISTANCE = 5.0;            // 部分地図の区切り距離[m]
+  //const double SUBMAP_DISTANCE = INFTY; // 部分地図で分割したくないときは，正の無限大を使う
+  double current_submap_local_distance = 0.0;    // 現在の部分地図内での累積走行距離
+  bool submap_initialized = false;               // 最初の部分地図が初期化されたか
+
+  int loop = 0;
+  int STREAM_SKIP = 10; //31;     // LiDARデータ列の読み飛ばし数
+  int stream_counter = -1;
+  while (!stream.is_finished()) {
+    LaserData current_data = stream.getNextScan();
+    if (!current_data.valid) {
+      continue;
+    }
+
+    // STREAM_SKIPだけLiDARデータを読み飛ばす
+    // 密すぎるデータは自己位置推定が破綻するケースもあるので，その対策を
+    // ユーザーが自身で調整するため
+    stream_counter++;
+    if (stream_counter % STREAM_SKIP != 0) {
+      continue;
+    }
+
     long long timestamp = current_data.timestamp;
     long max_r = current_data.max_r;
-    
+
     // センサー種別を文字列として準備
+    // update_status_display の表示用
     std::string sensor_name = (current_data.sensor_type == 't') ? "Top" : "Bottom";
-    
+
     // SLAM処理開始
     if(loop == 0) {
       // 最初の部分地図を初期化
-      Pose initial_pose;
-      initial_pose.ts = timestamp;
-      initial_pose.x = current_x;
-      initial_pose.y = current_y;
-      initial_pose.a = current_a;
-      current_submap = SubMap(next_submap_id++, total_distance, initial_pose);
-      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << total_distance << "m" << std::endl;
-      
-      // 初回は初期位置を表示
-      double angle_deg = current_a * 180.0 / M_PI;
-      update_status_display(loop, sensor_name + " [INIT]", timestamp, 0.0, current_x, current_y, angle_deg, total_data_count, total_distance);
-      
-      gmap = update_map(gmap, current_data.points, current_x, current_y, current_a, width, height, originX, originY, CSIZE);
-      
+      Pose initial_pose(timestamp, current_x, current_y, current_a);
+      current_submap = SubMap(next_submap_id++, global_total_distance, initial_pose, CSIZE);
+      current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
+      Pose relative_pose_origin(timestamp, 0.0, 0.0, 0.0);
+      current_submap.trajectory.push_back(relative_pose_origin);
+      current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points, 
+                                             Pose(timestamp, 0.0, 0.0, 0.0),
+                                             current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                             current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y,
+                                             current_submap.LOCAL_CSIZE);
       robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
-      
-      gmap_show(gmap, width, height, &robot_poses, CSIZE, originX, originY, minX, minY);
+
       loop++;
       continue;
     }
@@ -1544,13 +1688,31 @@ int main (int argc, char *argv[]) {
     double dth = acos(1 - CSIZE*CSIZE/(2*(max_r/1000.0)*(max_r/1000.0)));
     double best_x, best_y, best_a, best_eval;
 
-    std::tie(best_x, best_y, best_a, best_eval) = optimize_de(gmap, current_data.points, current_x, current_y, current_a,
-                                                              originX, originY, CSIZE, dth, width, height, 
-                                                              Wxy, Wa, 100, 50, 0.5, 0.2, &gaussian_kernel); // 50→30世代で高速化 
-    
+    // Check if the map needs to be rebuilt before localization and update
+    check_and_rebuild_map_if_needed(current_submap, 
+                                    Pose(current_data.timestamp, current_x, current_y, current_a), 
+                                    current_data);
+
+    // Localize within the current submap to get the new relative pose
+    Pose prev_relative_pose = current_submap.trajectory.back();
+    double rel_x, rel_y, rel_a;
+    std::tie(rel_x, rel_y, rel_a, best_eval) = optimize_de(
+      current_submap.local_gmap, current_data.points, 
+      prev_relative_pose.x, prev_relative_pose.y, prev_relative_pose.a, 
+      current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE, dth, 
+      current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT, 
+      Wxy, Wa, 200, 100, 0.5, 0.2, &gaussian_kernel);
+
+    // Convert the new relative pose to a global pose for logging and distance calculation
+    double cos_start = cos(current_submap.start_pose.a);
+    double sin_start = sin(current_submap.start_pose.a);
+    best_x = current_submap.start_pose.x + rel_x * cos_start - rel_y * sin_start;
+    best_y = current_submap.start_pose.y + rel_x * sin_start + rel_y * cos_start;
+    best_a = current_submap.start_pose.a + rel_a;
+    best_a = normalize_th(best_a);
+
     // 推定結果を固定表示関数で表示
-    double angle_deg = best_a * 180.0 / M_PI;
-    update_status_display(loop, sensor_name, timestamp, best_eval, best_x, best_y, angle_deg, total_data_count, total_distance);
+    update_status_display(loop, sensor_name, timestamp, best_eval, best_x, best_y, best_a, total_data_count, global_total_distance);
 
     current_x = best_x;
     current_y = best_y;
@@ -1559,65 +1721,45 @@ int main (int argc, char *argv[]) {
     // 累積走行距離を計算
     if (!first_pose) {
       double distance_increment = sqrt((current_x - prev_x) * (current_x - prev_x) + 
-                                      (current_y - prev_y) * (current_y - prev_y));
-      total_distance += distance_increment;
+                                       (current_y - prev_y) * (current_y - prev_y));
+      global_total_distance += distance_increment;
     } else {
       first_pose = false;
     }
     prev_x = current_x;
     prev_y = current_y;
 
-    // 最初の部分地図の初期化
-    if (!submap_initialized) {
-      Pose initial_pose;
-      initial_pose.ts = timestamp;
-      initial_pose.x = current_x;
-      initial_pose.y = current_y;
-      initial_pose.a = current_a;
-      current_submap = SubMap(next_submap_id++, 0.0, initial_pose);
-      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:0.0m（初期化）" << std::endl;
-      submap_initialized = true;
-    }
-    
+    // 現在の部分地図内での累積走行距離を計算
+    double local_distance_increment = sqrt(pow(rel_x - prev_relative_pose.x, 2) + pow(rel_y - prev_relative_pose.y, 2));
+    current_submap_local_distance += local_distance_increment;
+
     // 現在の部分地図に常にデータを蓄積
     current_submap.laser_data_sequence.push_back(current_data);
-    
-    // 相対座標での姿勢を計算
-    Pose relative_pose;
-    relative_pose.ts = timestamp;
-    relative_pose.x = current_x - current_submap.start_pose.x;
-    relative_pose.y = current_y - current_submap.start_pose.y;
-    relative_pose.a = current_a - current_submap.start_pose.a;
-    current_submap.trajectory.push_back(relative_pose);
+    current_submap.trajectory.emplace_back(timestamp, rel_x, rel_y, rel_a);
 
-    // 5m境界チェック：新しい部分地図への切り替え
-    if (total_distance >= next_submap_boundary) {
+    // 部分地図内での走行距離チェック：新しい部分地図への切り替え
+    if (current_submap_local_distance >= SUBMAP_DISTANCE) {
       // 現在の部分地図を完了（境界フレームは最後のデータとして既に追加済み）
-      current_submap.end_distance = total_distance;
-      
+      current_submap.global_end_distance = global_total_distance;
+
       // 部分地図の姿勢推定と地図構築を実行
       current_submap.build_submap();
-      
-      // ダミー保存を実行
-      save_submap(current_submap);
-      
+
       // 完成した部分地図をファイルに保存
       current_submap.save_submap_data(STORE_ROOT_DIR_NAME);
-      
+
       // 完成した部分地図を保存
       completed_submaps.push_back(current_submap);
-      
-      // 統合地図を表示
-      create_and_show_integrated_map(completed_submaps);
-      
+
       // 新しい部分地図を開始（境界フレームの姿勢を開始点とする）
       Pose new_start_pose;
       new_start_pose.ts = timestamp;
       new_start_pose.x = current_x;
       new_start_pose.y = current_y;
       new_start_pose.a = current_a;
-      current_submap = SubMap(next_submap_id++, total_distance, new_start_pose);
-      
+      current_submap = SubMap(next_submap_id++, global_total_distance, new_start_pose, CSIZE);
+      current_submap_local_distance = 0.0; // 新しい部分地図開始時にリセット
+
       // 境界フレームを新部分地図の最初のデータとして追加（境界データ重複）
       current_submap.laser_data_sequence.push_back(current_data);
       Pose relative_pose_origin;
@@ -1626,53 +1768,47 @@ int main (int argc, char *argv[]) {
       relative_pose_origin.y = 0.0;
       relative_pose_origin.a = 0.0;
       current_submap.trajectory.push_back(relative_pose_origin);
-      
-      next_submap_boundary += SUBMAP_DISTANCE;
-      
-      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << total_distance << "m（境界データ重複）" << std::endl;
+
+      std::cout << "SubMap " << current_submap.submap_id << " 開始 距離:" << global_total_distance << "m（境界データ重複）" << std::endl;
     }
 
     // Save pose to robot_poses
     robot_poses.emplace_back(timestamp, current_x, current_y, current_a);
-    
-    // メインループでのLiDAR点数をデバッグ出力（最初のフレームのみ）
-    if (loop == 1) {
-      std::cout << "[デバッグ] メインループ最初のフレーム:" << std::endl;
-      std::cout << "  LiDAR点数: " << current_data.points.size() << std::endl;
-      std::cout << "  センサータイプ: " << current_data.sensor_type << std::endl;
-      std::cout << "  タイムスタンプ: " << current_data.timestamp << std::endl;
-    }
-    
-    gmap = update_map(gmap, current_data.points, current_x, current_y, current_a, width, height, originX, originY, CSIZE);
-    
+
+    // Update the current submap's local map with the new relative pose
+    const auto& latest_relative_pose = current_submap.trajectory.back();
+    current_submap.local_gmap = update_map(current_submap.local_gmap, current_data.points,
+                                           Pose(timestamp, latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a),
+                                           current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                           current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);
     // 移動体除去処理（Bottomセンサーデータのみ使用）
     if (current_data.sensor_type == 'b') {
-      gmap = remove_moving_objects(gmap, current_data, current_x, current_y, current_a, width, height, originX, originY, CSIZE);
-    }
-    
-    if (loop % 50 == 0) {
-      cv::Mat img = gmap_show(gmap, width, height, &robot_poses, CSIZE, originX, originY, minX, minY);
-      int key = cv::waitKey(10);
+      current_submap.local_gmap = remove_moving_objects(current_submap.local_gmap, current_data,
+                                                        latest_relative_pose.x, latest_relative_pose.y, latest_relative_pose.a,
+                                                        current_submap.LOCAL_WIDTH, current_submap.LOCAL_HEIGHT,
+                                                        current_submap.LOCAL_ORIGIN_X, current_submap.LOCAL_ORIGIN_Y, current_submap.LOCAL_CSIZE);    }
+
+    if (loop % 1 == 0) {
+      current_submap.show_submap_progress(current_submap.trajectory.size() - 1);
     }
     loop++;
   }
-  
+
   // 最後の部分地図を処理
   if (!current_submap.laser_data_sequence.empty()) {
-    current_submap.end_distance = total_distance;
+    current_submap.global_end_distance = global_total_distance;
     current_submap.build_submap();
-    save_submap(current_submap);
-    
+
     // 最後の部分地図をファイルに保存
     current_submap.save_submap_data(STORE_ROOT_DIR_NAME);
-    
+
     completed_submaps.push_back(current_submap);
     std::cout << "最後のSubMap " << current_submap.submap_id << " を処理完了" << std::endl;
-    
-    // 最終的な統合地図を表示
-    create_and_show_integrated_map(completed_submaps);
+
+    // 最終的な統合地図を生成・保存
+    create_and_save_integrated_map(completed_submaps, CSIZE, STORE_ROOT_DIR_NAME);
   }
-  
+
   std::cout << "全部分地図の構築完了 総数: " << completed_submaps.size() << std::endl;
 
   std::ofstream fout(STORE_ROOT_DIR_NAME + "/robot_poses.txt");
@@ -1680,38 +1816,30 @@ int main (int argc, char *argv[]) {
     fout << robot_poses[i].ts << " " << robot_poses[i].x << " " << robot_poses[i].y << " " << robot_poses[i].a << "\n";
   }
 
-  cv::Mat img = gmap_show(gmap, width, height, &robot_poses, CSIZE, originX, originY, minX, minY);
-  cv::imwrite(STORE_ROOT_DIR_NAME + "/map.png", img);
-
-  // 尤度場地図生成
-  create_likelihood_field_map(gmap, width, height, CSIZE, STORE_ROOT_DIR_NAME);
-
-  // ロボット軌跡を含まない占有地図を保存
-  cv::Mat final_map = gmap_show(gmap, width, height, nullptr, CSIZE, originX, originY, minX, minY);
-  cv::imwrite(STORE_ROOT_DIR_NAME + "/occMap.png", final_map);
-  std::cout << "占有地図を保存しました: " << STORE_ROOT_DIR_NAME + "/occMap.png" << std::endl;
-
   std::cout << "Done." << std::endl;
   int key = cv::waitKey(0);
   return 0;
 }
 
+/******************************************************
+* Define methods
+*******************************************************/
 // SubMapクラスのsave_submap_data()メソッドの実装
 void SubMap::save_submap_data(const std::string& base_dir) {
   // サブディレクトリ作成
   std::string submap_dir = base_dir + "/submaps/submap_" + 
-                          std::string(3 - std::to_string(submap_id).length(), '0') + 
-                          std::to_string(submap_id);
-  
+    std::string(3 - std::to_string(submap_id).length(), '0') + 
+    std::to_string(submap_id);
+
   // ディレクトリ作成
   std::string mkdir_cmd = "mkdir -p " + submap_dir;
   system(mkdir_cmd.c_str());
-  
-  // 1. メタデータ保存 (metadata.yaml)
-  std::ofstream metadata_file(submap_dir + "/metadata.yaml");
+
+  // 1. メタデータ保存 (mapInfo.yaml)
+  std::ofstream metadata_file(submap_dir + "/mapInfo.yaml");
   metadata_file << "submap_id: " << submap_id << std::endl;
-  metadata_file << "start_distance: " << start_distance << std::endl;
-  metadata_file << "end_distance: " << end_distance << std::endl;
+  metadata_file << "global_start_distance: " << global_start_distance << std::endl;
+  metadata_file << "global_end_distance: " << global_end_distance << std::endl;
   metadata_file << "start_pose:" << std::endl;
   metadata_file << "  x: " << start_pose.x << std::endl;
   metadata_file << "  y: " << start_pose.y << std::endl;
@@ -1724,7 +1852,7 @@ void SubMap::save_submap_data(const std::string& base_dir) {
   metadata_file << "  max_y: " << max_y << std::endl;
   metadata_file << "frame_count: " << laser_data_sequence.size() << std::endl;
   metadata_file.close();
-  
+
   // 2. ローカル地図保存 (local_gmap.yml) - OpenCV FileStorage使用
   cv::FileStorage fs(submap_dir + "/local_gmap.yml", cv::FileStorage::WRITE);
   cv::Mat gmap_mat(LOCAL_HEIGHT, LOCAL_WIDTH, CV_64F);
@@ -1740,41 +1868,197 @@ void SubMap::save_submap_data(const std::string& base_dir) {
   fs << "origin_y" << LOCAL_ORIGIN_Y;
   fs << "cell_size" << LOCAL_CSIZE;
   fs.release();
-  
-  // 3. 軌跡データ保存 (trajectory.txt)
+
+  // 3. 軌跡データ保存 (trajectory.txt) - メインループで推定された軌跡
   std::ofstream traj_file(submap_dir + "/trajectory.txt");
-  for (const auto& pose : trajectory) {
-    traj_file << pose.ts << " " << pose.x << " " << pose.y << " " << pose.a << std::endl;
+  double cumulative_submap_distance = 0.0;
+  double prev_x_submap = 0.0; // trajectory[0].x is 0.0
+  double prev_y_submap = 0.0; // trajectory[0].y is 0.0
+
+  for (size_t i = 0; i < trajectory.size(); ++i) {
+    const auto& pose = trajectory[i];
+    if (i > 0) {
+      double segment_length = sqrt(pow(pose.x - prev_x_submap, 2) + pow(pose.y - prev_y_submap, 2));
+      cumulative_submap_distance += segment_length;
+    }
+
+    // "スタート時点からの累積走行距離" = この部分地図の開始時点からの累積距離 + 部分地図内での累積距離
+    // global_start_distance is the total distance when this submap started.
+    double total_run_distance_at_pose = global_start_distance + cumulative_submap_distance;
+
+    traj_file << pose.ts << " " << pose.x << " " << pose.y << " " << pose.a << " "
+      << std::fixed << std::setprecision(3) << cumulative_submap_distance << " "
+      << std::fixed << std::setprecision(3) << total_run_distance_at_pose << std::endl;
+
+    prev_x_submap = pose.x;
+    prev_y_submap = pose.y;
   }
   traj_file.close();
-  
+
   // 4. LiDARデータ保存 - センサ別に分離
   std::ofstream laser_b_file(submap_dir + "/laser_data_b.txt");
   std::ofstream laser_t_file(submap_dir + "/laser_data_t.txt");
-  
-  for (const auto& laser_data : laser_data_sequence) {
-    if (!laser_data.valid) continue;
-    
-    std::ofstream* target_file = (laser_data.sensor_type == 'b') ? &laser_b_file : &laser_t_file;
-    
-    // urglog形式で出力
-    *target_file << "LASERSCANRT " << laser_data.timestamp << " ";
-    *target_file << laser_data.points.size() * 3 << " "; // count (3エコー分)
-    *target_file << laser_data.start_angle << " " << laser_data.end_angle << " ";
-    *target_file << laser_data.delta_th << " 3 "; // max_echo_size = 3
-    
-    // 距離データ（3エコー形式で出力）
-    for (const auto& point : laser_data.points) {
-      double range_mm = sqrt(point.x * point.x + point.y * point.y) * 1000.0;
-      long r = static_cast<long>(range_mm);
-      *target_file << r << " " << r << " " << r << " "; // 同じ値を3回（簡易版）
+
+  for (const auto& ldata : laser_data_sequence) {
+    if (!ldata.valid) continue;
+
+    std::ofstream* target_file = (ldata.sensor_type == 'b') ? &laser_b_file : &laser_t_file;
+
+    // 理論上のステップ数を計算
+    const int theoretical_steps = static_cast<int>((ldata.end_angle - ldata.start_angle) / ldata.delta_th) + 1;
+
+    // ヘッダーを書き出す
+    *target_file << "LASERSCANRT " << ldata.timestamp << " "
+                 << theoretical_steps << " " // countは理論上のステップ数
+                 << ldata.start_angle << " " << ldata.end_angle << " "
+                 << ldata.delta_th << " 1" << " "; // max_echo_sizeは1
+
+    // 固定長の距離データ配列を作成
+    std::vector<long> full_ranges(theoretical_steps, 0L); // 無効値は0で初期化
+
+    // 実際の測定値を正しいインデックスに格納
+    for (size_t i = 0; i < ldata.ranges.size(); ++i) {
+      double angle_rad = ldata.angles[i];
+      double angle_deg = rad2deg(angle_rad);
+      // 角度から理論上のインデックスを計算
+      int index = static_cast<int>(round((angle_deg - ldata.start_angle) / ldata.delta_th));
+
+      if (index >= 0 && index < theoretical_steps) {
+        full_ranges[index] = static_cast<long>(ldata.ranges[i] * 1000.0); // mm単位に変換
+      }
     }
-    
-    *target_file << "0.0 0.0 0.0 " << laser_data.timestamp << std::endl;
+
+    // 固定長データをファイルに書き出し
+    for (size_t i = 0; i < full_ranges.size(); ++i) {
+      *target_file << full_ranges[i] << ((i == full_ranges.size() - 1) ? "" : " ");
+    }
+    *target_file << " " << ldata.timestamp << std::endl;
   }
-  
+
   laser_b_file.close();
   laser_t_file.close();
-  
+
   std::cout << "部分地図 " << submap_id << " を保存しました: " << submap_dir << std::endl;
+}
+
+// 地図の境界をチェックし、必要であれば再構築する
+void check_and_rebuild_map_if_needed(
+  SubMap& submap,
+  const Pose& robot_pose,
+  const LaserData& laser_data)
+{
+  // 1. チェック対象となる点のグローバル座標リストを作成
+  std::vector<Point> global_points;
+  // ロボット自身の位置
+  global_points.emplace_back(robot_pose.x, robot_pose.y);
+  // LIDARの点群
+  double cos_robot = cos(robot_pose.a);
+  double sin_robot = sin(robot_pose.a);
+  for (const auto& p : laser_data.points) {
+    double global_x = robot_pose.x + p.x * cos_robot - p.y * sin_robot;
+    double global_y = robot_pose.y + p.x * sin_robot + p.y * cos_robot;
+    global_points.emplace_back(global_x, global_y);
+  }
+
+  // 2. 各点が現在のsubmapの境界内に収まるかチェック
+  bool needs_rebuild = false;
+  double cos_submap = cos(-submap.start_pose.a);
+  double sin_submap = sin(-submap.start_pose.a);
+
+  for (const auto& gp : global_points) {
+    // submapのローカル座標系に変換
+    double rel_x = gp.x - submap.start_pose.x;
+    double rel_y = gp.y - submap.start_pose.y;
+    double rotated_x = rel_x * cos_submap - rel_y * sin_submap;
+    double rotated_y = rel_x * sin_submap + rel_y * cos_submap;
+
+    // ピクセル座標に変換
+    int px = static_cast<int>(round(rotated_x / submap.LOCAL_CSIZE)) + submap.LOCAL_ORIGIN_X;
+    int py = static_cast<int>(round(-rotated_y / submap.LOCAL_CSIZE)) + submap.LOCAL_ORIGIN_Y;
+
+    // 境界チェック
+    if (px < 0 || px >= submap.LOCAL_WIDTH || py < 0 || py >= submap.LOCAL_HEIGHT) {
+      needs_rebuild = true;
+      break; // 1点でもはみ出たらチェック終了
+    }
+  }
+
+  // 3. 再構築が必要な場合はメッセージ表示（今回はここまで）
+  if (needs_rebuild) {
+    std::cout << "!!! Map boundary exceeded. Rebuilding required. !!!" << std::endl;
+
+    // 1. 新しい地図に必要なローカル座標範囲を計算
+    double min_req_x = std::numeric_limits<double>::max();
+    double max_req_x = std::numeric_limits<double>::lowest();
+    double min_req_y = std::numeric_limits<double>::max();
+    double max_req_y = std::numeric_limits<double>::lowest();
+
+    // 現在の地図がカバーするローカル座標範囲
+    min_req_x = std::min(min_req_x, -static_cast<double>(submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE);
+    max_req_x = std::max(max_req_x, static_cast<double>(submap.LOCAL_WIDTH - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE);
+    min_req_y = std::min(min_req_y, -static_cast<double>(submap.LOCAL_HEIGHT - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE);
+    max_req_y = std::max(max_req_y, static_cast<double>(submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE);
+
+    // 新しい点群が要求するローカル座標範囲
+    for (const auto& gp : global_points) {
+      double rel_x = gp.x - submap.start_pose.x;
+      double rel_y = gp.y - submap.start_pose.y;
+      double rotated_x = rel_x * cos_submap - rel_y * sin_submap;
+      double rotated_y = rel_x * sin_submap + rel_y * cos_submap;
+      min_req_x = std::min(min_req_x, rotated_x);
+      max_req_x = std::max(max_req_x, rotated_x);
+      min_req_y = std::min(min_req_y, rotated_y);
+      max_req_y = std::max(max_req_y, rotated_y);
+    }
+
+    // 2. マージンを加えて新しい地図のパラメータを決定
+    const double margin = 20.0; // 20mのマージン
+    min_req_x -= margin;
+    max_req_x += margin;
+    min_req_y -= margin;
+    max_req_y += margin;
+
+    int new_width = static_cast<int>(ceil((max_req_x - min_req_x) / submap.LOCAL_CSIZE));
+    int new_height = static_cast<int>(ceil((max_req_y - min_req_y) / submap.LOCAL_CSIZE));
+    int new_origin_x = static_cast<int>(round(-min_req_x / submap.LOCAL_CSIZE));
+    int new_origin_y = static_cast<int>(round(max_req_y / submap.LOCAL_CSIZE));
+
+    std::cout << "  New map parameters calculated:" << std::endl;
+    std::cout << "    Width: " << new_width << " (Old: " << submap.LOCAL_WIDTH << ")" << std::endl;
+    std::cout << "    Height: " << new_height << " (Old: " << submap.LOCAL_HEIGHT << ")" << std::endl;
+    std::cout << "    OriginX: " << new_origin_x << " (Old: " << submap.LOCAL_ORIGIN_X << ")" << std::endl;
+    std::cout << "    OriginY: " << new_origin_y << " (Old: " << submap.LOCAL_ORIGIN_Y << ")" << std::endl;
+
+    // 3. 新しい地図を作成し、データをコピー
+    std::cout << "  Rebuilding map..." << std::endl;
+    OccupancyGrid new_gmap(new_height, std::vector<double>(new_width, 0.0));
+
+    for (int old_py = 0; old_py < submap.LOCAL_HEIGHT; ++old_py) {
+      for (int old_px = 0; old_px < submap.LOCAL_WIDTH; ++old_px) {
+        if (submap.local_gmap[old_py][old_px] != 0.0) { // 値があるセルのみコピー
+          // 古いピクセル座標からローカル物理座標を計算
+          double local_x = (static_cast<double>(old_px) - submap.LOCAL_ORIGIN_X) * submap.LOCAL_CSIZE;
+          double local_y = -(static_cast<double>(old_py) - submap.LOCAL_ORIGIN_Y) * submap.LOCAL_CSIZE;
+
+          // 新しい地図でのピクセル座標を計算
+          int new_px = static_cast<int>(round(local_x / submap.LOCAL_CSIZE)) + new_origin_x;
+          int new_py = static_cast<int>(round(-local_y / submap.LOCAL_CSIZE)) + new_origin_y;
+
+          // 新しい地図の範囲内であればコピー
+          if (new_px >= 0 && new_px < new_width && new_py >= 0 && new_py < new_height) {
+            new_gmap[new_py][new_px] = submap.local_gmap[old_py][old_px];
+          }
+        }
+      }
+    }
+
+    // 4. submapのメンバーを更新
+    submap.local_gmap = std::move(new_gmap);
+    submap.LOCAL_WIDTH = new_width;
+    submap.LOCAL_HEIGHT = new_height;
+    submap.LOCAL_ORIGIN_X = new_origin_x;
+    submap.LOCAL_ORIGIN_Y = new_origin_y;
+
+    std::cout << "  Map rebuilding complete." << std::endl;
+  }
 }

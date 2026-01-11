@@ -76,3 +76,6 @@ target_link_libraries(data_collect yaml-cpp ${OpenCV_LIBRARIES} urg_cpp urg3d nc
 
 add_executable (slam slam.cpp)
 target_link_libraries(slam ${OpenCV_LIBRARIES} Eigen3::Eigen)
+
+add_executable (manual_loop_closure manual_loop_closure.cpp)
+target_link_libraries(manual_loop_closure yaml-cpp ${OpenCV_LIBRARIES})
