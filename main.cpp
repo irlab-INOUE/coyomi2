@@ -255,6 +255,11 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  // ncurses setup for keyboard input
+  initscr();
+  nodelay(stdscr, TRUE);
+  noecho();
+
   /* Configその他の読み込みセクション */
   // coyomi.yamlに接続する
   std::string path_to_yaml = DEFAULT_ROOT + std::string("/coyomi.yaml");
@@ -404,7 +409,13 @@ int main(int argc, char *argv[]) {
   // Reading Way Point
   std::vector<WAYPOINT> tmp_wp, wp;
   tmp_wp = wpRead(MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["way_point"].as<std::string>());
-  WAYPOINT prev_target(0, 0, 0, 0);
+  
+  // Initialize prev_target with the robot's actual start pose from coyomi.yaml
+  loc->x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
+  loc->y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
+  loc->a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
+  WAYPOINT prev_target(loc->x, loc->y, 0, 0);
+
   wavefrontplanner::Config cfg;
   cfg.map_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["occupancy_grid_map"].as<std::string>();
   cfg.map_info_path = MAP_PATH + "/" + coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["mapInfo"].as<std::string>();
@@ -438,13 +449,6 @@ int main(int argc, char *argv[]) {
   enc->current_wp_index = 0;
 
   /**************************************************************************
-   * initial pose setup
-   ***************************************************************************/
-  loc->x = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_x"].as<double>();
-  loc->y = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_y"].as<double>();
-  loc->a = coyomi_yaml["MapPath"][loc->CURRENT_MAP_PATH_INDEX]["init_a"].as<double>() * M_PI/180;
-
-  /**************************************************************************
    * initial enc setup
    ***************************************************************************/
   long long first_ts = get_current_time();
@@ -474,9 +478,30 @@ int main(int argc, char *argv[]) {
   int start_bell_ret = std::system(start_bell_cmd.c_str());
 
   while (isFREE.load()) {
-    if (gotoEnd.load()) break;
-    double tmp_v, tmp_w;
-    read_joystick(tmp_v, tmp_w, j_calib);
+    int ch = getch();
+    switch(ch) {
+        case ' ':
+        {
+            calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            sleep_for(milliseconds(100));
+            isFREE.store(!isFREE.load());
+            if (isFREE.load()) {
+                free_motors();
+            } else {
+                turn_on_motors();
+            }
+            break;
+        }
+        case 'q':
+        {
+            gotoEnd.store(true);
+            calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            sleep_for(milliseconds(150));
+            break;
+        }
+    }
 
     long long ts = get_current_time();
     read_state(odo, ts);
@@ -492,6 +517,31 @@ int main(int argc, char *argv[]) {
   while(!gotoEnd.load()) {
     double tmp_v, tmp_w;
     read_joystick(tmp_v, tmp_w, j_calib);
+
+    int ch = getch();
+    switch(ch) {
+        case ' ':
+        {
+            calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            sleep_for(milliseconds(100));
+            isFREE.store(!isFREE.load());
+            if (isFREE.load()) {
+                free_motors();
+            } else {
+                turn_on_motors();
+            }
+            break;
+        }
+        case 'q':
+        {
+            gotoEnd.store(true);
+            calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
+            simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+            sleep_for(milliseconds(150));
+            break;
+        }
+    }
 
     std::vector<LSP> lsp;
     for (int k = 0; k < urg2d->size; k++) {
@@ -536,8 +586,34 @@ int main(int argc, char *argv[]) {
           enc->current_wp_index += 1;
           isFREE.store(true);
           free_motors();
-          while (isFREE.load() || !gotoEnd.load()) {
+          while (isFREE.load() && !gotoEnd.load()) {
             read_joystick(v, w, j_calib);
+
+            int ch = getch();
+            switch(ch) {
+                case ' ':
+                {
+                    calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
+                    simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+                    sleep_for(milliseconds(100));
+                    isFREE.store(!isFREE.load());
+                    if (isFREE.load()) {
+                        free_motors();
+                    } else {
+                        turn_on_motors();
+                    }
+                    break;
+                }
+                case 'q':
+                {
+                    gotoEnd.store(true);
+                    calc_vw2hex(Query_NET_ID_WRITE, 0.0, 0.0);
+                    simple_send_cmd(Query_NET_ID_WRITE, sizeof(Query_NET_ID_WRITE));
+                    sleep_for(milliseconds(150));
+                    break;
+                }
+            }
+
             long long ts = get_current_time();
             read_state(odo, ts);
             enc->ts = ts;
@@ -663,6 +739,8 @@ int main(int argc, char *argv[]) {
   th_2D_Lidar_b.join();
   th_2D_Lidar_t.join();
   th_localization.join();
+
+  endwin();
 
   std::cerr << "===========" << std::endl;
   std::cerr << "Total travel: " << message_travel << "[m]" << std::endl;
